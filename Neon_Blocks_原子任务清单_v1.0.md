@@ -45,7 +45,7 @@
 
 ### P0 环境与工程
 
-#### - [ ] T001｜创建 Vite 原生 TS 工程
+#### - [x] T001｜创建 Vite 原生 TS 工程
 - **依赖**：无。**允许修改文件**：`package.json、index.html、src/main.ts、tsconfig*.json、.gitignore`。**规格**：S02。
 - **明确步骤**：
   1. 在空项目目录执行 `npm create vite@latest . -- --template vanilla-ts --no-interactive`；若目录非空先检查冲突，禁止覆盖用户文件。
@@ -54,7 +54,7 @@
 - **验证命令/动作**：`npm run build`、`npm run dev -- --host 127.0.0.1`（检查正常响应后停止）。
 - **通过条件**：浏览器可打开空白项目页面；构建退出码 0；仅使用 vanilla-ts。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T002｜固定脚本和开发依赖
+#### - [x] T002｜固定脚本和开发依赖
 - **依赖**：T001。**允许修改文件**：`package.json、package-lock.json、vite.config.ts`。**规格**：S02。
 - **明确步骤**：
   1. 安装 `vitest` 与 `@playwright/test` 开发依赖。
@@ -63,7 +63,7 @@
 - **验证命令/动作**：`npm run typecheck`、`npm run build`；此时尚无测试，单元测试从 T004 起列入通用门禁。
 - **通过条件**：所有 npm 脚本存在；typecheck/build 为 0；依赖写入 lockfile。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T003｜归档两份输入文档和建立执行日志
+#### - [x] T003｜归档两份输入文档和建立执行日志
 - **依赖**：T001。**允许修改文件**：`docs/GAME_SPEC.md、docs/TASKS.md、docs/execution-log.md`。**规格**：S09。
 - **明确步骤**：
   1. 原样复制用户提供的开发规格到 `docs/GAME_SPEC.md`，任务清单到 `docs/TASKS.md`；不得自行改写。
