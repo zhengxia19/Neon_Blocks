@@ -81,7 +81,7 @@
 - **验证命令/动作**：`npm run test`。
 - **通过条件**：至少 1 个测试通过；exit code 0；不得跳过测试。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T005｜配置 E2E 浏览器与服务器
+#### - [x] T005｜配置 E2E 浏览器与服务器
 - **依赖**：T002。**允许修改文件**：`playwright.config.ts、tests/e2e/smoke.spec.ts`。**规格**：S02,S08。
 - **明确步骤**：
   1. 配置 Chromium desktop 与 mobile-chrome 两个 project；设置 project `testMatch`：chromium 仅执行 `desktop.spec.ts` 与 `smoke.spec.ts`、mobile-chrome 仅执行 `mobile.spec.ts` 与 `smoke.spec.ts`，以免跨设备误跑；为测试配置 Vite `webServer` 自动启动 localhost 固定端口 4173（命令 `npm run dev -- --host 127.0.0.1 --port 4173 --strictPort`）。
@@ -90,7 +90,7 @@
 - **验证命令/动作**：`npm run test:e2e -- --project=chromium`。
 - **通过条件**：至少 1 个 smoke 测试通过；webServer 可启停；若浏览器安装被阻断则标 BLOCKED。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T006｜制作原创品牌 favicon SVG
+#### - [x] T006｜制作原创品牌 favicon SVG
 - **依赖**：T001。**允许修改文件**：`public/favicon.svg、index.html`。**规格**：S04.4。
 - **明确步骤**：
   1. 用 `viewBox="0 0 64 64"` 绘制 4 个阶梯排列的小矩形（圆角不超 5），色彩 `#A58CFF` 与 `#45D6E8`。
