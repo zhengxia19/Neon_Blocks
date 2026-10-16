@@ -1,8 +1,8 @@
-// T013/T014/T015：棋盘创建、复制、碰撞判断与锁入测试（规格 S03.1,S03.5）。
+// T013/T014/T015/T016：棋盘创建、复制、碰撞判断、锁入与消行测试（规格 S03.1,S03.5）。
 import { describe, expect, it } from 'vitest';
-import { canPlace, cloneBoard, createEmptyBoard, mergePiece } from '../../src/game/board';
+import { canPlace, clearFullRows, cloneBoard, createEmptyBoard, mergePiece } from '../../src/game/board';
 import { BOARD_HEIGHT, BOARD_WIDTH } from '../../src/game/constants';
-import type { ActivePiece, Board } from '../../src/game/types';
+import type { ActivePiece, Board, PieceType } from '../../src/game/types';
 
 /** 构造 ActivePiece 的简写。 */
 const piece = (type: ActivePiece['type'], rotation: ActivePiece['rotation'], x: number, y: number): ActivePiece => ({ type, rotation, x, y });
@@ -193,5 +193,124 @@ describe('mergePiece（T015，S03.1/S03.5）', () => {
     expect(b2[22][0]).toBe('L');
     expect(b2[22][1]).toBe('L');
     expect(b2[22][2]).toBe('L');
+  });
+});
+
+describe('clearFullRows（T016，S03.5）', () => {
+  const fillRow = (board: Board, y: number, type: PieceType = 'I'): void => {
+    for (let x = 0; x < BOARD_WIDTH; x += 1) {
+      board[y][x] = type;
+    }
+  };
+  const allNullRow = (row: readonly unknown[]): boolean => row.every((cell) => cell === null);
+
+  it('清 0 行：cleared=0、深相等、返回新引用且行独立、入参不变', () => {
+    const src = createEmptyBoard();
+    src[23][0] = 'J';
+    src[10][5] = 'T';
+    const snapshot = cloneBoard(src);
+    const { board: out, cleared } = clearFullRows(src);
+    expect(cleared).toBe(0);
+    expect(out).toEqual(snapshot);
+    expect(out).not.toBe(src);
+    for (let y = 0; y < BOARD_HEIGHT; y += 1) {
+      expect(out[y]).not.toBe(src[y]);
+    }
+    expect(src).toEqual(snapshot);
+  });
+
+  it('清 1 行：满行移除、顶部补 1 空行、其余行整体下移 1', () => {
+    const src = createEmptyBoard();
+    fillRow(src, 23);
+    src[22][3] = 'T'; // 标记行：22 → 23
+    src[0][9] = 'J';  // 标记行：0 → 1
+    const { board: out, cleared } = clearFullRows(src);
+    expect(cleared).toBe(1);
+    expect(out).toHaveLength(BOARD_HEIGHT);
+    for (const row of out) {
+      expect(row).toHaveLength(BOARD_WIDTH);
+    }
+    expect(allNullRow(out[0])).toBe(true);
+    expect(out[23][3]).toBe('T');
+    expect(out[1][9]).toBe('J');
+    expect(allNullRow(out[22])).toBe(true);
+  });
+
+  it('清 2 相邻行：22/23 满，标记 20→22，顶部 2 行为空', () => {
+    const src = createEmptyBoard();
+    fillRow(src, 22);
+    fillRow(src, 23);
+    src[20][0] = 'S';
+    const { board: out, cleared } = clearFullRows(src);
+    expect(cleared).toBe(2);
+    expect(allNullRow(out[0])).toBe(true);
+    expect(allNullRow(out[1])).toBe(true);
+    expect(out[22][0]).toBe('S');
+    expect(allNullRow(out[23])).toBe(true);
+  });
+
+  it('清 4 行：20–23 满，标记 19→23，顶部 4 行为空', () => {
+    const src = createEmptyBoard();
+    for (let y = 20; y <= 23; y += 1) {
+      fillRow(src, y);
+    }
+    src[19][4] = 'Z';
+    const { board: out, cleared } = clearFullRows(src);
+    expect(cleared).toBe(4);
+    for (let y = 0; y < 4; y += 1) {
+      expect(allNullRow(out[y])).toBe(true);
+    }
+    expect(out[23][4]).toBe('Z');
+    expect(allNullRow(out[22])).toBe(true);
+  });
+
+  it('非相邻满行（10 与 23）一次清 2：上方行下移 2、中间行下移 1，无跳漏', () => {
+    const src = createEmptyBoard();
+    fillRow(src, 10);
+    fillRow(src, 23);
+    src[5][1] = 'O';  // 在两条满行之上 → 下移 2：5 → 7
+    src[11][1] = 'L'; // 在两满行之间 → 下移 1：11 → 12
+    src[22][1] = 'I'; // 下移 1：22 → 23
+    const { board: out, cleared } = clearFullRows(src);
+    expect(cleared).toBe(2);
+    expect(out[7][1]).toBe('O');
+    expect(out[12][1]).toBe('L');
+    expect(out[23][1]).toBe('I');
+    expect(allNullRow(out[0])).toBe(true);
+    expect(allNullRow(out[1])).toBe(true);
+    expect(allNullRow(out[11])).toBe(true); // 原满行 10 的旧位置不再残留
+    expect(allNullRow(out[22])).toBe(true);
+  });
+
+  it('全 24 行皆满：cleared=24，返回全新空盘仍为 24×10', () => {
+    const src = createEmptyBoard();
+    for (let y = 0; y < BOARD_HEIGHT; y += 1) {
+      fillRow(src, y);
+    }
+    const { board: out, cleared } = clearFullRows(src);
+    expect(cleared).toBe(24);
+    expect(out).toEqual(createEmptyBoard());
+    expect(out).toHaveLength(BOARD_HEIGHT);
+    for (const row of out) {
+      expect(row).toHaveLength(BOARD_WIDTH);
+      expect(allNullRow(row)).toBe(true);
+    }
+  });
+
+  it('mergePiece 造成满行后消行：I 横态补满第 23 行即清 1 行', () => {
+    let board = createEmptyBoard();
+    for (let x = 0; x < BOARD_WIDTH; x += 1) {
+      if (x < 4 || x > 7) {
+        board[23][x] = 'J';
+      }
+    }
+    board = mergePiece(board, piece('I', 0, 4, 22)); // I 0 态实体 row1 → (4..7, 23) 补满缺口
+    board[21][3] = 'T';
+    const { board: out, cleared } = clearFullRows(board);
+    expect(cleared).toBe(1);
+    expect(out[22][3]).toBe('T'); // 标记行 21 → 22
+    for (let x = 0; x < BOARD_WIDTH; x += 1) {
+      expect(out[23][x]).toBeNull(); // 原第 22 行为空 → 新第 23 行全空
+    }
   });
 });

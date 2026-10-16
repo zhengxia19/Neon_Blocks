@@ -181,7 +181,7 @@
 - **验证命令/动作**：`npx vitest run tests/unit/board.test.ts`。
 - **通过条件**：4 格锁入正确坐标；入参不被修改。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T016｜实现同时消除满行
+#### - [x] T016｜实现同时消除满行
 - **依赖**：T013, T015。**允许修改文件**：`src/game/board.ts、tests/unit/board.test.ts`。**规格**：S03.5。
 - **明确步骤**：
   1. 实现 `clearFullRows(board):{board,cleared}`，筛掉所有满 10 格的行。

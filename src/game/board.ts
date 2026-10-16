@@ -1,4 +1,4 @@
-// Neon Blocks — 棋盘创建、复制与碰撞判断（规格 S03.1）。纯逻辑，无 DOM/随机。
+// Neon Blocks — 棋盘创建、复制、碰撞判断、锁入与消行（规格 S03.1,S03.5）。纯逻辑，无 DOM/随机。
 import { BOARD_HEIGHT, BOARD_WIDTH } from './constants';
 import { getMatrix } from './pieces';
 import type { ActivePiece, Board, Cell } from './types';
@@ -69,4 +69,28 @@ export function mergePiece(board: Board, piece: ActivePiece): Board {
     }
   }
   return next;
+}
+
+/** 消行结果：新棋盘与清除行数。 */
+export interface ClearResult {
+  board: Board;
+  cleared: number;
+}
+
+/**
+ * 一次性消除所有满行（S03.5）：筛掉全部 10 格皆非 null 的行，
+ * 在顶部一次性补足 null 行；非满行相对顺序不变、整体下移 cleared 行
+ * （不存在逐行消除造成的跳漏）。返回新 Board（行引用独立），入参不被修改。
+ */
+export function clearFullRows(board: Board): ClearResult {
+  const remaining = board.filter((row) => row.some((cell) => cell === null));
+  const cleared = BOARD_HEIGHT - remaining.length;
+  const next: Board = [];
+  for (let i = 0; i < cleared; i += 1) {
+    next.push(new Array<Cell>(BOARD_WIDTH).fill(null));
+  }
+  for (const row of remaining) {
+    next.push([...row]);
+  }
+  return { board: next, cleared };
 }
