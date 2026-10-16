@@ -217,7 +217,7 @@
 - **验证命令/动作**：`npx vitest run tests/unit/board.test.ts`。
 - **通过条件**：返回合法最大 y，`y+1` 必冲突；无状态副作用。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T020｜实现分数纯函数
+#### - [x] T020｜实现分数纯函数
 - **依赖**：T008。**允许修改文件**：`src/game/scoring.ts、tests/unit/scoring.test.ts`。**规格**：S03.5。
 - **明确步骤**：
   1. 定义 `lineClearPoints(cleared,level)` 支持 0..4、`dropPoints(kind,cells)` 支持 soft/hard。
