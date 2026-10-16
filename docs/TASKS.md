@@ -118,7 +118,7 @@
 - **验证命令/动作**：`npm run typecheck`。
 - **通过条件**：导出类型可被其他文件导入；strict 编译无错误。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T009｜固定棋盘与时间常量
+#### - [x] T009｜固定棋盘与时间常量
 - **依赖**：T008。**允许修改文件**：`src/game/constants.ts`。**规格**：S03.1,S03.3。
 - **明确步骤**：
   1. 定义 `BOARD_WIDTH=10`,`BOARD_HEIGHT=24`,`HIDDEN_ROWS=4`,`VISIBLE_ROWS=20`,`LOCK_DELAY_MS=500`,`LOCK_RESET_LIMIT=15`。
