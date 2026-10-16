@@ -237,7 +237,7 @@
 
 ### P2 游戏引擎
 
-#### - [ ] T022｜创建 Engine 与初始 ready 状态
+#### - [x] T022｜创建 Engine 与初始 ready 状态
 - **依赖**：T008, T012, T013。**允许修改文件**：`src/game/engine.ts、tests/unit/engine.test.ts`。**规格**：S03.2,S03.3。
 - **明确步骤**：
   1. 创建 GameEngine(rng=Math.random, initialBoard?:Board) 类，保存私有 state、rng、事件自增序号。
