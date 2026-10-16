@@ -1,4 +1,4 @@
-// Neon Blocks — 七种方块的固定出生形状矩阵（规格 S03.1）。
+// Neon Blocks — 七种方块的固定形状矩阵与四旋转态（规格 S03.1）。
 // 矩阵为字符串行数组，'1'=本方块占用（不存颜色），'0'=空；不去除外围全 0 行列。
 import type { PieceType, Rotation } from './types';
 
@@ -17,12 +17,37 @@ const SPAWN_SHAPES: Record<PieceType, Matrix> = {
 };
 
 /**
- * 取指定方块在指定旋转态的矩阵。
- * rotation=0 完整可用；1/2/3 态由 T011 实现，当前显式抛未实现错误（不伪装完成）。
+ * 顺时针 90° 旋转整个固定大小方阵：new[row][col] = old[n-1-col][row]（S03.1）。
+ * 返回全新数组，绝不原地突变输入；不剪边。
  */
-export function getMatrix(type: PieceType, rotation: Rotation): Matrix {
-  if (rotation === 0) {
-    return SPAWN_SHAPES[type];
+export function rotateMatrixCW(matrix: Matrix): Matrix {
+  const n = matrix.length;
+  const out: string[] = [];
+  for (let row = 0; row < n; row += 1) {
+    let line = '';
+    for (let col = 0; col < n; col += 1) {
+      line += matrix[n - 1 - col][row];
+    }
+    out.push(line);
   }
-  throw new Error(`getMatrix: rotation ${rotation} 尚未实现（T011 提供四旋转态）`);
+  return out;
+}
+
+/** 预计算 7×4 缓存：0 态连续 CW 旋转得 1/2/3 态；O 四态自然相同。 */
+const ROTATION_CACHE: Record<PieceType, readonly [Matrix, Matrix, Matrix, Matrix]> = (() => {
+  const cache = {} as Record<PieceType, [Matrix, Matrix, Matrix, Matrix]>;
+  const types = Object.keys(SPAWN_SHAPES) as PieceType[];
+  for (const type of types) {
+    const r0 = SPAWN_SHAPES[type];
+    const r1 = rotateMatrixCW(r0);
+    const r2 = rotateMatrixCW(r1);
+    const r3 = rotateMatrixCW(r2);
+    cache[type] = [r0, r1, r2, r3];
+  }
+  return cache;
+})();
+
+/** 取指定方块在指定旋转态的矩阵（0–3 全部可用，来自预计算缓存）。 */
+export function getMatrix(type: PieceType, rotation: Rotation): Matrix {
+  return ROTATION_CACHE[type][rotation];
 }
