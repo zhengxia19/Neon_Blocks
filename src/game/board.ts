@@ -46,3 +46,27 @@ export function canPlace(board: Board, piece: ActivePiece): boolean {
   }
   return true;
 }
+
+/**
+ * 将方块锁入棋盘（S03.1/S03.5）：返回新 Board，绝不修改入参；
+ * 每个实体格写入对应 PieceType；位置无效（越界或重叠）时显式抛错，
+ * 绝不默默忽略（引擎只在 canPlace 通过的位置调用）。
+ */
+export function mergePiece(board: Board, piece: ActivePiece): Board {
+  if (!canPlace(board, piece)) {
+    throw new Error(
+      `mergePiece: 无效落点（type=${piece.type} rot=${piece.rotation} x=${piece.x} y=${piece.y}）`,
+    );
+  }
+  const next = cloneBoard(board);
+  const matrix = getMatrix(piece.type, piece.rotation);
+  const n = matrix.length;
+  for (let row = 0; row < n; row += 1) {
+    for (let col = 0; col < n; col += 1) {
+      if (matrix[row][col] === '1') {
+        next[piece.y + row][piece.x + col] = piece.type;
+      }
+    }
+  }
+  return next;
+}

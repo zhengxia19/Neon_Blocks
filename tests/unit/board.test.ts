@@ -1,8 +1,11 @@
-// T013/T014：棋盘创建、复制与碰撞判断测试（规格 S03.1）。
+// T013/T014/T015：棋盘创建、复制、碰撞判断与锁入测试（规格 S03.1,S03.5）。
 import { describe, expect, it } from 'vitest';
-import { canPlace, cloneBoard, createEmptyBoard } from '../../src/game/board';
+import { canPlace, cloneBoard, createEmptyBoard, mergePiece } from '../../src/game/board';
 import { BOARD_HEIGHT, BOARD_WIDTH } from '../../src/game/constants';
 import type { ActivePiece, Board } from '../../src/game/types';
+
+/** 构造 ActivePiece 的简写。 */
+const piece = (type: ActivePiece['type'], rotation: ActivePiece['rotation'], x: number, y: number): ActivePiece => ({ type, rotation, x, y });
 
 describe('createEmptyBoard（S03.1）', () => {
   it('尺寸恰为 24 行 × 每行 10 格', () => {
@@ -76,8 +79,6 @@ describe('cloneBoard（S03.1）', () => {
 });
 
 describe('canPlace（T014，S03.1）', () => {
-  const piece = (type: ActivePiece['type'], rotation: ActivePiece['rotation'], x: number, y: number): ActivePiece => ({ type, rotation, x, y });
-
   it('出生位置在空盘上合法', () => {
     expect(canPlace(createEmptyBoard(), piece('T', 0, 3, 2))).toBe(true);
   });
@@ -129,5 +130,68 @@ describe('canPlace（T014，S03.1）', () => {
     expect(canPlace(board, piece('I', 1, 7, 5))).toBe(true);
     expect(canPlace(board, piece('I', 1, -3, 5))).toBe(false);
     expect(canPlace(board, piece('I', 1, 8, 5))).toBe(false);
+  });
+});
+
+describe('mergePiece（T015，S03.1/S03.5）', () => {
+  const nonNullCount = (board: Board): number =>
+    board.reduce((sum, row) => sum + row.filter((c) => c !== null).length, 0);
+
+  it('恰好新增四格且坐标正确：T 0 态 (3,2)', () => {
+    const before = createEmptyBoard();
+    const after = mergePiece(before, piece('T', 0, 3, 2));
+    expect(nonNullCount(after)).toBe(4);
+    expect(after[2][4]).toBe('T');
+    expect(after[3][3]).toBe('T');
+    expect(after[3][4]).toBe('T');
+    expect(after[3][5]).toBe('T');
+    expect(nonNullCount(before)).toBe(0); // 入参未被修改
+  });
+
+  it('写入的是对应 PieceType：I 竖态锁入后四格均为 I', () => {
+    const after = mergePiece(createEmptyBoard(), piece('I', 1, -2, 20));
+    for (let y = 20; y < 24; y += 1) {
+      expect(after[y][0]).toBe('I');
+    }
+    expect(nonNullCount(after)).toBe(4);
+  });
+
+  it('返回新 Board：与原盘不同引用、行引用独立、原盘快照不变', () => {
+    const src = createEmptyBoard();
+    src[23][0] = 'J';
+    const snapshot = cloneBoard(src);
+    const after = mergePiece(src, piece('O', 0, 3, 20));
+    expect(after).not.toBe(src);
+    for (let y = 0; y < BOARD_HEIGHT; y += 1) {
+      expect(after[y]).not.toBe(src[y]);
+    }
+    expect(src).toEqual(snapshot);
+    expect(nonNullCount(after)).toBe(5); // 预置 1 格（J）+ O 锁入 4 格
+  });
+
+  it('越界不默默忽略：上越界抛错', () => {
+    expect(() => mergePiece(createEmptyBoard(), piece('T', 0, 3, -1))).toThrow(/无效落点/);
+  });
+
+  it('越界不默默忽略：右越界抛错', () => {
+    expect(() => mergePiece(createEmptyBoard(), piece('J', 0, 8, 2))).toThrow(/无效落点/);
+  });
+
+  it('重叠不默默忽略：穿透锁定格抛错', () => {
+    const board = createEmptyBoard();
+    board[23][4] = 'I';
+    expect(() => mergePiece(board, piece('T', 0, 3, 22))).toThrow(/无效落点/);
+    expect(nonNullCount(board)).toBe(1); // 抛错后原盘未被改动
+  });
+
+  it('连续锁入两枚互不干扰且累计 8 格', () => {
+    const b1 = mergePiece(createEmptyBoard(), piece('O', 0, 3, 20));
+    const b2 = mergePiece(b1, piece('L', 0, 0, 21));
+    expect(nonNullCount(b2)).toBe(8);
+    expect(nonNullCount(b1)).toBe(4);
+    expect(b2[21][2]).toBe('L');
+    expect(b2[22][0]).toBe('L');
+    expect(b2[22][1]).toBe('L');
+    expect(b2[22][2]).toBe('L');
   });
 });

@@ -172,7 +172,7 @@
 - **验证命令/动作**：`npx vitest run tests/unit/board.test.ts`。
 - **通过条件**：至少含 6 组边界断言、无抛出/非法索引。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T015｜将落地方块锁入棋盘
+#### - [x] T015｜将落地方块锁入棋盘
 - **依赖**：T014。**允许修改文件**：`src/game/board.ts、tests/unit/board.test.ts`。**规格**：S03.1,S03.5。
 - **明确步骤**：
   1. 创建 `mergePiece(board,piece)`，返回新 Board。
