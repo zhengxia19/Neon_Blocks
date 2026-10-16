@@ -208,7 +208,7 @@
 - **验证命令/动作**：`npx vitest run tests/unit/srs.test.ts`。
 - **通过条件**：墙边旋转成功且不穿墙；阻挡时 x/y/rotation 完全不变。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T019｜实现幽灵块落点计算
+#### - [x] T019｜实现幽灵块落点计算
 - **依赖**：T014。**允许修改文件**：`src/game/board.ts、tests/unit/board.test.ts`。**规格**：S03.2,S04.1。
 - **明确步骤**：
   1. 新增 `getGhostY(board,piece):number`，只循环下探直到下一格冲突。

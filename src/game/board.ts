@@ -1,4 +1,4 @@
-// Neon Blocks — 棋盘创建、复制、碰撞判断、锁入与消行（规格 S03.1,S03.5）。纯逻辑，无 DOM/随机。
+// Neon Blocks — 棋盘创建、复制、碰撞判断、幽灵落点、锁入与消行（规格 S03.1,S03.2,S03.5）。纯逻辑，无 DOM/随机。
 import { BOARD_HEIGHT, BOARD_WIDTH } from './constants';
 import { getMatrix } from './pieces';
 import type { ActivePiece, Board, Cell } from './types';
@@ -69,6 +69,28 @@ export function mergePiece(board: Board, piece: ActivePiece): Board {
     }
   }
   return next;
+}
+
+/**
+ * 计算幽灵块落点 y（S03.2/S04.1）：从当前 y 起只循环下探，直到下一格冲突
+ * 或触底，返回合法最大 y（该 y 必 canPlace，y+1 必冲突或越界）。
+ * 纯查询：不修改棋盘、piece、分数或随机源；调用方保证 piece 当前位置合法
+ * （引擎只对有效 active 调用）。
+ */
+export function getGhostY(board: Board, piece: ActivePiece): number {
+  let y = piece.y;
+  for (;;) {
+    const below: ActivePiece = {
+      type: piece.type,
+      rotation: piece.rotation,
+      x: piece.x,
+      y: y + 1,
+    };
+    if (!canPlace(board, below)) {
+      return y;
+    }
+    y += 1;
+  }
 }
 
 /** 消行结果：新棋盘与清除行数。 */

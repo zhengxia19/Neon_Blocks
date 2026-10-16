@@ -1,6 +1,6 @@
-// T013/T014/T015/T016：棋盘创建、复制、碰撞判断、锁入与消行测试（规格 S03.1,S03.5）。
+// T013/T014/T015/T016/T019：棋盘创建、复制、碰撞判断、锁入、消行与幽灵落点测试（规格 S03.1,S03.2,S03.5,S04.1）。
 import { describe, expect, it } from 'vitest';
-import { canPlace, clearFullRows, cloneBoard, createEmptyBoard, mergePiece } from '../../src/game/board';
+import { canPlace, clearFullRows, cloneBoard, createEmptyBoard, getGhostY, mergePiece } from '../../src/game/board';
 import { BOARD_HEIGHT, BOARD_WIDTH } from '../../src/game/constants';
 import type { ActivePiece, Board, PieceType } from '../../src/game/types';
 
@@ -312,5 +312,70 @@ describe('clearFullRows（T016，S03.5）', () => {
     for (let x = 0; x < BOARD_WIDTH; x += 1) {
       expect(out[23][x]).toBeNull(); // 原第 22 行为空 → 新第 23 行全空
     }
+  });
+});
+
+describe('getGhostY（T019，S03.2/S04.1）', () => {
+  it('空棋盘 T 0 态从出生点下探：贴底 y=22（实体最低行 row1 落在 23）', () => {
+    const board = createEmptyBoard();
+    const ghostY = getGhostY(board, piece('T', 0, 3, 2));
+    expect(ghostY).toBe(22);
+    expect(canPlace(board, piece('T', 0, 3, ghostY))).toBe(true);
+    expect(canPlace(board, piece('T', 0, 3, ghostY + 1))).toBe(false);
+  });
+
+  it('空棋盘 I/O 各态按实体范围贴底：I 0 态 22、I 1 态 20、O 0 态 21', () => {
+    const board = createEmptyBoard();
+    expect(getGhostY(board, piece('I', 0, 3, 2))).toBe(22); // 实体 row1 → y+1=23
+    expect(getGhostY(board, piece('I', 1, 0, 0))).toBe(20); // 实体 row0..3 → y+3=23
+    expect(getGhostY(board, piece('O', 0, 3, 0))).toBe(21); // 实体 row1..2 → y+2=23
+    expect(canPlace(board, piece('I', 1, 0, 21))).toBe(false);
+    expect(canPlace(board, piece('O', 0, 3, 22))).toBe(false);
+  });
+
+  it('堆叠顶：T 停在锁定格上方不穿透（board[23][4]=T → y=21）', () => {
+    const board = createEmptyBoard();
+    board[23][4] = 'T';
+    const ghostY = getGhostY(board, piece('T', 0, 3, 2));
+    expect(ghostY).toBe(21);
+    expect(canPlace(board, piece('T', 0, 3, ghostY))).toBe(true);
+    expect(canPlace(board, piece('T', 0, 3, ghostY + 1))).toBe(false);
+  });
+
+  it('缺口下探：I 0 态落入第 23 行缺口贴底 y=22', () => {
+    const board = createEmptyBoard();
+    for (let x = 0; x < BOARD_WIDTH; x += 1) {
+      if (x < 4 || x > 7) {
+        board[23][x] = 'J';
+      }
+    }
+    const ghostY = getGhostY(board, piece('I', 0, 4, 2));
+    expect(ghostY).toBe(22);
+    expect(canPlace(board, piece('I', 0, 4, ghostY))).toBe(true);
+    expect(canPlace(board, piece('I', 0, 4, ghostY + 1))).toBe(false);
+  });
+
+  it('已在底部：返回与入参相同的 y（不再下移）', () => {
+    const board = createEmptyBoard();
+    expect(getGhostY(board, piece('T', 0, 3, 22))).toBe(22);
+    const stacked = createEmptyBoard();
+    stacked[23][4] = 'Z';
+    // S 1 态实体 (3,y),(3,y+1),(4,y+1),(4,y+2)：y=20 时 (4,22) 空、y=21 时 (4,23) 撞锁定格。
+    expect(getGhostY(stacked, piece('S', 1, 2, 20))).toBe(20);
+  });
+
+  it('无状态副作用：不修改棋盘与 piece，重复调用结果一致', () => {
+    const board = createEmptyBoard();
+    board[23][4] = 'Z';
+    const p = piece('S', 1, 2, 5);
+    const boardSnapshot = cloneBoard(board);
+    const pieceSnapshot = { ...p };
+    const first = getGhostY(board, p);
+    const second = getGhostY(board, p);
+    expect(first).toBe(20); // (4,23) 被占 → 停在 y=20
+    expect(second).toBe(first);
+    expect(board).toEqual(boardSnapshot);
+    expect(p).toEqual(pieceSnapshot);
+    expect(canPlace(board, piece('S', 1, 2, first + 1))).toBe(false);
   });
 });
