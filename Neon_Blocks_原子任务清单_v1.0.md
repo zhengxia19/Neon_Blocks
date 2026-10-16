@@ -226,7 +226,7 @@
 - **验证命令/动作**：`npx vitest run tests/unit/scoring.test.ts`。
 - **通过条件**：分数表与 S03.5 全匹配。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T021｜实现等级与重力公式
+#### - [x] T021｜实现等级与重力公式
 - **依赖**：T009, T020。**允许修改文件**：`src/game/scoring.ts、tests/unit/scoring.test.ts`。**规格**：S03.3,S03.5。
 - **明确步骤**：
   1. 导出 `levelForLines(totalLines)`，公式 1+floor(lines/10)。

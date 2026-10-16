@@ -1,6 +1,13 @@
-// T020：计分纯函数测试（规格 S03.5）。
+// T020/T021：计分、等级与重力公式纯函数测试（规格 S03.3,S03.5）。
 import { describe, expect, it } from 'vitest';
-import { dropPoints, lineClearPoints, type DropKind } from '../../src/game/scoring';
+import { GRAVITY_MS } from '../../src/game/constants';
+import {
+  dropPoints,
+  gravityIntervalMs,
+  levelForLines,
+  lineClearPoints,
+  type DropKind,
+} from '../../src/game/scoring';
 
 describe('lineClearPoints（T020，S03.5）', () => {
   it('等级 1 分值表全匹配：0/1/2/3/4 行 → 0/100/300/500/800', () => {
@@ -77,6 +84,77 @@ describe('dropPoints（T020，S03.5）', () => {
     for (const bad of ['gravity', '', 'SOFT'] as unknown as DropKind[]) {
       expect(() => dropPoints(bad, 1)).toThrow(RangeError);
       expect(() => dropPoints(bad, 1)).toThrow(/无效落块种类/);
+    }
+  });
+});
+
+describe('levelForLines（T021，S03.5）', () => {
+  it('等级边界：lines=0/9/10/20 → 1/1/2/3', () => {
+    expect(levelForLines(0)).toBe(1);
+    expect(levelForLines(9)).toBe(1);
+    expect(levelForLines(10)).toBe(2);
+    expect(levelForLines(20)).toBe(3);
+  });
+
+  it('公式抽查：19→2、100→11、999→100（无上限）', () => {
+    expect(levelForLines(19)).toBe(2);
+    expect(levelForLines(100)).toBe(11);
+    expect(levelForLines(999)).toBe(100);
+  });
+
+  it('0..199 全区间逐值等于 1+floor(lines/10)', () => {
+    for (let lines = 0; lines <= 199; lines += 1) {
+      expect(levelForLines(lines)).toBe(1 + Math.floor(lines / 10));
+    }
+  });
+
+  it('非法输入显式拒绝：-1/1.5/NaN 抛 RangeError', () => {
+    for (const bad of [-1, 1.5, Number.NaN]) {
+      expect(() => levelForLines(bad)).toThrow(RangeError);
+      expect(() => levelForLines(bad)).toThrow(/无效累计消行数/);
+    }
+  });
+});
+
+describe('gravityIntervalMs（T021，S03.3）', () => {
+  it('L1–L10 与 GRAVITY_MS 表逐项一致（900…170）', () => {
+    for (let level = 1; level <= 10; level += 1) {
+      expect(gravityIntervalMs(level)).toBe(GRAVITY_MS[level - 1]);
+    }
+    expect(gravityIntervalMs(1)).toBe(900);
+    expect(gravityIntervalMs(10)).toBe(170);
+  });
+
+  it('L11+ 按公式：L11=145、L12=123、L16=64（round(170×0.85^(L-10))）', () => {
+    expect(gravityIntervalMs(11)).toBe(145); // 170×0.85=144.5 → 145
+    expect(gravityIntervalMs(12)).toBe(123); // 170×0.7225=122.825 → 123
+    expect(gravityIntervalMs(16)).toBe(64); // 170×0.85^6≈64.12 → 64
+  });
+
+  it('底线 60ms：L17 起钳制，L30=60（公式值≈7 被 max 截断）', () => {
+    expect(gravityIntervalMs(17)).toBe(60); // 170×0.85^7≈54.5 → max(60,54)=60
+    expect(gravityIntervalMs(30)).toBe(60);
+    expect(gravityIntervalMs(30)).toBeGreaterThanOrEqual(60);
+  });
+
+  it('单调不增：L1..L60 相邻等级间隔不回升', () => {
+    for (let level = 1; level < 60; level += 1) {
+      expect(gravityIntervalMs(level + 1)).toBeLessThanOrEqual(gravityIntervalMs(level));
+    }
+  });
+
+  it('L1..L120 全部 ≥60 且为整数', () => {
+    for (let level = 1; level <= 120; level += 1) {
+      const ms = gravityIntervalMs(level);
+      expect(ms).toBeGreaterThanOrEqual(60);
+      expect(Number.isInteger(ms)).toBe(true);
+    }
+  });
+
+  it('非法等级显式拒绝：0/-2/2.5/NaN 抛 RangeError', () => {
+    for (const bad of [0, -2, 2.5, Number.NaN]) {
+      expect(() => gravityIntervalMs(bad)).toThrow(RangeError);
+      expect(() => gravityIntervalMs(bad)).toThrow(/无效等级/);
     }
   });
 });
