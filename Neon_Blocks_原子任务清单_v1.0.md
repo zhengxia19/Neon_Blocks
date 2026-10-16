@@ -154,7 +154,7 @@
 - **验证命令/动作**：`npx vitest run tests/unit/random.test.ts`。
 - **通过条件**：两袋各含七种不重、不漏；不会在调用 `draw` 外消耗随机。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T013｜创建与复制棋盘
+#### - [x] T013｜创建与复制棋盘
 - **依赖**：T008, T009。**允许修改文件**：`src/game/board.ts、tests/unit/board.test.ts`。**规格**：S03.1。
 - **明确步骤**：
   1. 定义 `createEmptyBoard()`，填满 24×10 个 null。
