@@ -163,7 +163,7 @@
 - **验证命令/动作**：`npx vitest run tests/unit/board.test.ts`。
 - **通过条件**：每行 10 格；改变复制不影响原棋盘。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T014｜实现占用格碰撞判断
+#### - [x] T014｜实现占用格碰撞判断
 - **依赖**：T011, T013。**允许修改文件**：`src/game/board.ts、tests/unit/board.test.ts`。**规格**：S03.1。
 - **明确步骤**：
   1. 添加 `canPlace(board,piece):boolean`；只检查矩阵为 1 的格。

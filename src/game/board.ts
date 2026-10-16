@@ -1,6 +1,7 @@
-// Neon Blocks — 棋盘创建与复制（规格 S03.1）。纯逻辑，无 DOM/随机。
+// Neon Blocks — 棋盘创建、复制与碰撞判断（规格 S03.1）。纯逻辑，无 DOM/随机。
 import { BOARD_HEIGHT, BOARD_WIDTH } from './constants';
-import type { Board, Cell } from './types';
+import { getMatrix } from './pieces';
+import type { ActivePiece, Board, Cell } from './types';
 
 /** 创建 24×10 空棋盘（全部 null）。 */
 export function createEmptyBoard(): Board {
@@ -18,4 +19,30 @@ export function createEmptyBoard(): Board {
 /** 深复制棋盘：逐行新建数组（Cell 为不可变联合，浅拷贝格即可）。 */
 export function cloneBoard(board: Board): Board {
   return board.map((row) => [...row]);
+}
+
+/**
+ * 判断方块在当前位置是否合法（S03.1）：只检查矩阵中为 '1' 的实体格；
+ * 实体格左/右/上/下越界或与已锁定格重叠 → false；矩阵 '0' 格出界不影响。
+ * 先做边界检查再索引，绝不产生非法索引或抛出。
+ */
+export function canPlace(board: Board, piece: ActivePiece): boolean {
+  const matrix = getMatrix(piece.type, piece.rotation);
+  const n = matrix.length;
+  for (let row = 0; row < n; row += 1) {
+    for (let col = 0; col < n; col += 1) {
+      if (matrix[row][col] !== '1') {
+        continue;
+      }
+      const x = piece.x + col;
+      const y = piece.y + row;
+      if (x < 0 || x >= BOARD_WIDTH || y < 0 || y >= BOARD_HEIGHT) {
+        return false;
+      }
+      if (board[y][x] !== null) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
