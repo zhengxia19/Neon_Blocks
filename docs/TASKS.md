@@ -356,7 +356,7 @@
 
 ### P3 布局与渲染
 
-#### - [ ] T035｜创建语义化网页骨架
+#### - [x] T035｜创建语义化网页骨架
 - **依赖**：T007, T034。**允许修改文件**：`index.html、src/ui/layout.ts、src/main.ts`。**规格**：S04.3。
 - **明确步骤**：
   1. 创建 `layout.ts` 中静态 DOM 结构：header/main/3 panels/canvas 及状态按钮容器。
