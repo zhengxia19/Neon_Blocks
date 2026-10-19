@@ -1,9 +1,11 @@
-// T022/T023/T024：GameEngine 初始 ready 状态、NEXT 队列补充与出生活动块、水平移动测试（规格 S03.1,S03.2,S03.3）。
+// T022/T023/T024/T025：GameEngine 初始 ready 状态、NEXT 队列与出生、水平移动、顺逆旋转测试（规格 S03.1,S03.2,S03.3,S03.4）。
 import { describe, expect, it } from 'vitest';
 import { canPlace, createEmptyBoard } from '../../src/game/board';
 import { BOARD_HEIGHT, BOARD_WIDTH } from '../../src/game/constants';
 import { GameEngine } from '../../src/game/engine';
 import { BAG_TYPES } from '../../src/game/random';
+import { tryRotate } from '../../src/game/srs';
+import type { ActivePiece, Board } from '../../src/game/types';
 
 describe('GameEngine 初始状态（T022，S03.2/S03.3）', () => {
   it('默认构造：status=ready、active=null、队列/袋/Hold 空、分数 0、等级 1、计时器 0、无事件', () => {
@@ -272,5 +274,125 @@ describe('GameEngine 水平移动（T024，S03.3）', () => {
     engine.move(1);
     engine.move(-1);
     expect(snapshot(engine)).toEqual(before);
+  });
+});
+
+describe('GameEngine 顺逆旋转（T025，S03.3/S03.4）', () => {
+  const newRunning = (rng: () => number = () => 0, board?: Board): GameEngine => {
+    const engine = new GameEngine(rng, board);
+    engine.start();
+    return engine;
+  };
+
+  it('顺时针旋转：空盘中央 I r0 → r1（首偏移 (0,0) 成功，x/y 不变）', () => {
+    const engine = newRunning();
+    engine.rotate(1);
+    const s = engine.getState();
+    expect(s.active?.rotation).toBe(1);
+    expect(s.active?.x).toBe(3);
+    expect(s.active?.y).toBe(2);
+    // 旋转本身不加分、不动队列/事件/计时器
+    expect(s.score).toBe(0);
+    expect(s.nextQueue).toHaveLength(5);
+    expect(s.lastEvent).toBeNull();
+    expect(s.gravityElapsedMs).toBe(0);
+  });
+
+  it('逆时针旋转：I r0 → r3，且连续 4 次旋转恢复 r0（循环 0→3→2→1→0）', () => {
+    const engine = newRunning();
+    engine.rotate(-1);
+    expect(engine.getState().active?.rotation).toBe(3);
+    engine.rotate(-1);
+    expect(engine.getState().active?.rotation).toBe(2);
+    engine.rotate(-1);
+    expect(engine.getState().active?.rotation).toBe(1);
+    engine.rotate(-1);
+    const s = engine.getState();
+    expect(s.active?.rotation).toBe(0);
+    expect(s.active?.x).toBe(3); // 中央无踢墙位移，回到出生
+    expect(s.active?.y).toBe(2);
+  });
+
+  it('引擎旋转结果与 srs.tryRotate 完全一致：空盘/墙边/锁定堆多场景逐一对比', () => {
+    const scenarios: Array<{ board?: Board; moves: Array<'L' | 'R' | 'CW' | 'CCW'> }> = [
+      { moves: ['CW', 'CW', 'CCW'] },
+      { moves: ['L', 'L', 'L', 'CW', 'CW', 'R', 'CCW'] }, // 贴左墙 I 竖态 → 踢墙旋转
+      { moves: ['R', 'R', 'R', 'CW', 'CCW', 'CW'] }, // 贴右墙场景
+    ];
+    for (const { board, moves } of scenarios) {
+      const a = newRunning(() => 0, board);
+      const b = newRunning(() => 0, board);
+      for (const mv of moves) {
+        // 引擎路径
+        if (mv === 'L') a.move(-1);
+        else if (mv === 'R') a.move(1);
+        else if (mv === 'CW') a.rotate(1);
+        else a.rotate(-1);
+        // 独立参考路径：直接调 srs.tryRotate（引擎不得有第二套踢墙）
+        const bs = b.getState();
+        let ref = bs.active as ActivePiece;
+        if (mv === 'L' || mv === 'R') {
+          const cand: ActivePiece = { ...ref, x: ref.x + (mv === 'L' ? -1 : 1) };
+          if (canPlace(bs.board as never, cand as never)) ref = cand;
+        } else {
+          ref = tryRotate(bs.board as never, ref, mv === 'CW' ? 1 : -1);
+        }
+        if (mv === 'L') b.move(-1);
+        else if (mv === 'R') b.move(1);
+        else if (mv === 'CW') b.rotate(1);
+        else b.rotate(-1);
+        expect(b.getState().active).toEqual(ref);
+      }
+      // 两引擎经不同调用路径得到完全相同的最终 active
+      expect(a.getState().active).toEqual(b.getState().active);
+    }
+  });
+
+  it('贴左墙踢墙生效：I 竖态 x=-2 逆转 1→0 经偏移 (2,0) 成功，x 变为 0', () => {
+    const engine = newRunning();
+    // I r1（实体列 x+2）：先在 r1 贴左墙。出生 r0 → 转 r1 → 左移到实体列 0（x=-2）
+    engine.rotate(1);
+    for (let i = 0; i < 5; i += 1) engine.move(-1);
+    expect(engine.getState().active?.x).toBe(-2); // 列 -2+2=0 贴墙，再左移无效
+    engine.move(-1);
+    expect(engine.getState().active?.x).toBe(-2);
+    engine.rotate(-1); // 1→0：偏移 (0,0) 会出界，应命中 (2,0)
+    const s = engine.getState();
+    expect(s.active?.rotation).toBe(0);
+    expect(s.active?.x).toBe(0);
+  });
+
+  it('五偏移全失败：锁定块夹死 I 时旋转原子失败，深快照完全不变', () => {
+    const src = createEmptyBoard();
+    // I r0 出生占第 3 行 x=3..6；预置第 2 行与第 4 行整行锁定 → r1/r3 竖态在任何
+    // 候选 y 必穿第 2 或第 4 行，五偏移全部失败
+    for (let x = 0; x < BOARD_WIDTH; x += 1) {
+      src[2][x] = 'O';
+      src[4][x] = 'O';
+    }
+    const engine = newRunning(() => 0, src);
+    expect(engine.getState().status).toBe('running'); // 出生行 3 未被占用
+    const before = snapshot(engine);
+    engine.rotate(1);
+    expect(snapshot(engine)).toEqual(before);
+    engine.rotate(-1);
+    expect(snapshot(engine)).toEqual(before);
+  });
+
+  it('ready / gameover 状态下 rotate 无效（快照完全不变）', () => {
+    const ready = new GameEngine(() => 0);
+    const readyBefore = snapshot(ready);
+    ready.rotate(1);
+    ready.rotate(-1);
+    expect(snapshot(ready)).toEqual(readyBefore);
+
+    const src = createEmptyBoard();
+    src[3][4] = 'T'; // 出生碰撞 → gameover（active=null）
+    const over = newRunning(() => 0, src);
+    expect(over.getState().status).toBe('gameover');
+    const overBefore = snapshot(over);
+    over.rotate(1);
+    over.rotate(-1);
+    expect(snapshot(over)).toEqual(overBefore);
   });
 });

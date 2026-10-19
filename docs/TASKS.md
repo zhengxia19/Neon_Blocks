@@ -264,7 +264,7 @@
 - **验证命令/动作**：`npx vitest run tests/unit/engine.test.ts`。
 - **通过条件**：移动只改变 x；非法移动彻底不改变状态。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T025｜实现 Engine 顺逆旋转
+#### - [x] T025｜实现 Engine 顺逆旋转
 - **依赖**：T018, T022, T023。**允许修改文件**：`src/game/engine.ts、tests/unit/engine.test.ts`。**规格**：S03.3,S03.4。
 - **明确步骤**：
   1. 暴露 `rotate(1|-1)`，只在 running 时调用 tryRotate。

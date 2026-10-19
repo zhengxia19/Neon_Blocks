@@ -1,9 +1,10 @@
-// T022/T023/T024：GameEngine 类——私有状态、初始 ready 状态、NEXT 队列补充与出生活动块、
-// 水平移动（规格 S03.1,S03.2,S03.3）。
+// T022/T023/T024/T025：GameEngine 类——私有状态、初始 ready 状态、NEXT 队列补充与出生活动块、
+// 水平移动、顺逆旋转（规格 S03.1,S03.2,S03.3,S03.4）。
 // 纯逻辑模块：不访问 DOM/Canvas/localStorage；UI 仅经 getState() 只读视图读取状态。
 // 动作 API（move/rotate/softDrop/…）由 T024+ 逐个补齐。
 import { canPlace, cloneBoard, createEmptyBoard } from './board';
 import { drawFromBag } from './random';
+import { tryRotate } from './srs';
 import type { ActivePiece, Board, Cell, GameState, PieceType, Rotation } from './types';
 
 /** 出生列（S03.2：出生位置 x=3）。constants.ts 不在本任务允许修改文件内，故在此定义。 */
@@ -111,6 +112,18 @@ export class GameEngine {
     this.#state.gravityElapsedMs = 0;
     this.#state.lockElapsedMs = 0;
     this.#state.lockResetCount = 0;
+  }
+
+  /**
+   * 旋转（S03.3/S03.4）：仅 running 且存在活动块时处理；直接委托 `srs.tryRotate`
+   * （引擎不实现第二套自制踢墙），成功返回的新位置和旋转态写回 state，
+   * 全败时 tryRotate 原样返回入参引用，状态完全不变。旋转本身不加分。
+   */
+  rotate(dir: 1 | -1): void {
+    if (this.#state.status !== 'running' || this.#state.active === null) {
+      return;
+    }
+    this.#state.active = tryRotate(this.#state.board, this.#state.active, dir);
   }
 
   /**
