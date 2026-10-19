@@ -28,6 +28,7 @@ import type {
   MatchEndMsg,
   MatchId,
   MatchStartMsg,
+  PlayerLeftMsg,
   RandomMode,
   RngAlgo,
   RoomPhase,
@@ -67,6 +68,36 @@ export type LeaveResult =
   | { left: false; error: 'ROOM_NOT_FOUND' | 'UNAUTHORIZED' };
 
 export type TicketFailure = 'ROOM_NOT_FOUND' | 'UNAUTHORIZED';
+
+// —— N18：淘汰与提前终局裁决（淘汰时间只由服务端接受，客户端不可指定）——
+
+export type EliminationFailure = 'ROOM_NOT_FOUND' | 'BAD_STATE' | 'MATCH_MISMATCH' | 'NOT_PARTICIPANT';
+
+export type EliminationResult =
+  | {
+      eliminated: true;
+      /** 重复淘汰事件：幂等返回既有服务端淘汰时间，不重复广播/裁决。 */
+      alreadyEliminated: boolean;
+      eliminatedAt: number;
+      matchEnded: boolean;
+      /** matchEnded=true 时的胜者（并列为多人；最后 1 人即单人）。 */
+      winners: string[];
+    }
+  | { eliminated: false; error: EliminationFailure };
+
+export type BatchEliminationResult =
+  | {
+      ok: true;
+      /** 本次新入账（服务端时刻已写入）。 */
+      accepted: string[];
+      /** 重复事件：幂等跳过。 */
+      already: string[];
+      /** 身份不在冻结名单：拒绝入账。 */
+      rejected: string[];
+      matchEnded: boolean;
+      winners: string[];
+    }
+  | { ok: false; error: 'ROOM_NOT_FOUND' | 'BAD_STATE' | 'MATCH_MISMATCH' };
 
 export type TicketResult =
   | { issued: true; ticket: string; expiresAt: number }
@@ -270,6 +301,16 @@ export class RoomDO extends DurableObject<Env> {
          running_at INTEGER
        );`,
     );
+    // N18：服务端接受的淘汰时间（禁止客户端指定；nextRound/createRoom 清空，
+    // 故 player_id 单主键即每局每人至多一次淘汰，重复事件天然幂等）。
+    sql.exec(
+      `CREATE TABLE IF NOT EXISTS eliminations (
+         player_id TEXT PRIMARY KEY,
+         eliminated_at INTEGER NOT NULL,
+         match_id TEXT NOT NULL,
+         generation INTEGER NOT NULL
+       );`,
+    );
   }
 
   /** 确保元数据行存在（初始：generation=0、空闲）。 */
@@ -311,6 +352,7 @@ export class RoomDO extends DurableObject<Env> {
     this.#sql.exec('DELETE FROM seat_conns');
     this.#sql.exec('DELETE FROM match_roster');
     this.#sql.exec('DELETE FROM match_state');
+    this.#sql.exec('DELETE FROM eliminations');
     this.#sql.exec(
       `INSERT OR REPLACE INTO room_config
          (id, capacity, random_mode, start_level, custom_seed, generation)
@@ -602,6 +644,7 @@ export class RoomDO extends DurableObject<Env> {
     }
     this.#sql.exec("UPDATE room_config SET state = 'COUNTDOWN' WHERE id = 1");
     this.#sql.exec('DELETE FROM match_roster');
+    this.#sql.exec('DELETE FROM eliminations');
     for (const r of seatRows) {
       this.#sql.exec(
         'INSERT INTO match_roster (player_id, nickname, join_order, generation) VALUES (?, ?, ?, ?)',
@@ -801,7 +844,7 @@ export class RoomDO extends DurableObject<Env> {
       else this.ctx.storage.setAlarm(Number(row.start_at));
       return;
     }
-    if (now >= Number(row.deadline_at)) this.#endAtDeadline(row.match_id);
+    if (now >= Number(row.deadline_at)) this.#endAtDeadline(Number(meta.generation), row.match_id);
     else this.ctx.storage.setAlarm(Number(row.deadline_at));
   }
 
@@ -810,12 +853,11 @@ export class RoomDO extends DurableObject<Env> {
    * 非 RUNNING 直接返回，不重复广播。此刻尚无淘汰面（N18），名单全员存活 →
    * winners=冻结名单全体；最终名次 standings 由 N19 ranking 填充。
    */
-  #endAtDeadline(matchId: string): void {
+  #endAtDeadline(generation: number, matchId: string): void {
     const res = this.finishGame();
     if (!res.finished) return;
-    const winners = [
-      ...this.#sql.exec<{ player_id: string }>('SELECT player_id FROM match_roster'),
-    ].map((r) => r.player_id);
+    // N18：超时终局的胜者 = 冻结名单中未被淘汰的存活者（无淘汰时即全体）。
+    const winners = this.#survivorsOf(generation, matchId);
     this.#broadcast(
       () =>
         ({
@@ -856,7 +898,9 @@ export class RoomDO extends DurableObject<Env> {
   }
 
   /** 向全部 Hibernation 存量连接按席位身份发送一条服务端消息（附件缺失跳过）。 */
-  #broadcast(build: (playerId: string) => CountdownMsg | MatchStartMsg | MatchEndMsg): number {
+  #broadcast(
+    build: (playerId: string) => CountdownMsg | MatchStartMsg | MatchEndMsg | PlayerLeftMsg,
+  ): number {
     let sent = 0;
     for (const ws of this.ctx.getWebSockets()) {
       const att = this.#attachmentOf(ws);
@@ -885,6 +929,191 @@ export class RoomDO extends DurableObject<Env> {
   }
 
   /**
+   * N18：成员淘汰事件裁决（N25 由 gameover 消息以**服务端接收时刻**调用；
+   * 客户端不可指定淘汰时间——签名无客户端时间字段）。校验：占用态→RUNNING→
+   * 当代 match_state→**只认当前局 matchId**→身份必须在冻结名单内。
+   * 重复淘汰幂等（既有服务端时间原样返回，不重复广播）；已结束（FINISHED/
+   * LOBBY/COUNTDOWN）事件 BAD_STATE 无操作。终局裁决（方案 §1.6/§1.7）：
+   * 单事件后存活 1 人立即胜出；同一结算批次可致零存活——并列胜者按最晚
+   * 淘汰时刻组（分数/消行细则属 N19）。
+   */
+  reportElimination(playerId: string, matchId: string, now: number = Date.now()): EliminationResult {
+    const batch = this.reportEliminations([playerId], matchId, now);
+    if (!batch.ok) return { eliminated: false, error: batch.error };
+    if (batch.rejected.length > 0) return { eliminated: false, error: 'NOT_PARTICIPANT' };
+    const eliminatedAt = this.#eliminatedAtOf(playerId, matchId);
+    return {
+      eliminated: true,
+      alreadyEliminated: batch.already.length === 1,
+      eliminatedAt: eliminatedAt ?? now,
+      matchEnded: batch.matchEnded,
+      winners: batch.winners,
+    };
+  }
+
+  /**
+   * N18：同一结算批次淘汰（方案 §1.7「极端同时淘汰」：同刻多事件一次裁决，
+   * 不凭网络到包顺序分胜负）。逐 id 身份校验（非参赛入 rejected），
+   * 全部入账后**一次性**终局判定。
+   */
+  reportEliminations(
+    playerIds: string[],
+    matchId: string,
+    now: number = Date.now(),
+  ): BatchEliminationResult {
+    this.#ensureSchema();
+    this.#ensureRow();
+    const meta = this.#sql
+      .exec<RoomMetaRow>('SELECT generation, occupied FROM room_meta WHERE id = 1')
+      .one();
+    if (meta.occupied !== 1) return { ok: false, error: 'ROOM_NOT_FOUND' };
+    const config = this.#readConfig();
+    if (config === null || config.generation !== Number(meta.generation)) {
+      return { ok: false, error: 'ROOM_NOT_FOUND' };
+    }
+    if (config.state !== 'RUNNING') return { ok: false, error: 'BAD_STATE' };
+    const row = this.#readMatchState(Number(meta.generation));
+    if (row === undefined) return { ok: false, error: 'BAD_STATE' };
+    if (row.match_id !== matchId) return { ok: false, error: 'MATCH_MISMATCH' };
+    return this.#applyEliminations(playerIds, Number(meta.generation), matchId, now);
+  }
+
+  /**
+   * N18：写入服务端接受的淘汰时间（无 await 同步段）→ player_left(eliminated)
+   * 广播 → 批次入账后一次性终局裁决。既有淘汰（同代同局）幂等跳过。
+   */
+  #applyEliminations(
+    playerIds: string[],
+    generation: number,
+    matchId: string,
+    now: number,
+  ): Extract<BatchEliminationResult, { ok: true }> {
+    const accepted: string[] = [];
+    const already: string[] = [];
+    const rejected: string[] = [];
+    for (const playerId of playerIds) {
+      const roster = [
+        ...this.#sql.exec<{ player_id: string }>(
+          'SELECT player_id FROM match_roster WHERE player_id = ? AND generation = ?',
+          playerId,
+          generation,
+        ),
+      ];
+      if (roster.length === 0) {
+        rejected.push(playerId);
+        continue;
+      }
+      const existing = [
+        ...this.#sql.exec<{ eliminated_at: number }>(
+          'SELECT eliminated_at FROM eliminations WHERE player_id = ? AND generation = ? AND match_id = ?',
+          playerId,
+          generation,
+          matchId,
+        ),
+      ][0];
+      if (existing !== undefined) {
+        already.push(playerId);
+        continue;
+      }
+      this.#sql.exec(
+        'INSERT INTO eliminations (player_id, eliminated_at, match_id, generation) VALUES (?, ?, ?, ?)',
+        playerId,
+        now,
+        matchId,
+        generation,
+      );
+      this.#broadcast(
+        () =>
+          ({
+            v: PROTOCOL_VERSION,
+            type: 'player_left',
+            revision: 1,
+            playerId,
+            reason: 'eliminated',
+          }) as PlayerLeftMsg,
+      );
+      accepted.push(playerId);
+    }
+    const survivors = this.#survivorsOf(generation, matchId);
+    let matchEnded = false;
+    let winners: string[] = [];
+    if (survivors.length === 1) {
+      winners = survivors; // 最后 1 人立即胜出
+      matchEnded = true;
+    } else if (survivors.length === 0) {
+      winners = this.#coWinnersAtMaxTime(generation, matchId); // 0 人同刻出局可并列
+      matchEnded = true;
+    }
+    if (matchEnded) this.#endMatchWithWinners(matchId, winners);
+    return { ok: true, accepted, already, rejected, matchEnded, winners };
+  }
+
+  /** N18：读取某玩家当前局的服务端淘汰时刻（幂等返回原值用）。 */
+  #eliminatedAtOf(playerId: string, matchId: string): number | undefined {
+    const row = [
+      ...this.#sql.exec<{ eliminated_at: number }>(
+        'SELECT eliminated_at FROM eliminations WHERE player_id = ? AND match_id = ?',
+        playerId,
+        matchId,
+      ),
+    ][0];
+    return row === undefined ? undefined : Number(row.eliminated_at);
+  }
+
+  /** N18：冻结名单中未被淘汰的存活者（按加入序号）。 */
+  #survivorsOf(generation: number, matchId: string): string[] {
+    return [
+      ...this.#sql.exec<{ player_id: string }>(
+        `SELECT player_id FROM match_roster
+          WHERE generation = ?
+            AND player_id NOT IN (
+              SELECT player_id FROM eliminations WHERE generation = ? AND match_id = ?
+            )
+          ORDER BY join_order ASC`,
+        generation,
+        generation,
+        matchId,
+      ),
+    ].map((r) => r.player_id);
+  }
+
+  /** N18：全员出局时的并列胜者 = 最晚淘汰时刻（MAX eliminated_at）的同刻出局组。 */
+  #coWinnersAtMaxTime(generation: number, matchId: string): string[] {
+    return [
+      ...this.#sql.exec<{ player_id: string }>(
+        `SELECT player_id FROM eliminations
+          WHERE generation = ? AND match_id = ?
+            AND eliminated_at = (
+              SELECT MAX(eliminated_at) FROM eliminations WHERE generation = ? AND match_id = ?
+            )
+          ORDER BY eliminated_at ASC`,
+        generation,
+        matchId,
+        generation,
+        matchId,
+      ),
+    ].map((r) => r.player_id);
+  }
+
+  /** N18：淘汰触发的提前终局（经 finishGame 幂等门；reason=survival）。 */
+  #endMatchWithWinners(matchId: string, winners: string[]): void {
+    const res = this.finishGame();
+    if (!res.finished) return;
+    this.#broadcast(
+      () =>
+        ({
+          v: PROTOCOL_VERSION,
+          type: 'match_end',
+          revision: 1,
+          matchId,
+          reason: 'survival',
+          winners,
+          standings: [],
+        }) as MatchEndMsg,
+    );
+  }
+
+  /**
    * N15：房主发起下一局（FINISHED→LOBBY）：席位保留、准备全部清零、冻结名单
    * 清空、配置重新可改（下一局可重选模式/种子，开始时重新确定——方案 §2）。
    */
@@ -910,6 +1139,7 @@ export class RoomDO extends DurableObject<Env> {
     this.#sql.exec('DELETE FROM match_roster');
     // N16 复审 O1：下一局重新开局前不得残留上局 match 信息（getMatchInfo 陈旧）。
     this.#sql.exec('DELETE FROM match_state');
+    this.#sql.exec('DELETE FROM eliminations');
     return { ok: true, generation: Number(meta.generation) };
   }
 
@@ -932,6 +1162,19 @@ export class RoomDO extends DurableObject<Env> {
     ][0];
     if (seat === undefined) {
       return { left: false, error: 'UNAUTHORIZED' };
+    }
+    // N18（N15 复审 O2）：比赛进行中退出视为淘汰——以服务端接收时刻入账并
+    // 参与终局裁决；冻结名单不改写（eliminations 独立于 seats，名次复盘保留）。
+    const config = this.#readConfig();
+    if (
+      config !== null &&
+      config.generation === Number(meta.generation) &&
+      config.state === 'RUNNING'
+    ) {
+      const row = this.#readMatchState(Number(meta.generation));
+      if (row !== undefined) {
+        this.#applyEliminations([playerId], Number(meta.generation), row.match_id, Date.now());
+      }
     }
     this.#sql.exec('DELETE FROM seats WHERE player_id = ?', playerId);
     if (Number(seat.is_host) !== 1) {

@@ -1,0 +1,25 @@
+
+ RUN  v5.0.5 D:/tcodes/Neon_Blocks/worker
+
+ ✓ test/cors.test.ts (4 tests) 7ms
+ ✓ test/seed-derivation.test.ts (7 tests) 7ms
+ ✓ test/room-leave.test.ts (7 tests) 36ms
+ ✓ test/room-join.test.ts (7 tests) 45ms
+ ✓ test/protocol-boundary.test.ts (5 tests) 38ms
+ ✓ test/room-ticket.test.ts (9 tests) 43ms
+ ✓ test/room-join-route.test.ts (5 tests) 43ms
+ ✓ test/room-alarm.test.ts (8 tests) 69ms
+ ✓ test/room-state.test.ts (10 tests) 60ms
+ ✓ test/room-create.test.ts (6 tests) 47ms
+ ✓ test/room-ticket-route.test.ts (5 tests) 45ms
+ ✓ test/room-hibernation.test.ts (11 tests) 71ms
+ ✓ test/room-countdown.test.ts (7 tests) 74ms
+ ✓ test/room-allocate.test.ts (5 tests) 105ms
+ ✓ test/room-elimination.test.ts (12 tests) 121ms
+
+ Test Files  15 passed (15)
+      Tests  108 passed (108)
+   Start at  03:33:57
+   Duration  426ms (tests 40%, transform 33%, import 23%, worker 4%)
+
+vitest exit: 0

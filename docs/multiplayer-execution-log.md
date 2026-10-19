@@ -248,3 +248,16 @@
 - **命令与退出码**：`npm --prefix worker run typecheck`→0；`npm --prefix worker test`→0；根 `npm run test`→0（15 文件/278 例）；deploy.yml 未动（前缀 5A08B009）。
 - **复审结论**：独立复审 PASS——触发源唯一、边界/幂等/重建/载荷协议合规、闹钟链完整、假时钟真实控制 Date.now；复跑 96 例全绿。非阻塞观察 O1（测试注释不精确）、O2（winners 未钉死）、O3（决策逻辑重复）**已在本任务内修复**（注释修正、winners 全体断言、`#restoreAlarms` 合并到 `#handleDeadline`）；O4 `finishGame` 保持仅服务端内部调用（N18 接线注意）；O5 真实唤醒时构造器与 alarm 交叠已由幂等门覆盖。
 - **未解决事项**：淘汰触发的提前终局与 standings 填充属 N18/N19；空房闹钟与多闹钟协调属 N21；`ready/start` 入站面属 N22/N25。
+
+---
+
+## N18 — 淘汰及提前终局裁决 ✅ PASS
+
+- **基线 HEAD**：`44331af`（N17 之后）
+- **改动文件（1 个逻辑文件 + 1 测试）**：`worker/src/room.ts`（新表 `eliminations(player_id PK, eliminated_at, match_id, generation)`——淘汰时间**只由服务端写入**（签名无客户端时间字段，N25 以服务端接收时刻调用）；`createRoom/startGame/nextRound` 清空防跨局陈旧；公开 `reportElimination`（单事件）/`reportEliminations`（**同一结算批次**，方案 §1.7 极端同时淘汰）：占用→RUNNING→当代 match_state→**只认当前局 matchId**（陈旧/错误 `MATCH_MISMATCH` 不入账）→冻结名单身份（非参赛 `rejected`/`NOT_PARTICIPANT`）；`#applyEliminations` 入账+`player_left(eliminated)` 广播+**批次后一次性裁决**：存活 1 立即胜出、存活 0 → `MAX(eliminated_at)` 同刻组并列；`#endMatchWithWinners` 经 `finishGame` 幂等门广播 `match_end(reason=survival)`；`#endAtDeadline` 胜者改存活者（**已淘汰者不能赢超时局**，§1.6）；`leaveRoom` RUNNING 退出视为淘汰入账（N15 复审 O2，置于席位删除前，房主转让/roomClosed 不动）；`#broadcast` 联合加 `PlayerLeftMsg`）。新增 `room-elimination.test.ts`（12 例）。
+- **单测**：`npm --prefix worker test` → 0（**15 文件 / 108 例**：新增 12——4 人序列逐人出局+最后 1 人胜+广播逐字段；2 人首淘汰即终局/6 人第 5 次才终局边界；陈旧与错误 matchId 拒绝且零入账；非参赛与 LOBBY 反向；重复淘汰幂等（原时刻不改写、单次广播）；已结束事件 BAD_STATE 不追加 match_end；2 人同批次同刻并列；4 人最晚时刻组并列；`eliminated_at` 恒=服务端时刻入库断言；leaveRoom 淘汰入账参与裁决；超时终局 winners=存活 2 人不含被淘汰者；nextRound 清空后可再淘汰）。
+- **本地模拟（wrangler dev 冒烟回归）**：淘汰面下既有 HTTP+WS 面不受影响——health 200/create 201/join 200/ticket 200/WS 101+pong；反向 401/404。证据 `evidence/multiplayer/N18/{smoke-local,wrangler-dev-startup,worker-test,worker-typecheck,root-test}.txt` + `n18-smoke.ps1`。
+- **实测排障**：并列语义澄清——设计 §1.7「同一个结算批次零存活」→ 单事件顺序处理下 2 人局首淘汰即终局，故新增批次 API `reportEliminations`（单事件=1 元素批次）；假 `sql.exec` 无泛型陷阱（TS2558）与 `EliminationResult` 联合收窄（TS2339）→ `mustElim` 辅助修复。
+- **命令与退出码**：`npm --prefix worker run typecheck`→0；`npm --prefix worker test`→0；根 `npm run test`→0（15/278）；deploy.yml 未动（前缀 5A08B009）。
+- **复审结论**：独立复审 PASS——eliminations 全库唯一 INSERT 且时刻仅服务端提供、matchId 严格、幂等三重（重复/已结束/闹钟交叠）、超时胜者=存活者、leaveRoom 入账不破坏转让、裁决段全同步；复跑 108 例全绿。非阻塞观察：O1 提前终局未取消 deadline 闹钟（FINISHED 门空转无害，**归 N21 闹钟协调**）；O2 `now` 为测试缝参数（N25 必须传服务端接收时刻）；O3 `#eliminatedAtOf` 未带 generation（matchId 随机碰撞可忽略）；O4 并列组内顺序未定义（N19 加次级排序键）；O5 RUNNING 最后席位退出可致「退出者并列胜」（§1.7 合规反直觉，N19 复盘明示）；O6 超时存活者现全体并列（排序属 N19）。
+- **未解决事项**：终局名次 standings 与分数/消行排序属 N19；提前终局的闹钟取消属 N21；gameover 入站接线属 N25。
