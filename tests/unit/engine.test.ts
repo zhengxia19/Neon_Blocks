@@ -1,4 +1,4 @@
-// T022/T023/T024/T025/T026：GameEngine 初始 ready 状态、NEXT 队列与出生、水平移动、顺逆旋转、软降测试（规格 S03.1,S03.2,S03.3,S03.4,S03.5）。
+// T022–T027：GameEngine 初始 ready 状态、NEXT 队列与出生、水平移动、顺逆旋转、软降、硬降锁块测试（规格 S03.1,S03.2,S03.3,S03.4,S03.5）。
 import { describe, expect, it } from 'vitest';
 import { canPlace, createEmptyBoard } from '../../src/game/board';
 import { BOARD_HEIGHT, BOARD_WIDTH } from '../../src/game/constants';
@@ -480,5 +480,108 @@ describe('GameEngine 软降（T026，S03.3/S03.5）', () => {
     engine.softDrop();
     expect(snapshot(engine)).toEqual(before);
     expect(engine.getState().score).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T027：硬降并立即锁块（S03.3/S03.5）
+// ---------------------------------------------------------------------------
+describe('GameEngine 硬降与锁块（T027，S03.3/S03.5）', () => {
+  // rng=()=>0 确定性：首块 I（r0 实体行 y+1、列 x..x+3，出生 x=3/y=2），
+  // 队列 ['L','J','Z','S','T']、袋 ['O']。
+  const newRunning = (board?: Board): GameEngine => {
+    const engine = new GameEngine(() => 0, board);
+    engine.start();
+    return engine;
+  };
+
+  it('空盘硬降：落差 20 → +40 分、I 立即锁入第 23 行 x=3..6、新块出生、hardDrop 事件 id=1', () => {
+    const engine = newRunning();
+    engine.hardDrop();
+    const s = engine.getState();
+    expect(s.score).toBe(40); // 落差 ghostY(22)−y(2)=20，每格 +2
+    // 立即锁块：无需等待重力，锁定格已在棋盘
+    for (let x = 0; x < BOARD_WIDTH; x += 1) {
+      for (let y = 0; y < BOARD_HEIGHT - 1; y += 1) {
+        expect(s.board[y][x]).toBeNull();
+      }
+    }
+    for (const x of [3, 4, 5, 6]) {
+      expect(s.board[23][x]).toBe('I');
+    }
+    // 旧块已锁、active 为新块（队列首 L 回补出生位置）
+    expect(s.active).not.toBeNull();
+    expect(s.active?.type).toBe('L');
+    expect(s.active?.x).toBe(3);
+    expect(s.active?.y).toBe(2);
+    expect(s.active?.rotation).toBe(0);
+    expect([...s.nextQueue]).toEqual(['J', 'Z', 'S', 'T', 'O']);
+    expect(s.nextQueue).toHaveLength(5);
+    // hardDrop 事件：id 自增、kind 正确、count=落差
+    expect(s.lastEvent).toEqual({ id: 1, kind: 'hardDrop', count: 20 });
+    expect(s.status).toBe('running');
+    // 清行得分/行数/等级留待 T033 统一结算，本任务不得提前计入
+    expect(s.lines).toBe(0);
+    expect(s.level).toBe(1);
+    // 新块计时基准复位
+    expect(s.gravityElapsedMs).toBe(0);
+    expect(s.lockElapsedMs).toBe(0);
+    expect(s.lockResetCount).toBe(0);
+  });
+
+  it('落点即当前位（落差 0）：+0 分、事件 count=0、仍在原地锁定', () => {
+    const engine = newRunning();
+    // 先软降 20 格贴底（y=22，实体行 23），累计 20 分
+    for (let i = 0; i < 20; i += 1) engine.softDrop();
+    expect(engine.getState().active?.y).toBe(22);
+    expect(engine.getState().score).toBe(20);
+    engine.hardDrop();
+    const s = engine.getState();
+    expect(s.score).toBe(20); // 落差 0 → +0，软硬降分无重叠
+    expect(s.lastEvent).toEqual({ id: 1, kind: 'hardDrop', count: 0 });
+    for (const x of [3, 4, 5, 6]) {
+      expect(s.board[23][x]).toBe('I'); // 原地锁定
+    }
+    expect(s.active?.type).toBe('L');
+  });
+
+  it('硬降清行：第 23 行两侧预填 6 格 + I 补 4 格 → 该行整体清除、棋盘恢复全空、清行分未提前计入', () => {
+    const src = createEmptyBoard();
+    for (const x of [0, 1, 2, 7, 8, 9]) src[23][x] = 'O';
+    const engine = newRunning(src);
+    engine.hardDrop();
+    const s = engine.getState();
+    // 第 23 行满 10 格被一次性清除，顶部补 null → 与空盘深相等
+    expect(s.board).toEqual(createEmptyBoard());
+    expect(s.score).toBe(40); // 仅硬降落差分；清行 100×level 在 T033 补齐
+    expect(s.lines).toBe(0);
+    expect(s.lastEvent).toEqual({ id: 1, kind: 'hardDrop', count: 20 });
+    expect(s.active?.type).toBe('L');
+    expect(s.status).toBe('running');
+  });
+
+  it('事件 id 单调递增：连续两次硬降 id 依次为 1、2', () => {
+    const engine = newRunning();
+    engine.hardDrop();
+    expect(engine.getState().lastEvent?.id).toBe(1);
+    engine.hardDrop();
+    const s = engine.getState();
+    expect(s.lastEvent?.id).toBe(2);
+    expect(s.lastEvent?.kind).toBe('hardDrop');
+  });
+
+  it('ready / gameover 状态硬降无效：快照完全不变、不锁块不发事件', () => {
+    const ready = new GameEngine(() => 0);
+    const readyBefore = snapshot(ready);
+    ready.hardDrop();
+    expect(snapshot(ready)).toEqual(readyBefore);
+
+    const src = createEmptyBoard();
+    src[3][4] = 'T'; // 出生碰撞 → gameover
+    const over = newRunning(src);
+    expect(over.getState().status).toBe('gameover');
+    const overBefore = snapshot(over);
+    over.hardDrop();
+    expect(snapshot(over)).toEqual(overBefore);
   });
 });

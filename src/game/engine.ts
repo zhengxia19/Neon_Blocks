@@ -1,8 +1,8 @@
-// T022/T023/T024/T025/T026：GameEngine 类——私有状态、初始 ready 状态、NEXT 队列补充与出生活动块、
-// 水平移动、顺逆旋转、单次软降（规格 S03.1,S03.2,S03.3,S03.4,S03.5）。
+// T022/T023/T024/T025/T026/T027：GameEngine 类——私有状态、初始 ready 状态、NEXT 队列补充与出生活动块、
+// 水平移动、顺逆旋转、单次软降、硬降立即锁块（规格 S03.1,S03.2,S03.3,S03.4,S03.5）。
 // 纯逻辑模块：不访问 DOM/Canvas/localStorage；UI 仅经 getState() 只读视图读取状态。
 // 动作 API（move/rotate/softDrop/…）由 T024+ 逐个补齐。
-import { canPlace, cloneBoard, createEmptyBoard } from './board';
+import { canPlace, clearFullRows, cloneBoard, createEmptyBoard, getGhostY, mergePiece } from './board';
 import { drawFromBag } from './random';
 import { dropPoints } from './scoring';
 import { tryRotate } from './srs';
@@ -170,6 +170,32 @@ export class GameEngine {
       this.#state.score += dropPoints('soft', 1);
     }
     // 不可下降：状态完全不变（无事件、无锁定，S03.3）
+  }
+
+  /**
+   * 硬降并立即锁块（S03.3/S03.5）：仅 running 且存在活动块时处理。
+   * 流程：`getGhostY` 求落点 → 落差 = ghostY − y，加分 `dropPoints('hard', 落差)`
+   * （0 格 +0）→ 发出 hardDrop 事件（count=落差，id 单调递增）→ 立即锁入棋盘
+   * （不等锁定延迟）→ 清行并记录数量 → 生成下一块。
+   * 本任务仅保证锁定/清行/事件正确：清行得分、lines 与等级累计统一在 T033
+   * 补齐（此处不写临时计分公式），事件 id 经 `#eventSeq` 自增供渲染层去重。
+   */
+  hardDrop(): void {
+    if (this.#state.status !== 'running' || this.#state.active === null) {
+      return;
+    }
+    const active = this.#state.active;
+    const ghostY = getGhostY(this.#state.board, active);
+    const distance = ghostY - active.y;
+    this.#state.score += dropPoints('hard', distance);
+    this.#eventSeq += 1;
+    this.#state.lastEvent = { id: this.#eventSeq, kind: 'hardDrop', count: distance };
+    const landed: ActivePiece = { ...active, y: ghostY };
+    this.#state.board = mergePiece(this.#state.board, landed);
+    const clear = clearFullRows(this.#state.board);
+    this.#state.board = clear.board;
+    // clear.cleared（0..4）的得分/行数/等级结算在 T033 接入锁定路径统一处理。
+    this.#spawnNext();
   }
 
   /** 只读状态快照（S03.3）：嵌套数组同为只读视图，UI 不得修改。 */
