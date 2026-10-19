@@ -484,7 +484,7 @@
 - **验证命令/动作**：`npm run typecheck && npm run build`，手动测试 checkbox。
 - **通过条件**：三个设置项目都有可见标签和选中状态；保存重开浏览器保持。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T049｜合成四种短 WebAudio 音效
+#### - [x] T049｜合成四种短 WebAudio 音效
 - **依赖**：T046。**允许修改文件**：`src/audio/sound.ts`。**规格**：S08。
 - **明确步骤**：
   1. 实现短音 move/rotate/lock/clear（约 40/65/85/150ms，音量低于 0.1），优先 oscillator+gain。
