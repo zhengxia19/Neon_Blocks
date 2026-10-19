@@ -9,8 +9,9 @@
 
 import { getGhostY } from '../game/board';
 import { HIDDEN_ROWS } from '../game/constants';
+import type { GameStateView } from '../game/engine';
 import { getMatrix } from '../game/pieces';
-import type { Board, GameState, PieceType } from '../game/types';
+import type { Board, PieceType } from '../game/types';
 import { occupiedCols, type ActiveEffect, type EffectsController } from './effects';
 
 /** 每帧渲染选项（T045 起 effects/now 由装配层注入；reducedMotion 为设置项）。 */
@@ -84,7 +85,7 @@ export class BoardRenderer {
 
   /** 上一帧棋盘/活动块引用（T045 特效定位上下文：清除行推导、硬降光尾列）。 */
   #prevBoard: Board | null = null;
-  #prevActive: GameState['active'] = null;
+  #prevActive: GameStateView['active'] = null;
 
   constructor(canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d');
@@ -136,7 +137,7 @@ export class BoardRenderer {
    * T039 底色/网格 → T040 锁定块（board rows 4..23）+ 活动块（getMatrix×x/y）；
    * ghost T041、特效 T045 起在此文件续写，签名保持稳定。
    */
-  render(state: GameState, opts: RenderOptions = {}): void {
+  render(state: GameStateView, opts: RenderOptions = {}): void {
     const ctx = this.#ctx;
     // 每帧重置变换（幂等），再清屏——即使调用方错过 resize 也不会叠加变换。
     ctx.setTransform(this.#dpr, 0, 0, this.#dpr, 0, 0);
@@ -256,7 +257,7 @@ export class BoardRenderer {
    * 描边、无填充（S04.1）；ghostY 与 active.y 重合（已着地）时不重复绘制轮廓。
    * 绘制顺序在锁定块之后、活动块之前，保证活动块覆盖重合轮廓。
    */
-  #drawGhost(state: GameState): void {
+  #drawGhost(state: GameStateView): void {
     const active = state.active;
     if (active === null || active === undefined || !Array.isArray(state.board)) {
       return;
@@ -296,7 +297,7 @@ export class BoardRenderer {
    * 锁定块：仅遍历可见区 rows 4..23（S03.1 隐藏缓冲区 0..3 不绘制），
    * 每格按类型色板 + 亮边/暗底/圆角（#drawCell）。
    */
-  #drawLockedCells(state: GameState): void {
+  #drawLockedCells(state: GameStateView): void {
     for (let row = HIDDEN_ROWS; row < HIDDEN_ROWS + GRID_ROWS; row += 1) {
       const line = state.board[row];
       if (!Array.isArray(line)) {
@@ -316,7 +317,7 @@ export class BoardRenderer {
    * 落在隐藏行（y<4）的格跳过（S04.1：不把隐藏缓冲区画出来、不越出 Canvas）。
    * 与锁定块共用同一 #drawCell，保证视觉一致（S04.1）。
    */
-  #drawActivePiece(state: GameState): void {
+  #drawActivePiece(state: GameStateView): void {
     const active = state.active;
     if (active === null || active === undefined) {
       return;

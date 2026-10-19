@@ -522,7 +522,7 @@
 
 ### P5 集成
 
-#### - [ ] T053｜在入口装配引擎、HUD、渲染与输入
+#### - [x] T053｜在入口装配引擎、HUD、渲染与输入
 - **依赖**：T035, T038, T041, T043, T050, T051, T052。**允许修改文件**：`src/main.ts`。**规格**：S02,S05。
 - **明确步骤**：
   1. 创建一份 GameEngine、一份 BoardRenderer、HUD、KeyboardController、TouchController。
