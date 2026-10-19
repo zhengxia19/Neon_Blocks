@@ -1,0 +1,14 @@
+
+> neon-blocks-worker@0.0.0 test
+> vitest run
+
+
+ RUN  v5.0.5 D:/tcodes/Neon_Blocks/worker
+
+ ✓ test/protocol-boundary.test.ts (3 tests) 41ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  21:34:25
+   Duration  308ms (transform 36%, tests 35%, import 25%, worker 5%)
+

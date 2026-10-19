@@ -1,0 +1,19 @@
+{
+  "name": "neon-blocks-worker",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Neon_Blocks 联网对战服务器（Cloudflare Workers + SQLite-backed Durable Objects）。独立 package，前端生产构建不包含本目录。",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --pretty false",
+    "test": "vitest run",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261019.1",
+    "typescript": "~6.0.2",
+    "vitest": "^5.0.4",
+    "wrangler": "^4.151.2"
+  }
+}
