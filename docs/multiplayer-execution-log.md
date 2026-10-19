@@ -68,3 +68,20 @@
 - **命令与退出码**：`npm run typecheck` → 0；`npm run test` → 0（**12 文件 / 255 例**，新增 12 例含合法/非法/超限/污染四类）；`npm --prefix worker run typecheck` → 0；`npm --prefix worker test` → 0（**5 例**，Worker 侧复用同一校验器）。
 - **复审结论**：正向断言（全部合法组合、白名单重建、4 KiB 内快照）与反向断言（17 字符昵称、`099999`、容量 1/7/2.5、等级 0/11、`S4`、23 行棋盘、行长 9、非法字符 `X`、坐标 99、`status:'paused'`、负分、`seq:1.5`、版本 0、`type:'chat'`、`winners`/`playerId` 污染、缺 `seq`、`NaN` clientTime、`undefined/null/[]/42/'string'` 均不抛异常）全部通过；无未处理异常路径。
 - **未解决事项**：服务端消息（S→C）的客户端侧轻量校验在 N31 接入时补充。
+
+---
+
+## N05 — 种子随机算法金样本 ✅ PASS
+
+- **基线 HEAD**：`1e6cb12`
+- **改动文件（1 个逻辑文件 + 1 个测试）**：新增 `src/game/seeded-rng.ts`、`tests/unit/seeded-rng.test.ts`（8 例）
+- **算法（版本 `xorshift32-bag7-v1`，与协议 `RngAlgo` 同步）**：
+  - PRNG：xorshift32（`state ^= state<<13 / >>>17 / <<5`，`>>>0` 保持无符号），输出 `[0,1)`。
+  - 种子归一化：`Math.trunc` → `% 2^32` → `>>>0`；0 替换为 `0x9E3779B9`（xorshift32 禁止零状态）。
+  - UTF-8 稳定哈希：FNV-1a 32 位 + finalizer（`0x7feb352d`/`0x846ca68b`），用于 S3 房主自定义种子。
+  - 席位派生（S2）：`base ^ imul(seatIndex,0x9E3779B9)` 后经 murmur 风格 finalizer；`seatSeedFor` 使 S1/S3 全员同序列、S2 按席位派生。
+  - 出块仍复用既有 `newBag/drawFromBag` 的 7-bag 规则，未更换随机出块规则。
+- **金样本（写入测试断言）**：`seed=12345` 前 100 枚方块序列；`seed=0` 前 14 枚；`hashUtf8ToSeed('abc123')=793982812`、`('中文种子')=3880579551`、`('')=1947474976`；`deriveSeatSeed(987654321, 1..6)=[4186254358,2455252008,2706828453,3026961813,2021123199,3029152338]`；`createSeededRng(1)` 前 5 个浮点值。
+- **命令与退出码**：`npm run typecheck` → 0；`npm run test` → 0（**13 文件 / 263 例**，新增 8 例）；`npm run build` → 0（产物 33.39 kB 未变，说明未影响单机包）。
+- **复审结论**：正向（金样本、重复执行一致、每 7 枚恰为 7 种各一次、S1/S3 同种子同序列、S2 六席位互异）与反向（不同种子序列不同、`seatIndex=0/1.5` 抛 `RangeError`、`count=-1` 抛错、种子 0 不退化为常数）均通过；`src/game/` 仍无网络/DOM 依赖（`import type` 编译期擦除），既有 `random.test.ts` 10 例不变。
+- **未解决事项**：引擎尚未接入种子（属 N06/N34 范围）。
