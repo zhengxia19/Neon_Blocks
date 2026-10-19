@@ -70,7 +70,7 @@ export function createOverlays(overlayRoot: HTMLElement): OverlayControls & {
   const readyRoot = dialog(overlayRoot, {
     className: 'overlay-ready',
     title: '准备开始',
-    body: '霓虹方块 · 无尽马拉松。← → 移动，Z / X 旋转，↓ 软降，Space 硬降，C 暂存。整行填满即消除，堆到顶部结束。',
+    body: '霓虹方块 · 无尽马拉松。← → 移动，↑ / X 顺时针旋转，Z 逆时针旋转，↓ 按住连续软降，空格硬降，C 暂存。整行填满即消除，堆到顶部结束。',
   });
   const startButton = button(readyRoot, '开始游戏', 'btn-start', true);
 
@@ -93,7 +93,7 @@ export function createOverlays(overlayRoot: HTMLElement): OverlayControls & {
   scoreLine.className = 'overlay-score';
   const scoreLabel = document.createElement('span');
   scoreLabel.className = 'overlay-stat-label';
-  scoreLabel.textContent = 'SCORE';
+  scoreLabel.textContent = '得分';
   const finalScore = document.createElement('span');
   finalScore.className = 'overlay-stat-value';
   finalScore.id = 'over-score';
@@ -103,7 +103,7 @@ export function createOverlays(overlayRoot: HTMLElement): OverlayControls & {
   bestLine.className = 'overlay-score';
   const bestLabel = document.createElement('span');
   bestLabel.className = 'overlay-stat-label';
-  bestLabel.textContent = 'BEST';
+  bestLabel.textContent = '最高分';
   const finalBest = document.createElement('span');
   finalBest.className = 'overlay-stat-value';
   finalBest.id = 'over-best';
@@ -200,9 +200,9 @@ export function createSettingsDialog(overlayRoot: HTMLElement): SettingsDialog {
   root.appendChild(title);
 
   const defaults = loadSettings();
-  const soundCheckbox = checkboxRow(root, { id: 'set-sound', label: 'Sound 音效', checked: defaults.soundEnabled });
-  const ghostCheckbox = checkboxRow(root, { id: 'set-ghost', label: 'Ghost 落点预判', checked: defaults.ghostEnabled });
-  const reducedMotionCheckbox = checkboxRow(root, { id: 'set-reduced', label: 'Reduced motion 减少动画', checked: defaults.reducedMotion });
+  const soundCheckbox = checkboxRow(root, { id: 'set-sound', label: '音效', checked: defaults.soundEnabled });
+  const ghostCheckbox = checkboxRow(root, { id: 'set-ghost', label: '落点预判', checked: defaults.ghostEnabled });
+  const reducedMotionCheckbox = checkboxRow(root, { id: 'set-reduced', label: '减少动画', checked: defaults.reducedMotion });
 
   const actions = document.createElement('div');
   actions.className = 'settings-actions';
