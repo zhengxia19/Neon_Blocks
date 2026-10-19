@@ -364,3 +364,16 @@
 - **命令与退出码**：worker vitest→0（20/159）；worker tsc→0；根 vitest→0（17/300）；根 tsc→0；build→0；playwright→0（7 passed）；deploy.yml 未动（5A08B009）。
 - **复审结论**：独立只读复审 PASS（P1×1=4KiB 门槛系 UTF-16 长度下界口径，多字节最坏 12,288B→已加 `withinMessageLimit` 严格字节拒绝+补 1 例；P2 已修：版本不符先 error 再 1002、`#ensureRow` 一致性、error 元数据消费 shared 目录、ping 豁免注释）。非阻塞观察：裸 ping 豁免无单测（有界）；零写断言为固定表行数求和（漏 UPDATE 不覆盖）；`pipelineStats` 未暴露窗长；`#connSeq`/`#snapLatest` 纯内存 DO 驱逐归零（matchId+限流兜底有界，N26/N28 按 seq 去重）；`deliverFrame` 补发槽帧后无条件直发当前帧（N26 复查缓冲）；error revision:1 硬编码（N26）；ready/start/leave 分派仅烟测覆盖；快照槽存续至下局，N26 路由按存活名单过滤。
 - **未解决事项**：无阻塞；N26 消费 `peekSnapshot`+`deliverFrame` 做单目标路由（O(N) 扇出、revision 统一）。
+
+---
+
+## N26 — 服务端单目标快照路由 ✅ PASS
+
+- **基线 HEAD**：`0bc7860`（N25 之后）
+- **改动文件**：`worker/src/room.ts`（新增内存订阅映射 `#watchTarget`(playerId→target)/`#watchersOf`(target→Set)；`#buildDefaultWatchRing(generation)`：默认环按 match_roster 冻结 join_order `ORDER BY join_order ASC` 取 roster∩现存 seats（P2-2 修复：COUNTDOWN 离席者不占环位，否则其观察者整局零远端帧），target[i]=下一席位、永不为自身，advanceToRunning 每局建一次；`#ingestSnapshot` 存槽后仅向 `#watchersOf.get(发送者)` 的连接经 `deliverFrame`（N25 背压单槽）投递 `remote_snapshot`——每帧扇出=观察者数≤N-1，绝不全员转发；P2-1 修复：RUNNING 中 `#watchTarget.size===0`（DO 驱逐重建）惰性重建默认环；公共 `setWatchTarget(playerId,target)`：校验 RUNNING+目标≠自身+双方均在本局 match_roster（淘汰者允许），成功即直发 `watch_target`（关键小消息不过背压）、清该 connId 背压槽（O2：切换弃旧目标待补帧）、目标有本局最新帧（slot.matchId===当前局）紧随补发 `remote_snapshot`；O1 加固：拼接文本 id 经 `JSON.stringify`；清理钩子：startGame/nextRound/`#releaseRoomData` 清两映射、leaveRoom→`#unwatch`；`pipelineStats` +watchTargets）；`worker/test/room-routing.test.ts`（新增 10 例）；`evidence/multiplayer/N26/`。
+- **单测**：worker `npx vitest run`→0（**21 文件 / 169 例**：room-routing 10 例——默认环：快照只进唯一观察者其余零收流；6 人×15 帧总量=90=O(N)（O(N²) 全发应 540）且每席位 15 帧全部来自唯一目标；切换即时补发最后帧（seq=3,score=300）+旧目标流即停+双观察者同收；切到无帧目标只发 watch_target；负向：自观察/非名单→INVALID_TARGET、非 RUNNING→BAD_STATE 且订阅不变；跨局：nextRound 清零→重开环重建、陈旧帧不残留补发；背压整合：慢观察者两帧入单槽丢旧保新、回落后按 seq[2,3] 顺序补发；leaveRoom 摘除订阅 watchTargets 6→5 全员零收流；P2-1：驱逐后新实例惰性重建环路由恢复 watchTargets 0→6；P2-2：COUNTDOWN 离席后存活者路由不指向幽灵）。
+- **本地模拟**：wrangler dev 真实 workerd 烟测 `n26-smoke.ps1` 两轮 exit 0：RUNNING 后 guest 快照→host 收 `remote_snapshot`(targetPlayerId=guest)；host 快照→guest 收；负向 SELF_LOOP=False（自身快照不回流）。
+- **实测排障**：跨局测试需先 `finishGame()`（nextRound 要求 FINISHED 态）；`erasableSyntaxOnly` 下无新类型障碍。
+- **命令与退出码**：worker vitest→0（21/169）；worker tsc→0；根 vitest→0（17/300）；根 tsc→0；build→0；playwright→0（7 passed）；deploy.yml 未动（5A08B009）。
+- **复审结论**：独立只读复审 PASS（无 P1；P2×2 已修：①驱逐后映射不重建致整局停摆→惰性重建+测试；②默认环含 COUNTDOWN 离席幽灵→roster∩seats+测试；O1 JSON 拼接 id 加固、O2 切换清背压槽、O5 改用 match_roster 冻结 join_order 已采纳）。非阻塞观察：O3 淘汰者作为目标/观察者路由语义未测（切换只得最后帧，符合设计，N30 补）；O4 双连接各收一份 watch_target（合理）；O6 `BAD_STATE/INVALID_TARGET` 未入 shared 错误目录（N30 接线时处理）；watch_target/remote_snapshot revision 仍硬编码 1（N28 统一）。
+- **未解决事项**：无阻塞；N27 排行榜纯函数→N28 dirty 批处理（revision 统一）→N29 目标选择纯函数替换默认环→N30 周期切换接线（≤1s、丢弃旧目标快照）。

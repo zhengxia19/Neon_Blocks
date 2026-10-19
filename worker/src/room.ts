@@ -239,6 +239,11 @@ export class RoomDO extends DurableObject<Env> {
   readonly #connRate = new Map<string, number[]>();
   // connId → 出站背压单槽（缓冲超限时覆盖旧帧保留新帧）。
   readonly #outSlots = new Map<string, string>();
+  // —— N26：观察订阅映射（内存态，每局重建；席位 ≤6）——
+  // playerId → 当前观察目标（目标永不为自身；开局建默认环，N29 纯函数/N30 周期重估替换）。
+  readonly #watchTarget = new Map<string, string>();
+  // targetPlayerId → 观察该目标的席位集合（反向索引：快照扇出 O(观察者数)，杜绝 O(N²) 全发）。
+  readonly #watchersOf = new Map<string, Set<string>>();
 
   // SQLite DO 访问方式（本地 workerd 实测）：每次经 `this.ctx.storage.sql` 取用；
   // 构造器缓存句柄在驱逐后写入不可见。
@@ -720,6 +725,9 @@ export class RoomDO extends DurableObject<Env> {
     const deadlineAt = startAt + MATCH_DURATION_MS;
     // N25：新一局快照槽清空（陈旧局快照不得跨局存活）。
     this.#snapLatest.clear();
+    // N26：订阅映射随局作废（RUNNING 时按冻结名单重建默认环）。
+    this.#watchTarget.clear();
+    this.#watchersOf.clear();
     this.#sql.exec(
       `INSERT OR REPLACE INTO match_state
          (id, match_id, generation, master_seed, rng_algo, start_at, deadline_at, running_at)
@@ -867,6 +875,9 @@ export class RoomDO extends DurableObject<Env> {
       seatIndex: seatIndex.get(playerId) ?? 0,
       startLevel: config.startLevel,
     }));
+    // N26：建立默认观察环（确定性：按冻结加入序号的下一席位，永不为自身；
+    // 目标选择算法属 N29 纯函数，N30 周期重估并即时补发最后一帧）。
+    this.#buildDefaultWatchRing(Number(meta.generation));
     return { started: true, matchId: row.match_id, startAt, deadlineAt: Number(row.deadline_at) };
   }
 
@@ -1084,6 +1095,9 @@ export class RoomDO extends DurableObject<Env> {
     this.#connSeq.clear();
     this.#connRate.clear();
     this.#outSlots.clear();
+    // N26：订阅映射随业务释放清空。
+    this.#watchTarget.clear();
+    this.#watchersOf.clear();
     void this.ctx.storage.deleteAlarm();
   }
 
@@ -1393,6 +1407,9 @@ export class RoomDO extends DurableObject<Env> {
     this.#sql.exec('DELETE FROM eliminations');
     // N25：下一局重新开局前清空上局快照槽（与 match_state 删除同步）。
     this.#snapLatest.clear();
+    // N26：订阅映射同样随局作废（RUNNING 时重建默认环）。
+    this.#watchTarget.clear();
+    this.#watchersOf.clear();
     // N21：下一局若全员连接已意外离线，空置闹钟仍适用（重排最近候选）。
     this.#markIdleIfEmpty(Date.now());
     this.#rescheduleAlarms(Date.now());
@@ -1433,6 +1450,8 @@ export class RoomDO extends DurableObject<Env> {
       }
     }
     this.#sql.exec('DELETE FROM seats WHERE player_id = ?', playerId);
+    // N26：离开者摘除观察订阅（不再收流，也不再作为观察者计入扇出）。
+    this.#unwatch(playerId);
     if (Number(seat.is_host) !== 1) {
       return { left: true, newHostPlayerId: null, roomClosed: false, generation: Number(meta.generation) };
     }
@@ -1823,6 +1842,145 @@ export class RoomDO extends DurableObject<Env> {
       matchId,
       receivedAt: Date.now(),
     });
+    // N26：单目标路由——只向当前观察该玩家的连接投递（扇出 O(观察者数)≤N-1，
+    // 每席位至多一条目标流；绝不向全员转发造成 O(N²)）。
+    // P2-1（N26 复审）：DO 驱逐/重建后内存订阅映射丢失——RUNNING 中惰性重建
+    // 默认环（用户自定义目标丢失可接受，N30 周期重估会覆盖）。
+    if (this.#watchTarget.size === 0) this.#buildDefaultWatchRing(Number(att.generation));
+    const watchers = this.#watchersOf.get(att.playerId);
+    if (watchers !== undefined && watchers.size > 0) {
+      const slot = this.#snapLatest.get(att.playerId) as SnapshotSlot;
+      const text = `{"v":${PROTOCOL_VERSION},"type":"remote_snapshot","revision":1,"targetPlayerId":${JSON.stringify(att.playerId)},"snapshot":${slot.encoded}}`;
+      for (const ws of this.ctx.getWebSockets()) {
+        const wAtt = this.#attachmentOf(ws);
+        if (wAtt !== null && watchers.has(wAtt.playerId)) this.deliverFrame(wAtt.connId, ws, text);
+      }
+    }
+  }
+
+  /**
+   * N26：设置席位观察目标（订阅映射）。校验：RUNNING、目标≠自身、观察方与
+   * 目标均在本局冻结名单内（被淘汰者仍可被观察/继续观察）。成功即向该席位
+   * 即时下发 watch_target（关键小消息直发）；目标已有本局最新帧则紧随补发
+   * remote_snapshot（经背压单槽，慢连接只留最新）。
+   */
+  setWatchTarget(playerId: string, targetPlayerId: string): { ok: true } | { ok: false; error: 'BAD_STATE' | 'INVALID_TARGET' } {
+    this.#ensureSchema();
+    this.#ensureRow();
+    if (playerId === targetPlayerId) return { ok: false, error: 'INVALID_TARGET' };
+    const meta = this.#sql
+      .exec<RoomMetaRow>('SELECT generation, occupied FROM room_meta WHERE id = 1')
+      .one();
+    if (meta.occupied !== 1) return { ok: false, error: 'BAD_STATE' };
+    const config = this.#readConfig();
+    if (config === null || config.generation !== Number(meta.generation) || config.state !== 'RUNNING') {
+      return { ok: false, error: 'BAD_STATE' };
+    }
+    const generation = Number(meta.generation);
+    const row = this.#readMatchState(generation);
+    if (row === undefined) return { ok: false, error: 'BAD_STATE' };
+    const matchId = String(row.match_id) as MatchId;
+    for (const id of [playerId, targetPlayerId]) {
+      const inRoster = [
+        ...this.#sql.exec<{ n: number }>(
+          'SELECT 1 AS n FROM match_roster WHERE player_id = ? AND generation = ?',
+          id,
+          generation,
+        ),
+      ];
+      if (inRoster.length === 0) return { ok: false, error: 'INVALID_TARGET' };
+    }
+    // P2-1（N26 复审）：驱逐重建后订阅映射为空——先惰性重建默认环再改写。
+    if (this.#watchTarget.size === 0) this.#buildDefaultWatchRing(generation);
+    this.#setWatchMaps(playerId, targetPlayerId);
+    for (const ws of this.ctx.getWebSockets()) {
+      const att = this.#attachmentOf(ws);
+      if (att === null || att.playerId !== playerId) continue;
+      // O2（N26 复审）：切换即弃背压槽内旧目标待补帧（客户端本就按 targetPlayerId
+      // 丢弃非当前目标帧，服务端不留旧目标积压）。
+      this.#outSlots.delete(att.connId);
+      ws.send(
+        JSON.stringify({
+          v: PROTOCOL_VERSION,
+          type: 'watch_target',
+          revision: 1,
+          targetPlayerId,
+        }),
+      );
+      const slot = this.#snapLatest.get(targetPlayerId);
+      if (slot !== undefined && slot.matchId === matchId) {
+        this.deliverFrame(
+          att.connId,
+          ws,
+          `{"v":${PROTOCOL_VERSION},"type":"remote_snapshot","revision":1,"targetPlayerId":${JSON.stringify(targetPlayerId)},"snapshot":${slot.encoded}}`,
+        );
+      }
+    }
+    return { ok: true };
+  }
+
+  /**
+   * N26：构建默认观察环（确定性：按冻结加入序号的下一席位，永不为自身）。
+   * P2-2（N26 复审）：只对 roster∩现存席位构建——COUNTDOWN 期间离开的席位
+   * 不淘汰但无连接，占环位会使其观察者整局零远端帧。
+   * P2-1：DO 驱逐重建后由 #ingestSnapshot/setWatchTarget 惰性重建复用。
+   */
+  #buildDefaultWatchRing(generation: number): void {
+    this.#watchTarget.clear();
+    this.#watchersOf.clear();
+    const seated = new Set<string>(
+      [
+        ...this.#sql.exec<{ player_id: string }>(
+          'SELECT player_id FROM seats WHERE generation = ?',
+          generation,
+        ),
+      ].map((r) => String(r.player_id)),
+    );
+    const rosterIds = [
+      ...this.#sql.exec<{ player_id: string }>(
+        'SELECT player_id FROM match_roster WHERE generation = ? ORDER BY join_order ASC',
+        generation,
+      ),
+    ]
+      .map((r) => String(r.player_id))
+      .filter((id) => seated.has(id));
+    if (rosterIds.length >= 2) {
+      rosterIds.forEach((id, i) => {
+        this.#setWatchMaps(id, rosterIds[(i + 1) % rosterIds.length]);
+      });
+    }
+  }
+
+  /** N26：订阅映射写入（旧目标的观察者集合同步收缩）。 */
+  #setWatchMaps(playerId: string, target: string): void {
+    const prev = this.#watchTarget.get(playerId);
+    if (prev !== undefined && prev !== target) {
+      const set = this.#watchersOf.get(prev);
+      if (set !== undefined) {
+        set.delete(playerId);
+        if (set.size === 0) this.#watchersOf.delete(prev);
+      }
+    }
+    this.#watchTarget.set(playerId, target);
+    let set = this.#watchersOf.get(target);
+    if (set === undefined) {
+      set = new Set();
+      this.#watchersOf.set(target, set);
+    }
+    set.add(playerId);
+  }
+
+  /** N26：席位删除（leaveRoom）时摘除其观察订阅。 */
+  #unwatch(playerId: string): void {
+    const prev = this.#watchTarget.get(playerId);
+    if (prev !== undefined) {
+      const set = this.#watchersOf.get(prev);
+      if (set !== undefined) {
+        set.delete(playerId);
+        if (set.size === 0) this.#watchersOf.delete(prev);
+      }
+    }
+    this.#watchTarget.delete(playerId);
   }
 
   /** 当前 RUNNING 局的 matchId（非 RUNNING/无局返回 null）。 */
@@ -1841,7 +1999,7 @@ export class RoomDO extends DurableObject<Env> {
     return row === undefined ? null : (String(row.match_id) as MatchId);
   }
 
-  /** 协议 error 回复（message/retryable 取自 shared 错误目录；revision 暂硬编码 1，N26 统一修订号接管）。 */
+  /** 协议 error 回复（message/retryable 取自 shared 错误目录；revision 暂硬编码 1，N28 修订号统一管理）。 */
   #sendProtocolError(ws: WebSocket, code: string): void {
     const meta = describeError(code);
     ws.send(
@@ -1858,7 +2016,7 @@ export class RoomDO extends DurableObject<Env> {
 
   /**
    * N25：出站背压投递——ws.bufferedAmount 超阈值时只入单槽（覆盖旧帧保留新帧，
-   * 慢客户端不积压陈旧快照）；缓冲回落后先补发槽内最新帧。N26 快照路由使用。
+   * 慢客户端不积压陈旧快照）；缓冲回落后先补发槽内最新帧。快照路由（N26）使用。
    */
   deliverFrame(connId: string, ws: WebSocket, text: string): void {
     const buffered = (ws as unknown as { bufferedAmount?: number }).bufferedAmount ?? 0;
@@ -1880,11 +2038,12 @@ export class RoomDO extends DurableObject<Env> {
   }
 
   /** N25：管线内存态规模（全部受席位/连接数约束；测试断言有界性）。 */
-  pipelineStats(): { snapshots: number; conns: number; outSlots: number } {
+  pipelineStats(): { snapshots: number; conns: number; outSlots: number; watchTargets: number } {
     return {
       snapshots: this.#snapLatest.size,
       conns: this.#connSeq.size,
       outSlots: this.#outSlots.size,
+      watchTargets: this.#watchTarget.size,
     };
   }
 
