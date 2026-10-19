@@ -1,4 +1,4 @@
-// Neon Blocks — 主棋盘 Canvas 渲染器（规格 S05，任务 T038–T041）。
+// Neon Blocks — 主棋盘 Canvas 渲染器（规格 S05，任务 T038–T045）。
 // 高清缩放契约：CSS 盒子尺寸 × min(devicePixelRatio, 2) 设置内部 backing store；
 // 每次绘制前 `setTransform(dpr,0,0,dpr,0,0)` 重置变换，绝不累计 scale；
 // resize 幂等（同尺寸不写 canvas.width，避免比例叠加与闪烁）。
@@ -10,14 +10,19 @@
 import { getGhostY } from '../game/board';
 import { HIDDEN_ROWS } from '../game/constants';
 import { getMatrix } from '../game/pieces';
-import type { GameState, PieceType } from '../game/types';
+import type { Board, GameState, PieceType } from '../game/types';
+import { occupiedCols, type ActiveEffect, type EffectsController } from './effects';
 
-/** 每帧渲染选项（后续任务扩展：清行/硬降特效与 reducedMotion T045）。 */
+/** 每帧渲染选项（T045 起 effects/now 由装配层注入；reducedMotion 为设置项）。 */
 export interface RenderOptions {
   /** 落点预判 Ghost 开关（S07 用户设置 ghost；缺省视为开启）。 */
   ghostEnabled?: boolean;
-  /** 减少动画：跳过清行扫光、硬降光尾等特效（T045 接入，本任务仅预留契约位）。 */
+  /** 减少动画：跳过清行扫光、硬降光尾等特效（S04.1/S08）。 */
   reducedMotion?: boolean;
+  /** 特效控制器（T053 装配注入；缺省不绘制任何特效）。 */
+  effects?: EffectsController;
+  /** 时间轴毫秒（rAF timestamp 注入；缺省 performance.now()，便于测试驱动）。 */
+  now?: number;
 }
 
 /** 主棋盘逻辑网格（S03.1：可见区 10×20；Canvas 只画可见区）。 */
@@ -76,6 +81,10 @@ export class BoardRenderer {
   /** 最近一次测得的 CSS 盒子尺寸（render 以此为单位绘制，setTransform 已含 dpr）。 */
   #cssWidth = 0;
   #cssHeight = 0;
+
+  /** 上一帧棋盘/活动块引用（T045 特效定位上下文：清除行推导、硬降光尾列）。 */
+  #prevBoard: Board | null = null;
+  #prevActive: GameState['active'] = null;
 
   constructor(canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d');
@@ -145,6 +154,99 @@ export class BoardRenderer {
     }
     if (state.active) {
       this.#drawActivePiece(state);
+    }
+    // T045：特效层——消费 lastEvent（同 id 只触发一次）、到期自动清理，
+    // 只在 render 中读取效果快照绘制，绝不修改棋盘状态。
+    if (opts.effects !== undefined) {
+      const now = opts.now ?? performance.now();
+      opts.effects.consume(state.lastEvent ?? null, now, {
+        previousBoard: this.#prevBoard,
+        reducedMotion: opts.reducedMotion === true,
+        hardDropCols: this.#hardDropCols(),
+        hardDropRow: this.#hardDropRow(),
+      });
+      this.#drawEffects(opts.effects.snapshot(now), now);
+    }
+    if (Array.isArray(state.board)) {
+      this.#prevBoard = state.board;
+      this.#prevActive = state.active ?? null;
+    }
+  }
+
+  /** 硬降光尾列：取上一帧活动块（落地前的方块）占用列。 */
+  #hardDropCols(): number[] {
+    const prev = this.#prevActive;
+    if (prev === null || prev === undefined) {
+      return [];
+    }
+    return occupiedCols(prev, getMatrix(prev.type, prev.rotation));
+  }
+
+  /** 硬降光尾起始可见行：上一帧活动块实体最低行（隐藏区 clamp 到 0）。 */
+  #hardDropRow(): number {
+    const prev = this.#prevActive;
+    if (prev === null || prev === undefined) {
+      return 20;
+    }
+    const matrix = getMatrix(prev.type, prev.rotation);
+    let maxJ = -1;
+    for (let j = 0; j < matrix.length; j += 1) {
+      if (matrix[j].includes('1')) {
+        maxJ = j;
+      }
+    }
+    return Math.max(0, Math.min(GRID_ROWS - 1, prev.y + maxJ - HIDDEN_ROWS));
+  }
+
+  /**
+   * 绘制效果快照（S04.1：清行=填充闪烁+横向扫光 140ms；硬降=竖直光尾 120ms；
+   * 不用 blur/大量粒子——S05 性能红线）。
+   */
+  #drawEffects(effects: readonly ActiveEffect[], now: number): void {
+    if (effects.length === 0) {
+      return;
+    }
+    const ctx = this.#ctx;
+    const { width: cw, height: ch } = this.cellSize;
+    const cssW = this.#cssWidth;
+    const cssH = this.#cssHeight;
+    for (const fx of effects) {
+      const progress = Math.min(1, Math.max(0, (now - fx.startedAt) / fx.durationMs));
+      const fade = 1 - progress;
+      if (fx.kind === 'clear') {
+        for (const row of fx.rows) {
+          const visRow = row - HIDDEN_ROWS;
+          if (visRow < 0 || visRow >= GRID_ROWS) {
+            continue;
+          }
+          const y = visRow * ch;
+          // 填充闪烁：随剩余时间衰减的白色横带
+          ctx.fillStyle = `rgba(237, 243, 255, ${0.1 + 0.3 * fade * fade})`;
+          ctx.fillRect(0, y, cssW, ch);
+          // 横向扫光：accent 渐变光带从左缘扫至右缘
+          const bandW = cssW * 0.35;
+          const sweepX = -bandW + progress * (cssW + bandW);
+          const gradient = ctx.createLinearGradient(sweepX, 0, sweepX + bandW, 0);
+          gradient.addColorStop(0, 'rgba(165, 140, 255, 0)');
+          gradient.addColorStop(0.5, `rgba(165, 140, 255, ${0.45 * fade})`);
+          gradient.addColorStop(1, 'rgba(69, 214, 232, 0)');
+          ctx.fillStyle = gradient;
+          ctx.fillRect(0, y, cssW, ch);
+        }
+      } else {
+        const yStart = Math.max(0, Math.min(GRID_ROWS - 1, fx.rows[0] ?? 20)) * ch;
+        for (const col of fx.cols) {
+          if (col < 0 || col >= GRID_COLUMNS) {
+            continue;
+          }
+          const gradient = ctx.createLinearGradient(0, yStart, 0, cssH);
+          gradient.addColorStop(0, `rgba(165, 140, 255, ${0.32 * fade})`);
+          gradient.addColorStop(0.6, `rgba(69, 214, 232, ${0.14 * fade})`);
+          gradient.addColorStop(1, 'rgba(69, 214, 232, 0)');
+          ctx.fillStyle = gradient;
+          ctx.fillRect(col * cw, yStart, cw, cssH - yStart);
+        }
+      }
     }
   }
 

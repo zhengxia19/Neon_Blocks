@@ -446,7 +446,7 @@
 - **验证命令/动作**：`npm run typecheck && npm run build`，浏览器逐个切状态截图。
 - **通过条件**：三种覆盖层文案/按钮完整；Canvas 后面的控件不遮挡弹层。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T045｜实现清行与硬降短特效
+#### - [x] T045｜实现清行与硬降短特效
 - **依赖**：T040。**允许修改文件**：`src/ui/effects.ts、src/ui/renderer.ts`。**规格**：S04.1,S08。
 - **明确步骤**：
   1. EffectsController 消费 engine.lastEvent.id，禁止同事件反复触发。
