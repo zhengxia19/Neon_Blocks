@@ -109,11 +109,48 @@
     display: none;
   }
 
-  /* 虚拟按键容器显示为两行网格（按键本体由 T047 渲染并样式化） */
+  /* 虚拟按键容器显示为两行网格（按键本体由 touch.ts 渲染，T052） */
   .touch-controls {
     display: grid;
     grid-template-columns: repeat(4, minmax(44px, 1fr));
     gap: 6px;
     justify-items: center;
   }
+}
+
+/* ── 虚拟触控按键本体（T052，S04.3）：≥44×44 触达、pressed 态明显、 ────────
+   仅按钮自身禁用触摸默认手势（touch-action:none），页面其余区域正常滚动。 */
+.touch-btn {
+  min-width: 44px;
+  min-height: 44px;
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  border: var(--card-border);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: none; /* 按钮上不触发滚动/双击缩放；body 保持 auto */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 80ms ease, transform 80ms ease, border-color 80ms ease;
+}
+
+.touch-btn.pressed,
+.touch-btn:active {
+  background: linear-gradient(135deg, rgba(165, 140, 255, 0.85), rgba(69, 214, 232, 0.75));
+  border-color: transparent;
+  color: #08101f;
+  transform: scale(0.93);
+  box-shadow: 0 0 14px rgba(165, 140, 255, 0.45);
+}
+
+.touch-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
