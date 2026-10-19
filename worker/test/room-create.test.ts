@@ -19,6 +19,9 @@ function makeFakeNs(onCreate: (code: string, req: CreateRoomRequest) => CreateCl
         expect(req.nickname).toBe('host1');
         return onCreate(code, req);
       },
+      joinRoom: async () => {
+        throw new Error('unused in create tests');
+      },
     }),
   };
   return { ns, calls };

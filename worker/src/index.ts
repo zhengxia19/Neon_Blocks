@@ -7,8 +7,14 @@
  */
 import { describeError } from '../../shared/errors';
 import { MAX_MESSAGE_BYTES, PROTOCOL_ID, PROTOCOL_VERSION } from '../../shared/protocol';
-import { utf8ByteLength, validateCreateRoomRequest } from '../../shared/validate';
+import {
+  utf8ByteLength,
+  validateCreateRoomRequest,
+  validateNickname,
+  validateRoomCode,
+} from '../../shared/validate';
 import { corsHeaders, isOriginAllowed } from './cors';
+import type { JoinResult } from './room';
 import { allocateRoomCode, type RoomNamespaceLike } from './room-store';
 
 // Wrangler 要求 DO 类从入口模块导出（N08 绑定校验）。
@@ -47,6 +53,26 @@ function errorResponse(
   return jsonResponse({ error: code, message }, status, origin);
 }
 
+// —— 请求体字节限制：先查 content-length，再按实际 UTF-8 字节复核（清单 N10/N11）。 ——
+async function readJsonBody(
+  request: Request,
+  origin: string | null,
+): Promise<{ value: unknown; response: null } | { value: null; response: Response }> {
+  const declared = Number(request.headers.get('content-length') ?? '0');
+  if (declared > MAX_MESSAGE_BYTES) {
+    return { value: null, response: errorResponse('TOO_LARGE', 413, origin) };
+  }
+  const raw = await request.text();
+  if (utf8ByteLength(raw) > MAX_MESSAGE_BYTES) {
+    return { value: null, response: errorResponse('TOO_LARGE', 413, origin) };
+  }
+  try {
+    return { value: JSON.parse(raw), response: null };
+  } catch {
+    return { value: null, response: errorResponse('BAD_MESSAGE', 400, origin) };
+  }
+}
+
 // —— 创建频率最低门槛：单实例滑动窗口（60s）。跨实例全局限流属 N22。 ——
 const createWindow = new Map<string, number[]>();
 
@@ -55,12 +81,12 @@ export function __resetCreateRateWindow(): void {
   createWindow.clear();
 }
 
-function isRateLimited(ip: string, limitPerMin: number, now: number): boolean {
+function isRateLimited(bucket: string, limitPerMin: number, now: number): boolean {
   const cutoff = now - 60_000;
-  let hits = createWindow.get(ip);
+  let hits = createWindow.get(bucket);
   if (hits === undefined) {
     hits = [];
-    createWindow.set(ip, hits);
+    createWindow.set(bucket, hits);
   }
   while (hits.length > 0 && hits[0] <= cutoff) hits.shift();
   // 窗口表防泄漏：异常多 IP 时清掉过期项。
@@ -105,25 +131,12 @@ export default {
       const limitRaw = Number(env.CREATE_RATE_LIMIT_PER_MIN ?? '30');
       const limit = Number.isInteger(limitRaw) && limitRaw > 0 ? limitRaw : 30;
       const ip = (request.cf as { ip?: string } | undefined)?.ip ?? 'no-cf';
-      if (isRateLimited(ip, limit, Date.now())) {
+      if (isRateLimited(`create|${ip}`, limit, Date.now())) {
         return errorResponse('RATE_LIMITED', 429, origin);
       }
-      // 请求体字节限制：先查 content-length，再按实际 UTF-8 字节复核。
-      const declared = Number(request.headers.get('content-length') ?? '0');
-      if (declared > MAX_MESSAGE_BYTES) {
-        return errorResponse('TOO_LARGE', 413, origin);
-      }
-      const raw = await request.text();
-      if (utf8ByteLength(raw) > MAX_MESSAGE_BYTES) {
-        return errorResponse('TOO_LARGE', 413, origin);
-      }
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        return errorResponse('BAD_MESSAGE', 400, origin);
-      }
-      const req = validateCreateRoomRequest(parsed);
+      const body = await readJsonBody(request, origin);
+      if (body.response !== null) return body.response;
+      const req = validateCreateRoomRequest(body.value);
       if (!req.ok) {
         return errorResponse(req.code, 400, origin);
       }
@@ -144,6 +157,55 @@ export default {
           room: allocation.settings,
         },
         201,
+        origin,
+      );
+    }
+
+    // N11：POST /api/rooms/<码>/join 大厅加入。容量/昵称冲突/状态判定在 DO 内原子完成。
+    const joinMatch = /^\/api\/rooms\/([^/]+)\/join$/.exec(url.pathname);
+    if (joinMatch !== null && request.method === 'POST') {
+      if (origin === null) {
+        return errorResponse('BAD_ORIGIN', 403, null);
+      }
+      const code = validateRoomCode(joinMatch[1]);
+      if (!code.ok) {
+        return errorResponse(code.code, 400, origin);
+      }
+      const limitRaw = Number(env.CREATE_RATE_LIMIT_PER_MIN ?? '30');
+      const limit = Number.isInteger(limitRaw) && limitRaw > 0 ? limitRaw : 30;
+      const ip = (request.cf as { ip?: string } | undefined)?.ip ?? 'no-cf';
+      if (isRateLimited(`join|${ip}`, limit, Date.now())) {
+        return errorResponse('RATE_LIMITED', 429, origin);
+      }
+      const body = await readJsonBody(request, origin);
+      if (body.response !== null) return body.response;
+      const parsed = body.value;
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        return errorResponse('BAD_MESSAGE', 400, origin);
+      }
+      const nickname = validateNickname((parsed as { nickname?: unknown }).nickname);
+      if (!nickname.ok) {
+        return errorResponse(nickname.code, 400, origin);
+      }
+      const id = env.ROOM_DO.idFromName(code.value);
+      const result: JoinResult = await (
+        env.ROOM_DO.get(id) as unknown as { joinRoom(n: string): Promise<JoinResult> }
+      ).joinRoom(nickname.value);
+      if (!result.joined) {
+        const status =
+          result.error === 'ROOM_NOT_FOUND' ? 404 : result.error === 'GAME_STARTED' || result.error === 'ROOM_FULL' || result.error === 'NAME_TAKEN' ? 409 : 400;
+        return errorResponse(result.error, status, origin);
+      }
+      return jsonResponse(
+        {
+          code: code.value,
+          generation: result.generation,
+          playerId: result.playerId,
+          seatToken: result.seatToken,
+          joinOrder: result.joinOrder,
+          room: result.settings,
+        },
+        200,
         origin,
       );
     }

@@ -157,3 +157,16 @@
 - **命令与退出码**：`npm --prefix worker run typecheck` → 0；`npm --prefix worker test` → 0；deploy.yml 未动（前端零改动）。
 - **复审结论**：独立复审 PASS——范围合规（deploy.yml 哈希与 N01 基线一致、前端/shared 零 diff）；门槛顺序、出站白名单、令牌摘要存储、`__*` 路由移除、allowDev gate 均核验；复跑 20 例全绿与证据一致、429 预算 30−13=17 精确吻合。观察①（await 窗口存在「已占用无席位」瞬态）**当轮采纳**：令牌/摘要生成挪至占用 UPDATE 之前，占用+配置+席位写入构成无 await 同步段，重跑单测与全新 E2E（17×201+23×429）均绿后关闭。
 - **未解决事项**：跨实例全局限流、Retry-After、流式字节截断属 N22；seats 写入事务化与 workerd 级 DO 并发探针留 N11+；`release` 尚无 HTTP 路由（房间关闭属 N12）。
+
+---
+
+## N11 — 大厅加入 API（容量/昵称冲突/并发最后席位） ✅ PASS
+
+- **基线 HEAD**：`f8bc003`（N10 之后）
+- **改动文件（3 个逻辑文件 + 3 测试 + 配置）**：`worker/src/room.ts`（`joinRoom`：令牌/摘要先行生成后，占用态→`state`（新增列，默认 LOBBY，旧库幂等补列）→容量→昵称 NOCASE 冲突→席位 INSERT 构成无 await 同步段，DO 单线程串行保证并发抢最后席位仅一人成功；`#readConfig` 校验配置代际与 meta 一致否则 ROOM_NOT_FOUND）；`worker/src/index.ts`（`POST /api/rooms/<码>/join`：Origin 必检→`validateRoomCode`→每 IP 独立 `join|` 桶复用 30/min 门槛→字节双限→`{nickname}` 白名单校验→DO；错误映射 ROOM_NOT_FOUND→404、ROOM_FULL/NAME_TAKEN/GAME_STARTED→409、BAD_*→400；200 白名单 `{code,generation,playerId,seatToken,joinOrder,room}`；`readJsonBody` 提取复用）；`worker/src/room-store.ts`（`RoomNamespaceLike` 增 `joinRoom` 面）；新增 `worker/test/stubs/sqlite-storage.ts`（node:sqlite 适配 workerd SqlStorage 游标语义：`one()` 恰 1 行否则抛错、可迭代）；新增 `room-join.test.ts`（7 例 DO 直测）、`room-join-route.test.ts`（5 例 fetch 级）；`worker/tsconfig.json` types 增 `node`、devDep `@types/node`。
+- **单测**：`npm --prefix worker test` → 0（**6 文件 / 32 例**：容量 2–6 逐一加入至满员全成功、超员 ROOM_FULL；两 `joinRoom` 交错 `Promise.all` 恰 1 成功；`ABc` vs `abc` NAME_TAKEN；未占用/已释放 ROOM_NOT_FOUND；`state=RUNNING`→GAME_STARTED；复用码旧昵称可再用且代际 +1；路由级非法码/昵称/JSON 400 且 0 DO、413/403 且 0 DO、四类错误映射精确、200 无 `hash`/`do-`）。
+- **本地模拟（wrangler dev，A/B 两段、中间重启清限流窗保留 DO 态）**：A 段（20/30 桶）P1 cap2 加入 200（joinOrder=2、64hex 令牌）+ 第 3 人 409 ROOM_FULL；P2 cap3–6 各 `capacity-1` 人全 200、超员全 409。B 段（14/30 桶）P3 `ABc`/`abc`→409 NAME_TAKEN；P4 未占用码 100001→404 ROOM_NOT_FOUND（跨重启 DO 态保留佐证）；N1 099999→400 BAD_ROOM_CODE、中文昵称→400 BAD_NICKNAME、坏 JSON→400 BAD_MESSAGE；N2 5KB→413；N3 缺 Origin→403；N4 cap2 余 1 席 8 并发→**恰 1×200、7×409、OTHER=0**。GAME_STARTED 无 HTTP 触发路径（开赛属 N15），由 DO 直测覆盖。证据 `evidence/multiplayer/N11/{api-local,wrangler-dev-startup,worker-test,worker-typecheck}.txt` + 脚本 `n11-e2e-a.ps1`/`n11-e2e-b.ps1`。
+- **实测排障**：首版 E2E 昵称用 `g3_1` 含下划线违反 `^[A-Za-z0-9]{1,16}$` 致 P2 全 400；join 桶 34>30 使并发段混入 429 → 拆 A/B 两段并中间重启；N4 首版 pre-join 使 cap2 满员 8 并发全 409（设计误，房主占 1 席）→ 去 pre-join 后 1×200/7×409。
+- **命令与退出码**：`npm --prefix worker run typecheck` → 0；`npm --prefix worker test` → 0；deploy.yml 未动（前端零改动）。
+- **复审结论**：独立复审 PASS——范围合规（deploy.yml 哈希前缀 `5A08B009` 与 N01 基线一致、src/ 与 shared/ 零 diff）；joinRoom 同步段零 await、NOCASE 冲突走列 collation+UNIQUE 双防线、代际一致性核验；门槛顺序与错误映射、200 白名单无泄漏核验；复跑 32 例全绿、E2E 与服务器日志一一对应、race 恰 1×200/7×409。非阻塞观察：O1 seats 未显式事务（依赖单线程+无 await 不变量）、O2 join 复用 `CREATE_RATE_LIMIT_PER_MIN` 变量名（桶键已分离，建议 N22 拆名）、O3 GAME_STARTED 无 E2E 触发路径（DO+路由双层覆盖，N15 后补）、O4 昵称冲突未按 generation 过滤（靠复用码清席保证）、O5 join 回传 customSeed 给加入者（保密性 N15+ 收敛）、O6 node:sqlite 桩非真实 workerd 并发（E2E N4 段佐证）。
+- **未解决事项**：join 全局限流与 Retry-After 属 N22；GAME_STARTED 的 HTTP 路径待 N15 开赛路由打通后补 E2E。

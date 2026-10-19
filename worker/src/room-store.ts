@@ -6,7 +6,7 @@
  */
 import type { CreateRoomRequest } from '../../shared/protocol';
 import type { Env } from './index';
-import type { CreateClaim } from './room';
+import type { CreateClaim, JoinResult } from './room';
 
 export const ROOM_CODE_MIN = 100000;
 export const ROOM_CODE_MAX = 999999;
@@ -29,7 +29,10 @@ export function randomRoomCode(): string {
 /** 可注入的最小 DO 命名空间面（单测用 fake，生产用 DurableObjectNamespace）。 */
 export interface RoomNamespaceLike {
   idFromName(code: string): { toString(): string };
-  get(id: unknown): { createRoom(req: CreateRoomRequest): Promise<CreateClaim> };
+  get(id: unknown): {
+    createRoom(req: CreateRoomRequest): Promise<CreateClaim>;
+    joinRoom(nickname: string): Promise<JoinResult>;
+  };
 }
 
 export type Allocation =

@@ -1,0 +1,46 @@
+// N11 测试桩：用 node:sqlite 模拟 workerd 的 SqlStorage（exec→游标 one/all）。
+// 语义对齐：one() 恰好 1 行才返回，否则抛错（与 workerd 报错行为一致）。
+import { DatabaseSync } from 'node:sqlite';
+
+type Row = Record<string, unknown>;
+
+class FakeCursor {
+  private readonly rows: Row[];
+  constructor(rows: Row[]) {
+    this.rows = rows;
+  }
+  one(): Row {
+    if (this.rows.length !== 1) {
+      throw new Error(`Expected exactly one result from SQL query, but got ${this.rows.length} results.`);
+    }
+    return this.rows[0];
+  }
+  [Symbol.iterator](): Iterator<Row> {
+    return this.rows[Symbol.iterator]();
+  }
+}
+
+export function makeSqlStorage(dbPath = ':memory:') {
+  const db = new DatabaseSync(dbPath);
+  return {
+    db,
+    sql: {
+      exec(query: string, ...bindings: unknown[]) {
+        const stmt = db.prepare(query);
+        const isReader = /^\s*(SELECT|PRAGMA|WITH)/i.test(query);
+        const rows = isReader ? stmt.all(...(bindings as never[])) : (stmt.run(...(bindings as never[])) && []);
+        return new FakeCursor(rows as Row[]);
+      },
+    },
+    close: () => db.close(),
+  };
+}
+
+/** 最小 DO ctx：仅 storage.sql（RoomDO 只用到该面）。 */
+export function makeFakeCtx(dbPath = ':memory:') {
+  const store = makeSqlStorage(dbPath);
+  return {
+    ctx: { storage: { sql: store.sql } },
+    store,
+  };
+}

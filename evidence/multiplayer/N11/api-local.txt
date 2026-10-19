@@ -1,0 +1,15 @@
+P1 cap2 join1 => STATUS=200 BODY={"code":"105693","generation":1,"playerId":"p_b481d3ac4221","seatToken":"688284cb564b27dadb351df3f86d21091a26e291a715cdad2ee2a58b10514985","joinOrder":2,"room":{"capacity":2,"randomMode":"S1","startLevel":1}}
+P1 cap2 join2(full) => STATUS=409 ERR=ROOM_FULL
+P2 cap3 joins=[200,200] overflow => STATUS=409 ERR=ROOM_FULL
+P2 cap4 joins=[200,200,200] overflow => STATUS=409 ERR=ROOM_FULL
+P2 cap5 joins=[200,200,200,200] overflow => STATUS=409 ERR=ROOM_FULL
+P2 cap6 joins=[200,200,200,200,200] overflow => STATUS=409 ERR=ROOM_FULL
+P3 name-taken => STATUS=409 ERR=NAME_TAKEN
+P4 unclaimed-code => STATUS=404 ERR=ROOM_NOT_FOUND
+N1 bad => STATUS=400 ERR=BAD_ROOM_CODE
+N1 bad => STATUS=400 ERR=BAD_NICKNAME
+N1 bad => STATUS=400 ERR=BAD_MESSAGE
+N2 big-body => STATUS=413 ERR=TOO_LARGE
+N3 no-origin => STATUS=403
+N4 race-last-seat => 200=1 409=7 OTHER=0
+---

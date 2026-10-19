@@ -23,6 +23,19 @@ export type CreateClaim =
     }
   | { claimed: false; generation: number };
 
+export type JoinFailure = 'ROOM_NOT_FOUND' | 'GAME_STARTED' | 'ROOM_FULL' | 'NAME_TAKEN';
+
+export type JoinResult =
+  | {
+      joined: true;
+      generation: number;
+      playerId: string;
+      seatToken: string;
+      joinOrder: number;
+      settings: RoomSettings;
+    }
+  | { joined: false; error: JoinFailure };
+
 /** 强随机十六进制串（crypto.getRandomValues）。 */
 function randomHex(byteLength: number): string {
   const bytes = new Uint8Array(byteLength);
@@ -68,9 +81,15 @@ export class RoomDO extends DurableObject<Env> {
          random_mode TEXT NOT NULL,
          start_level INTEGER NOT NULL,
          custom_seed TEXT,
-         generation INTEGER NOT NULL
+         generation INTEGER NOT NULL,
+         state TEXT NOT NULL DEFAULT 'LOBBY'
        );`,
     );
+    try {
+      sql.exec("ALTER TABLE room_config ADD COLUMN state TEXT NOT NULL DEFAULT 'LOBBY'");
+    } catch {
+      // 列已存在（N11 前旧库）：幂等忽略。
+    }
     sql.exec(
       `CREATE TABLE IF NOT EXISTS seats (
          player_id TEXT PRIMARY KEY,
@@ -144,6 +163,86 @@ export class RoomDO extends DurableObject<Env> {
     };
     if (req.customSeed !== undefined) settings.customSeed = req.customSeed;
     return { claimed: true, generation, playerId, seatToken, settings };
+  }
+
+  /** 读取当前配置（含状态）；无配置行返回 null。 */
+  #readConfig(): (RoomSettings & { state: string; generation: number }) | null {
+    const rows = [
+      ...this.#sql.exec<{
+        capacity: number;
+        random_mode: string;
+        start_level: number;
+        custom_seed: string | null;
+        state: string;
+        generation: number;
+      }>('SELECT capacity, random_mode, start_level, custom_seed, state, generation FROM room_config WHERE id = 1'),
+    ];
+    const row = rows[0];
+    if (row === undefined) return null;
+    const settings: RoomSettings & { state: string; generation: number } = {
+      capacity: Number(row.capacity),
+      randomMode: row.random_mode as RoomSettings['randomMode'],
+      startLevel: Number(row.start_level),
+      state: row.state,
+      generation: Number(row.generation),
+    };
+    if (row.custom_seed !== null) settings.customSeed = row.custom_seed;
+    return settings;
+  }
+
+  /**
+   * N11：大厅加入。占用态与状态（仅 LOBBY）、容量、昵称大小写不敏感冲突、席位写入
+   * 构成无 await 同步段（令牌/摘要先行生成），DO 单线程串行 → 并发抢最后席位
+   * 只能成功一人（清单 N11 验收）。昵称合法性由 Worker 入口先行校验。
+   */
+  async joinRoom(nickname: string): Promise<JoinResult> {
+    this.#ensureSchema();
+    this.#ensureRow();
+    const playerId = `p_${randomHex(6)}`;
+    const seatToken = randomHex(32);
+    const tokenHash = await sha256Hex(seatToken);
+    const meta = this.#sql
+      .exec<RoomMetaRow>('SELECT generation, occupied FROM room_meta WHERE id = 1')
+      .one();
+    if (meta.occupied !== 1) {
+      return { joined: false, error: 'ROOM_NOT_FOUND' };
+    }
+    const config = this.#readConfig();
+    if (config === null || config.generation !== Number(meta.generation)) {
+      return { joined: false, error: 'ROOM_NOT_FOUND' };
+    }
+    if (config.state !== 'LOBBY') {
+      return { joined: false, error: 'GAME_STARTED' };
+    }
+    const count = Number(
+      this.#sql.exec<{ c: number }>('SELECT COUNT(*) AS c FROM seats').one().c,
+    );
+    if (count >= config.capacity) {
+      return { joined: false, error: 'ROOM_FULL' };
+    }
+    const clash = [
+      ...this.#sql.exec<{ n: number }>('SELECT 1 AS n FROM seats WHERE nickname = ? LIMIT 1', nickname),
+    ];
+    if (clash.length > 0) {
+      return { joined: false, error: 'NAME_TAKEN' };
+    }
+    const joinOrder = count + 1;
+    this.#sql.exec(
+      `INSERT INTO seats (player_id, nickname, token_hash, is_host, join_order, generation)
+       VALUES (?, ?, ?, 0, ?, ?)`,
+      playerId,
+      nickname,
+      tokenHash,
+      joinOrder,
+      Number(meta.generation),
+    );
+    const settings: RoomSettings = {
+      capacity: config.capacity,
+      randomMode: config.randomMode,
+      startLevel: config.startLevel,
+    };
+    if (config.customSeed !== undefined) settings.customSeed = config.customSeed;
+    return { joined: true, generation: Number(meta.generation), playerId, seatToken, joinOrder, settings };
   }
 
   /** 释放：occupied=0；代际保留，下次占用 +1（旧凭据失效依据）。 */
