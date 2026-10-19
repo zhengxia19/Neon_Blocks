@@ -12,6 +12,7 @@ import {
   COUNTDOWN_MS,
   CUSTOM_SEED_PATTERN,
   DISCONNECT_GRACE_MS,
+  EMPTY_ROOM_TTL_MS,
   MATCH_DURATION_MS,
   MAX_PLAYERS,
   MAX_START_LEVEL,
@@ -232,6 +233,12 @@ export class RoomDO extends DurableObject<Env> {
       sql.exec('ALTER TABLE room_meta ADD COLUMN occupied INTEGER NOT NULL DEFAULT 0');
     } catch {
       // 列已存在（N08 旧库）：幂等忽略。
+    }
+    // N21：空置起点（全部连接意外断开时的服务端时刻；NULL=有活动连接或未空置）。
+    try {
+      sql.exec('ALTER TABLE room_meta ADD COLUMN idle_since INTEGER');
+    } catch {
+      // 列已存在（N21 前旧库）：幂等忽略。
     }
     sql.exec(
       `CREATE TABLE IF NOT EXISTS room_config (
@@ -841,7 +848,9 @@ export class RoomDO extends DurableObject<Env> {
     const now = Date.now();
     this.#handleDeadline(now);
     this.#handleGraceExpiry(now);
-    this.#ensureGraceAlarm(now);
+    // N21：全员意外离线满 EMPTY_ROOM_TTL_MS（30 分钟）→ 释放业务数据。
+    this.#handleIdleExpiry(now);
+    this.#rescheduleAlarms(now);
   }
 
   /**
@@ -945,11 +954,12 @@ export class RoomDO extends DurableObject<Env> {
   }
 
   /**
-   * N20：单槽闹钟协调——始终排定**最近待触发时刻**（比赛 deadline/倒计时与
-   * 宽限到期取更早者）。不读 getAlarm（workers-types 返回 Promise），直接由
-   * SQL 计算候选，保证 deadline 闹钟不被更晚的宽限闹钟覆盖、宽限闹钟也不丢。
+   * N20/N21：单槽闹钟协调——始终排定**最近待触发时刻**（比赛 deadline/倒计时、
+   * 宽限到期与空置到期取更早者）。不读 getAlarm（workers-types 返回 Promise），
+   * 直接由 SQL 计算候选：倒计时/比赛 deadline 闹钟不会被更晚的宽限/空置闹钟
+   * 覆盖；候选清空则 deleteAlarm 取消待触发闹钟（N18 复审 O1）。
    */
-  #ensureGraceAlarm(now: number): void {
+  #rescheduleAlarms(now: number): void {
     const candidates: number[] = [];
     const graceAt = this.#pendingGraceAt();
     if (graceAt !== undefined && graceAt > now) candidates.push(graceAt);
@@ -959,14 +969,84 @@ export class RoomDO extends DurableObject<Env> {
     if (meta.occupied === 1) {
       const matchAt = this.#matchAlarmAt(Number(meta.generation));
       if (matchAt !== undefined && matchAt > now) candidates.push(matchAt);
+      const idleAt = this.#idleAlarmAt();
+      if (idleAt !== undefined && idleAt > now) candidates.push(idleAt);
     }
-    if (candidates.length === 0) return;
+    if (candidates.length === 0) {
+      void this.ctx.storage.deleteAlarm();
+      return;
+    }
     this.ctx.storage.setAlarm(Math.min(...candidates));
   }
 
   /** N20：断线即刻重排闹钟（#pendingGraceAt 已含刚标记的断线者；非参赛者无候选）。 */
   #maybeScheduleGraceAlarm(now: number): void {
-    this.#ensureGraceAlarm(now);
+    this.#rescheduleAlarms(now);
+  }
+
+  /** N21：空置到期时刻（idle_since + EMPTY_ROOM_TTL_MS）；无空置起点返回 undefined。 */
+  #idleAlarmAt(): number | undefined {
+    const r = this.#sql.exec<{ idle_since: number | null }>(
+      'SELECT idle_since FROM room_meta WHERE id = 1',
+    ).one();
+    return r.idle_since === null || r.idle_since === undefined
+      ? undefined
+      : Number(r.idle_since) + EMPTY_ROOM_TTL_MS;
+  }
+
+  /**
+   * N21：占用中、席位存在且无活动连接时记录空置起点（只记一次、不后移；
+   * attach 清空）。真实平台在 close 事件触发时把关闭的 socket 移出 Hibernation
+   * 登记，故 getWebSockets()=0 即「所有 WebSocket 意外断开」。
+   */
+  #markIdleIfEmpty(now: number): void {
+    const meta = this.#sql
+      .exec<RoomMetaRow>('SELECT generation, occupied FROM room_meta WHERE id = 1')
+      .one();
+    if (meta.occupied !== 1) return;
+    const seats = [...this.#sql.exec<{ n: number }>('SELECT 1 AS n FROM seats LIMIT 1')];
+    if (seats.length === 0) return;
+    if (this.ctx.getWebSockets().length > 0) return;
+    this.#sql.exec('UPDATE room_meta SET idle_since = ? WHERE id = 1 AND idle_since IS NULL', now);
+  }
+
+  /**
+   * N21：空置到期裁决——判定式 `idle_since + EMPTY_ROOM_TTL_MS <= now`：
+   * 29 分 59 秒房间业务记录仍存在（不意味着超出 30 秒宽限的参赛者仍可复活
+   * 比赛——淘汰是 N20 独立裁决），30 分钟整释放业务数据。
+   */
+  #handleIdleExpiry(now: number): void {
+    this.#ensureSchema();
+    this.#ensureRow();
+    const meta = this.#sql
+      .exec<RoomMetaRow>('SELECT generation, occupied FROM room_meta WHERE id = 1')
+      .one();
+    if (meta.occupied !== 1) return;
+    if (this.ctx.getWebSockets().length > 0) {
+      // 有活动连接却残留空置标记（attach 未及时清空）：自愈清空，不释放。
+      this.#sql.exec('UPDATE room_meta SET idle_since = NULL WHERE id = 1');
+      return;
+    }
+    const idleAt = this.#idleAlarmAt();
+    if (idleAt === undefined || idleAt > now) return;
+    this.#releaseRoomData();
+  }
+
+  /**
+   * N21：释放业务房间——清空全部业务行（席位/配置/票据/连接声明/名单/局态/
+   * 淘汰），occupied=0、idle_since 清空，代际保留（下次占用 +1，旧凭据即刻
+   * 失效），并取消待触发闹钟。
+   */
+  #releaseRoomData(): void {
+    this.#sql.exec('UPDATE room_meta SET occupied = 0, idle_since = NULL WHERE id = 1');
+    this.#sql.exec('DELETE FROM seats');
+    this.#sql.exec('DELETE FROM seat_conns');
+    this.#sql.exec('DELETE FROM ws_tickets');
+    this.#sql.exec('DELETE FROM match_roster');
+    this.#sql.exec('DELETE FROM match_state');
+    this.#sql.exec('DELETE FROM eliminations');
+    this.#sql.exec('DELETE FROM room_config');
+    void this.ctx.storage.deleteAlarm();
   }
 
   /**
@@ -1016,7 +1096,10 @@ export class RoomDO extends DurableObject<Env> {
       this.#handleDeadline(now);
       // N20：驱逐期断线超宽限即刻淘汰（闹钟可能随驱逐丢失，裁决与排钟同源）。
       this.#handleGraceExpiry(now);
-      this.#ensureGraceAlarm(now);
+      // N21：重建期无活动连接 → 补记空置起点；空置已到期即刻释放业务数据。
+      this.#markIdleIfEmpty(now);
+      this.#handleIdleExpiry(now);
+      this.#rescheduleAlarms(now);
     } catch {
       // 构造期存储面异常：不阻断实例化。
     }
@@ -1170,7 +1253,11 @@ export class RoomDO extends DurableObject<Env> {
       winners = this.#coWinnersAtMaxTime(generation, matchId); // 0 人同刻出局可并列
       matchEnded = true;
     }
-    if (matchEnded) this.#endMatchWithWinners(matchId, winners);
+    if (matchEnded) {
+      this.#endMatchWithWinners(matchId, winners);
+      // N21（N18 复审 O1）：提前终局取消残留的 deadline 闹钟（重排候选或 deleteAlarm）。
+      this.#rescheduleAlarms(now);
+    }
     return { ok: true, accepted, already, rejected, matchEnded, winners };
   }
 
@@ -1266,6 +1353,9 @@ export class RoomDO extends DurableObject<Env> {
     // N16 复审 O1：下一局重新开局前不得残留上局 match 信息（getMatchInfo 陈旧）。
     this.#sql.exec('DELETE FROM match_state');
     this.#sql.exec('DELETE FROM eliminations');
+    // N21：下一局若全员连接已意外离线，空置闹钟仍适用（重排最近候选）。
+    this.#markIdleIfEmpty(Date.now());
+    this.#rescheduleAlarms(Date.now());
     return { ok: true, generation: Number(meta.generation) };
   }
 
@@ -1312,7 +1402,8 @@ export class RoomDO extends DurableObject<Env> {
       ),
     ];
     if (survivors.length === 0) {
-      this.#sql.exec('UPDATE room_meta SET occupied = 0 WHERE id = 1');
+      // N21：最后一人主动离开 → 立即释放业务数据并取消待触发闹钟。
+      this.#releaseRoomData();
       return { left: true, newHostPlayerId: null, roomClosed: true, generation: Number(meta.generation) };
     }
     const newHost = survivors[0].player_id;
@@ -1488,6 +1579,8 @@ export class RoomDO extends DurableObject<Env> {
       generation: result.generation,
       connId,
     } satisfies WsAttachment);
+    // N21：恢复活动连接 → 清空空置起点（残留空置闹钟下次触发时自愈失效）。
+    this.#sql.exec('UPDATE room_meta SET idle_since = NULL WHERE id = 1');
     return result;
   }
 
@@ -1589,6 +1682,8 @@ export class RoomDO extends DurableObject<Env> {
     if (released !== 1) return; // 已被替换的陈旧 close：不清标记、不排闹钟
     const now = Date.now();
     this.#sql.exec('UPDATE seats SET disconnected_at = ? WHERE player_id = ?', now, att.playerId);
+    // N21：若本连接是最后一条活动连接 → 记录空置起点（空置闹钟候选）。
+    this.#markIdleIfEmpty(now);
     this.#maybeScheduleGraceAlarm(now);
   }
 

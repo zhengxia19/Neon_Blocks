@@ -63,14 +63,16 @@ describe('N13 票据消费反向', () => {
     expect(await room.consumeTicket(issued.ticket)).toEqual({ ok: false, error: 'TOKEN_EXPIRED' });
   });
 
-  it('旧世代票据 → GENERATION_STALE（房间关闭重占后）', async () => {
+  it('旧世代票据 → 即刻无效（N21 释放清空票据 → TOKEN_REPLAY）', async () => {
     const { room, playerId, seatToken } = await makeSeat();
     const issued = await room.issueTicket(playerId, seatToken);
     if (!issued.issued) throw new Error('issue failed');
-    room.leaveRoom(playerId); // 最后一人离开 → 业务态关闭
+    room.leaveRoom(playerId); // 最后一人离开 → 立即释放业务数据（含票据行）
     const again = await room.createRoom({ nickname: 'host1', capacity: 2, randomMode: 'S1', startLevel: 1 });
     expect(again.claimed).toBe(true);
-    expect(await room.consumeTicket(issued.ticket)).toEqual({ ok: false, error: 'GENERATION_STALE' });
+    // N21：释放即清空 ws_tickets——旧票据连行都不存在（TOKEN_REPLAY 未知票据）；
+    // 消费路径的代际核验（GENERATION_STALE）保留为纵深防御。
+    expect(await room.consumeTicket(issued.ticket)).toEqual({ ok: false, error: 'TOKEN_REPLAY' });
   });
 
   it('每席位仅一条活动连接声明：再签票据消费 → 替换旧声明（N20 重连语义）', async () => {

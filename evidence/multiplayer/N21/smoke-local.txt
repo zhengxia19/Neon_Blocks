@@ -1,0 +1,14 @@
+HEALTH=200
+CREATE=201
+CODE=785567
+JOIN=200
+HOST_CONNECT=True PONG={"type":"pong"}
+GUEST_CONNECT=True PONG={"type":"pong"}
+HOST_CLOSE_NOTE=One or more errors occurred. (The remote party closed the WebSocket connection without completing the close handshake.)
+GUEST_CLOSE_NOTE=One or more errors occurred. (The remote party closed the WebSocket connection without completing the close handshake.)
+ALL_CLOSED
+HOST_RECONNECT_AFTER_IDLE=True PONG={"type":"pong"}
+GUEST_RECONNECT_AFTER_IDLE=True PONG={"type":"pong"}
+TICKET_BAD=401
+DONE
+SMOKE_EXIT=0

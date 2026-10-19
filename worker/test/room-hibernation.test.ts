@@ -191,7 +191,7 @@ describe('N14 休眠/热重启重建', () => {
     const { ctx, store, accepted, state, playerId } = await makeAttached();
     // 模拟驱逐后重建：同一 SQLite 与 Hibernation 存量连接，新 DO 实例。
     const ctx2 = {
-      storage: { sql: store.sql },
+      storage: { sql: store.sql, deleteAlarm: () => {} },
       acceptWebSocket: (w: FakeHibernatableSocket, a?: unknown) => ctx.acceptWebSocket(w, a),
       getWebSockets: ctx.getWebSockets,
     };
@@ -215,7 +215,7 @@ describe('N14 休眠/热重启重建', () => {
     const roomRef = new RoomDO(ctx as never, {} as never);
     roomRef.leaveRoom(playerId);
     const ctx2 = {
-      storage: { sql: store.sql },
+      storage: { sql: store.sql, deleteAlarm: () => {} },
       acceptWebSocket: (w: FakeHibernatableSocket, a?: unknown) => ctx.acceptWebSocket(w, a),
       getWebSockets: ctx.getWebSockets,
     };
@@ -229,7 +229,7 @@ describe('N14 休眠/热重启重建', () => {
     const orphan = makeFakeWs();
     accepted.push(orphan.ws as unknown as FakeHibernatableSocket); // 无附件（模拟损坏/外部注入）
     const ctx2 = {
-      storage: { sql: store.sql },
+      storage: { sql: store.sql, deleteAlarm: () => {} },
       acceptWebSocket: (w: FakeHibernatableSocket, a?: unknown) => ctx.acceptWebSocket(w, a),
       getWebSockets: ctx.getWebSockets,
     };

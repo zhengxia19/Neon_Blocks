@@ -245,7 +245,7 @@ describe('N20 断线宽限与单席位重连', () => {
     vi.setSystemTime(T0 + 30_001);
     const revived = new RoomDO(
       {
-        storage: { sql: m.sql, setAlarm: () => {}, getAlarm: () => undefined },
+        storage: { sql: m.sql, setAlarm: () => {}, getAlarm: () => undefined, deleteAlarm: () => {} },
         acceptWebSocket: () => {},
         getWebSockets: () => [],
       } as never,

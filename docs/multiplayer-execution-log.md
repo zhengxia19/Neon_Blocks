@@ -287,3 +287,16 @@
 - **命令与退出码**：`npx vitest run`→0；`npx tsc --noEmit`→0；根 `npm run test`→0（15/278）；deploy.yml 未动（前缀 5A08B009）。
 - **复审结论**：独立复审 PASS（无 P0/P1）——边界判定式、conn_id 互伤防护、范围隔离（LOBBY 零闹钟、淘汰不删席位）、原子段（consumeTicket 唯一 await 在 sha256）、闹钟三段同序与幂等、协议零改动、旧测试改动净增强、复跑 129/278 全绿。非阻塞观察：O1 淘汰时刻=闹钟触发时刻（服务端权威自洽）；O2 LOBBY 断线者若冻结进 roster 宽限从断线起算（开赛即裁，N21/文档补语义）；O3 跨部署存量附件无 connId 按 4001 关闭（未上生产可接受）；O4 alarm 测试绑定 setAlarm 次数（注释已明意图）；O5 假 ctx 淘汰者 socket 仍收广播（真实 Hibernation 会移除）；O6 替换路径 conn_id 短暂 NULL 可自愈。
 - **未解决事项**：全员离开/全员断线空房释放与 `deleteAlarm`（含 N18-O1 提前终局残留闹钟）属 N21；「连接中断/已淘汰」UI 态与 gameover 服务端接收时刻接线属 N25；SEAT_TAKEN 成类型兼容死支（N22 入站面清理）。
+
+---
+
+## N21 — 房间空置与到期清理 ✅ PASS
+
+- **基线 HEAD**：`d0353f3`（N20 之后）
+- **改动文件（1 个逻辑文件 + 4 测试改 + 1 测试新增）**：`worker/src/room.ts`（room_meta 增列 `idle_since`（幂等 ALTER）；`#markIdleIfEmpty` 占用+有席位+`getWebSockets()=0` 才记空置起点（`UPDATE ... AND idle_since IS NULL` 只记一次；触发点：`#releaseSeatConn` 成功释放、`#restoreAlarms` 重建补记、`nextRound`）；`attachWebSocket` 成功连接即清空空置标记（残留空置闹钟下次触发经自愈分支失效）；`#handleIdleExpiry` 判定式 `idle_since+EMPTY_ROOM_TTL_MS<=now`——29 分 59 秒业务记录仍在、30 分钟整释放，有活动连接则清标记不释放；`#releaseRoomData` 同步清空 7 张业务表（seats/seat_conns/ws_tickets/match_roster/match_state/eliminations/room_config）+occupied=0+代际保留+`deleteAlarm`——`leaveRoom` 最后一人主动离开走此路（立即销毁）；`#ensureGraceAlarm`→`#rescheduleAlarms`：候选=宽限/倒计时/deadline/空置取 min（空房闹钟不覆盖更近候选），候选空则 `deleteAlarm`（修复 N18-O1：`#applyEliminations` 提前终局后重排）；`alarm()` 四段：deadline→grace→idle→reschedule。）
+- **单测**：`npx vitest run`→0（**18 文件 / 138 例**：新增 `room-idle.test.ts` 9 例——全员主动离开立即释放+取消闹钟+旧 token 失效（ROOM_NOT_FOUND）；LOBBY 全员意外断开记空置起点+30 分钟闹钟；29:59 记录仍在/30:00 整清理+旧 token 无效；30 分钟内重连取消空置、到期不释放；RUNNING 全员断开宽限闹钟优先不被空房覆盖、终局后空房闹钟接管、29:59 业务记录在但超 30 秒者不可复活（BAD_STATE）；COUNTDOWN 全员断开 startAt 优先且 alarmCalls 不含 TTL；驱逐重建空置已到期构造器即刻释放；反向多席位单人断开不记空置；提前终局 `deleteAlarm` 取消残留 deadline 闹钟。票据测试 GENERATION_STALE→TOKEN_REPLAY（释放清空票据行=即刻无效，代际核验保留为纵深防御）；grace/hibernation 重建 ctx 补 `deleteAlarm`；stub 补 `deleteAlarm` 面与 `acceptWebSocket` close 移出 Hibernation 登记（对齐平台语义）。）
+- **本地模拟（wrangler dev 冒烟）**：health 200/create 201/join 200；host+guest 首连 101+pong→**全员断开**→空置期内**双方原令牌换票重连 101+pong**（席位数据存续）；反向错误 seatToken 401。证据 `evidence/multiplayer/N21/{smoke-local,wrangler-dev-startup,worker-test,worker-typecheck,root-test}.txt` + `n21-smoke.ps1`。
+- **实测排障**：释放清空 `ws_tickets` 使旧票据消费由 GENERATION_STALE 变 TOKEN_REPLAY（未知票据，同样无效）→按新语义更新断言并注明纵深防御；tsc 判别联合（LeaveResult/BatchEliminationResult）访问 `roomClosed`/`matchEnded` 需先 `if (!x.left)` 收窄。
+- **命令与退出码**：`npx vitest run`→0；`npx tsc --noEmit`→0；根 `npm run test`→0（15/278）；deploy.yml 未动（前缀 5A08B009）。
+- **复审结论**：独立复审 PASS（无 P0/P1）——空置只记一次、29:59/30:00 边界判定式、7 表清空+代际保留的旧凭据失效链、leaveRoom 全程同步无 await 窗口、min 候选协调、替换窗口 conn_id 防护、测试含反向断言、N17/N18/N20 语义不变。非阻塞观察：O1 从未挂过 WS 的占用房间实例存活期不释放（清单字面外，重建/nextRound 补记）；O2 attach 不重排闹钟，空置闹钟空触发一次由自愈消化；O3 joinRoom 不重锚 idle_since（与「无连接=空置」定义一致）；O4 `void deleteAlarm` 浮动 Promise（风险极低）；O5 空置判定依赖平台 close 前移出登记语义（stub 已对齐，偏差方向保守）。
+- **未解决事项**：O1/O2/O3 空置边缘语义在 N25/N26 文档化；「连接中断/已淘汰」UI 与 gameover 接线属 N25；SEAT_TAKEN 死支清理属 N22。

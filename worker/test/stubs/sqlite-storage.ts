@@ -42,6 +42,7 @@ export interface FakeHibernationCtx {
     sql: ReturnType<typeof makeSqlStorage>['sql'];
     setAlarm(time: number | Date): void;
     getAlarm(): number | undefined;
+    deleteAlarm(): void;
   };
   acceptWebSocket(ws: FakeHibernatableSocket, attachment?: unknown): void;
   getWebSockets(): FakeHibernatableSocket[];
@@ -58,7 +59,9 @@ export function makeFakeCtx(dbPath = ':memory:') {
   const store = makeSqlStorage(dbPath);
   const accepted: FakeHibernatableSocket[] = [];
   // N17：Alarm 语义对齐——单一待触发闹钟，setAlarm 覆盖，记录全部调用供断言。
+  // N21：deleteAlarm 取消待触发闹钟（记录调用次数供「取消」断言）。
   const alarmCalls: number[] = [];
+  const deleteCalls: number[] = [];
   let alarmAt: number | undefined;
   const ctx: FakeHibernationCtx = {
     storage: {
@@ -69,13 +72,24 @@ export function makeFakeCtx(dbPath = ':memory:') {
         alarmAt = t;
       },
       getAlarm: () => alarmAt,
+      deleteAlarm() {
+        alarmAt = undefined;
+        deleteCalls.push(1);
+      },
     },
     acceptWebSocket(ws, attachment) {
       accepted.push(ws);
+      // N21：平台语义——socket 关闭后移出 Hibernation 登记（空置判定依赖此）。
+      const originalClose = ws.close.bind(ws);
+      ws.close = (code?: number, reason?: string) => {
+        const i = accepted.indexOf(ws);
+        if (i >= 0) accepted.splice(i, 1);
+        originalClose(code, reason);
+      };
       // 模拟平台接管；附件序列化由 DO 显式调用（与真实 API 一致）。
       if (attachment !== undefined) ws.serializeAttachment(attachment);
     },
     getWebSockets: () => accepted.slice(),
   };
-  return { ctx, store, accepted, alarmCalls, getAlarmAt: () => alarmAt };
+  return { ctx, store, accepted, alarmCalls, deleteCalls, getAlarmAt: () => alarmAt };
 }
