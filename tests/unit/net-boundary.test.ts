@@ -46,4 +46,29 @@ describe('N02 网络模块目录与构建边界', () => {
       .map((f) => relative(process.cwd(), f).split(sep).join('/'));
     expect(offenders).toEqual([]);
   });
+
+  it('反向（N07）：src/game/ 不得出现 WebSocket/fetch 等网络 API 标识', () => {
+    const offenders = listTs(join(SRC_ROOT, 'game'))
+      .filter((f) => /\b(WebSocket|fetch)\b/.test(readFileSync(f, 'utf8')))
+      .map((f) => relative(process.cwd(), f).split(sep).join('/'));
+    expect(offenders).toEqual([]);
+  });
+
+  it('反向（N07）：main.ts 不得静态导入 net/ 或 app/multiplayer（仅允许 import type 与动态 import）', () => {
+    const main = readFileSync(join(SRC_ROOT, 'main.ts'), 'utf8')
+      .replace(/^import\s+type\s[^;]*;/gm, ''); // 类型导入编译期擦除，不构成运行时依赖
+    expect(main).not.toMatch(/from\s+['"](?:\.\.?\/)+net(?:\/[^'"]*)?['"]/);
+    expect(main).not.toMatch(/from\s+['"](?:\.\.?\/)+app\/multiplayer['"]/);
+    expect(main).not.toMatch(/\bWebSocket\b/);
+  });
+
+  it('正向（N07）：main.ts 联网分支经动态 import 装配；multiplayer 入口复用 src/net；mode.ts 保持纯净', () => {
+    const main = readFileSync(join(SRC_ROOT, 'main.ts'), 'utf8');
+    expect(main).toMatch(/import\(['"]\.\/app\/multiplayer['"]\)/);
+    const mp = readFileSync(join(SRC_ROOT, 'app', 'multiplayer.ts'), 'utf8');
+    expect(mp).toMatch(/from\s+['"]\.\.\/net['"]/);
+    expect(mp).not.toMatch(/from\s+['"]\.\.\/game\//); // 占位装配不触碰 GameEngine
+    const mode = readFileSync(join(SRC_ROOT, 'app', 'mode.ts'), 'utf8');
+    expect(mode).not.toMatch(/from\s+['"][^'"]*(net|game|worker)/);
+  });
 });

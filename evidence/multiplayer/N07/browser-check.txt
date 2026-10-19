@@ -1,0 +1,4 @@
+PASS A: no-API fallback single errors=[]
+PASS B: configured multiplayer entry errors=[]
+PASS B2: configured but no param → single errors=[]
+N07_BROWSER_CHECK_PASS

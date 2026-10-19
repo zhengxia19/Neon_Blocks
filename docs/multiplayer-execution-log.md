@@ -98,3 +98,23 @@
 - **命令与退出码**：`npm run test` → 0（**14 文件 / 271 例**，新增 8 例）；`npm run typecheck` → 0；`npm run build` → 0（产物 JS 33.66 kB，未引入网络代码）。证据 `evidence/multiplayer/N06/{test,typecheck,build}.txt`。
 - **复审结论**：独立复审 PASS——改动范围无越界（deploy.yml/ui/net/shared 未动，`src/game/` 无网络/DOM 依赖）；构造兼容、公式、清行前等级结算顺序、restart 保留、非法值拒绝、协议层 1–10 校验齐备；断言无弱化。
 - **未解决事项**：无。
+
+---
+
+## N07 — 网络与单机装配隔离 ✅ PASS
+
+- **基线 HEAD**：`097eab7`（N06 之后）
+- **改动文件（3 个逻辑文件 + 2 个测试）**：新增 `src/app/mode.ts`（`resolveAppMode` 纯函数）、`src/app/multiplayer.ts`（联网装配最小占位）、`tests/unit/mode.test.ts`（4 例）；修改 `src/main.ts`（启动分流 + teardown 追加，boot() 函数体逐字未变）、`tests/unit/net-boundary.test.ts`（+3 边界用例）
+- **分流规则（配置模式）**：仅当 `?mode=multiplayer`（大小写不敏感）**且** 构建期 `VITE_MULTIPLAYER_API_URL` 非空才进入联网装配；任一条件不满足或非法输入一律安全回退单机（不抛异常）。GitHub Pages 现网未配置该变量 → 行为与 N06 前完全一致。
+- **隔离机制**：main.ts 对 `./app/multiplayer` 仅 `import type` + 动态 `import()`；build 产物出现独立 chunk `multiplayer-*.js`（3.37 kB），主包扫描无协议/错误目录字符串（`协议版本不匹配`/`服务器内部错误` 仅在 mp chunk）；`src/game/` 无 net/worker/WebSocket/fetch；mode.ts 零 import 零 DOM。
+- **命令与退出码**：`npm run typecheck` → 0；`npm run test` → 0（**15 文件 / 278 例**，新增 7 例）；`npm run build` → 0；`npm run test:e2e` → 0（**7 例**，单机离线完整可玩）；浏览器分流验证（vite preview 双实例 + Playwright 脚本）→ 0：A 未配置 API+参数→回退单机、B 配置+参数→联网占位（中文面板、协议 v1、无单机句柄）、B2 配置无参数→单机，`pageErrors=[]`。证据 `evidence/multiplayer/N07/{test,typecheck,build,e2e,browser-check}.txt`。
+- **复审结论**：独立复审 PASS——boot() 零改动、双条件闭环（Vite 构建期静态替换排除 undefined 崩溃）、占位不触碰 GameEngine、边界测试正则不误放行运行时导入。非阻塞观察留后续：mp 动态 import 补 `.catch`（N31 接入时）、tsbuildinfo 建议 gitignore。
+- **未解决事项**：占位面板将被 N32 大厅替换。
+
+---
+
+## G0 关口 — P0 阶段关闭（N01–N07）✅ PASS
+
+- **HEAD**：N07 提交（见下方提交记录）
+- **单机全量回归（§0 规则 7）**：`npm ci` → 0；`npm run typecheck` → 0；`npm run test` → 0（**15 文件 / 278 例**）；`npm run build` → 0；`npm run test:e2e` → 0（**7 例**）。证据 `evidence/multiplayer/G0/`。
+- **结论**：单机零退化（E2E 与 N01 基线同为 7 例全绿；主包无网络代码）；协议/校验/错误码/种子随机/起始等级均有正反测试；装配分流有浏览器实证。P0 关闭，进入 P1（N08 Worker/DO 骨架）。

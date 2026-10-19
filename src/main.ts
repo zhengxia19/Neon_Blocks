@@ -22,6 +22,8 @@ import { EffectsController } from './ui/effects';
 import { createHud, createPiecePreview } from './ui/hud';
 import { createOverlays, createSettingsDialog } from './ui/overlays';
 import { mountLayout, type LayoutRefs } from './ui/layout';
+import { resolveAppMode, type AppMode } from './app/mode';
+import type { MultiplayerHandle } from './app/multiplayer';
 
 /** 全局装配句柄（E2E/手动调试与 teardown 使用）。 */
 interface AppHandle {
@@ -320,10 +322,25 @@ function boot(rootElement: HTMLElement): AppHandle {
 }
 
 // ── 启动 + 模块级 teardown（Vite 热重载不泄漏监听/RAF，T053 步骤 3） ────────
+// N07 模式分流：默认单人装配；仅当 `?mode=multiplayer` 且构建期配置了
+// VITE_MULTIPLAYER_API_URL 时进入联网装配（动态 import，网络代码不进单人主包）。
+// 断网/未配置 API 时单机路径完全不变。
 const appRoot = document.getElementById('app');
 let handle: AppHandle | null = null;
+let mpHandle: MultiplayerHandle | null = null;
+const mode: AppMode = resolveAppMode({
+  search: window.location.search,
+  apiUrl: import.meta.env.VITE_MULTIPLAYER_API_URL as string | undefined,
+});
 if (appRoot !== null) {
-  handle = boot(appRoot);
+  if (mode === 'multiplayer') {
+    const apiUrl = (import.meta.env.VITE_MULTIPLAYER_API_URL as string).trim();
+    void import('./app/multiplayer').then((mp) => {
+      mpHandle = mp.bootMultiplayer(appRoot, apiUrl);
+    });
+  } else {
+    handle = boot(appRoot);
+  }
 }
 
 // 调试与自动化测试点读句柄（E2E 经 window 读取引擎状态）。
@@ -338,6 +355,8 @@ window.__NEON_BLOCKS__ = handle ?? undefined;
 export function teardown(): void {
   handle?.teardown();
   handle = null;
+  mpHandle?.teardown();
+  mpHandle = null;
 }
 
 if (import.meta.hot) {
