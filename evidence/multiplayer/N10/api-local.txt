@@ -1,0 +1,17 @@
+P1 create => STATUS=201 BODY={"code":"103297","generation":1,"playerId":"p_8f49549e7b2f","seatToken":"acb9ca9fe2598d62f5065d7b67491bfa4d926acee056d6937d75952c55b7c24b","room":{"capacity":4,"randomMode":"S1","startLevel":1}}
+P2 combo => STATUS=201 CODE=253365 TOKEN-OK
+P2 combo => STATUS=201 CODE=766187 TOKEN-OK
+P2 combo => STATUS=201 CODE=395968 TOKEN-OK
+P2 combo => STATUS=201 CODE=214652 TOKEN-OK
+P2 combo => STATUS=201 CODE=376158 TOKEN-OK
+P2 unique-codes => 6/6
+P3 polluted => STATUS=201 HAS-EVIL=False
+N1 bad => STATUS=400 BODY={"error":"BAD_NICKNAME","message":"昵称需为 1–16 位英文字母或数字。"}
+N1 bad => STATUS=400 BODY={"error":"BAD_CAPACITY","message":"房间人数需为 2–6 人。"}
+N1 bad => STATUS=400 BODY={"error":"BAD_SEED","message":"自定义种子需为 1–32 位英文字母或数字。"}
+N1 bad => STATUS=400 BODY={"error":"BAD_LEVEL","message":"初始等级需为 1–10。"}
+N1 bad => STATUS=400 BODY={"error":"BAD_MESSAGE","message":"消息格式不合法。"}
+N2 big-body => STATUS=413 BODY={"error":"TOO_LARGE","message":"消息超过大小限制。"}
+N3 no-origin => STATUS=403 BODY={"error":"BAD_ORIGIN","message":"请求来源不被允许。"}
+N4 burst-40 => 201=17 429=23 OTHER=0
+---

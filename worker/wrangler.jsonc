@@ -25,7 +25,9 @@
   ],
   "vars": {
     // CORS/Origin 白名单（逗号分隔）：正式仅 GitHub Pages 站点；本地开发白名单在
-    // src/cors.ts 中仅用于测试环境。
-    "ALLOWED_ORIGINS": "https://zhengxia19.github.io"
+    // src/cors.ts 中仅当 ALLOW_DEV_ORIGINS="true"（仅本地模拟/测试设置）时并入。
+    "ALLOWED_ORIGINS": "https://zhengxia19.github.io",
+    // 每 IP 每分钟创建房间最低门槛（清单 N10；跨实例全局限流属 N22）。
+    "CREATE_RATE_LIMIT_PER_MIN": "30"
   }
 }

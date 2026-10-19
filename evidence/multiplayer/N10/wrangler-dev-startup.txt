@@ -1,0 +1,30 @@
+# N10 wrangler dev 本地模拟启动记录（Wrangler 4.151.2，Windows）
+# 启动命令（后台）：cd worker; $env:TEMP=$env:TMP='D:\tcodes\Neon_Blocks\worker\.tmp';
+#   $env:WRANGLER_SEND_METRICS='false'; $env:CI='true'; npx wrangler dev --config wrangler.jsonc --port 8787
+# （workerd 在默认 %TEMP% 下 CreateDirectory 被拒，须重定向 TEMP；见 N08 证据。）
+
+⛅️ wrangler 4.151.2
+Your Worker has access to the following bindings:
+env.ROOM_DO (RoomDO)                                   Durable Object            local
+env.ALLOWED_ORIGINS ("https://zhengxia19.github.io")   Environment Variable      local
+env.CREATE_RATE_LIMIT_PER_MIN ("30")                   Environment Variable      local
+⎔ Starting local server...
+[wrangler:info] Ready on http://127.0.0.1:8787
+
+# 服务端访问日志（与 api-local.txt 探针一一对应）：
+#   GET  /api/health 200（就绪探测）
+#   7× POST /api/rooms 201（P1 + P2×5 + P3）
+#   5× POST /api/rooms 400（N1 非法参数）
+#   1× POST /api/rooms 413（N2 超大 body）
+#   1× POST /api/rooms 403（N3 缺 Origin，未计入限流预算）
+#   突发 40：17× 201 + 23× 429 —— 与「30/min 预算 − 此前计入的 13 次」精确吻合。
+
+# 环境备注（排障记录）：首轮完整套件曾挂起——根因是 job_kill 只取消 pwsh 包装进程，
+# 存活的 `npx wrangler` node 父进程会重新拉起 workerd 子进程（4 个 workerd 并存、
+# 端口被旧实例持有且无响应）。清理顺序：先杀 CommandLine 含 wrangler 的 node，
+# 再杀 workerd，确认 listen=0 后清空 worker\.tmp 重启，即恢复正常。
+
+# 关闭前复跑（采纳 N10 复审观察①：令牌/摘要生成挪至占用 UPDATE 之前，
+# 占用+配置+席位写入构成无 await 同步段）：全新存储重跑完整套件，
+# 结果与上文一致（7×201+5×400+1×413+1×403，突发 17×201+23×429），
+# api-local.txt 为该次输出。

@@ -5,20 +5,23 @@ import { DEV_ORIGINS, corsHeaders, isOriginAllowed, parseAllowlist } from '../sr
 const PROD = 'https://zhengxia19.github.io';
 
 describe('N08 Origin 白名单', () => {
-  it('正向：正式 Pages 原点与本地开发原点允许；无 Origin 请求不适用 CORS', () => {
+  it('正向：正式 Pages 原点允许；allowDev 开启时本地开发原点允许；无 Origin 不适用 CORS', () => {
     expect(isOriginAllowed(PROD, PROD)).toBe(true);
     for (const dev of DEV_ORIGINS) {
-      expect(isOriginAllowed(dev, PROD)).toBe(true);
+      expect(isOriginAllowed(dev, PROD, true)).toBe(true);
     }
     expect(isOriginAllowed(null, PROD)).toBe(true);
   });
 
-  it('反向：未登记原点与近似前缀均拒绝', () => {
+  it('反向：未登记原点、近似前缀拒绝；allowDev 缺省关闭时本地原点也拒绝（N09 观察①）', () => {
     expect(isOriginAllowed('https://evil.example', PROD)).toBe(false);
     expect(isOriginAllowed('https://zhengxia19.github.io.evil.example', PROD)).toBe(false);
     expect(isOriginAllowed('http://zhengxia19.github.io', PROD)).toBe(false); // 协议必须精确
     expect(isOriginAllowed(PROD, undefined)).toBe(false); // 未配置生产白名单
     expect(isOriginAllowed('https://zhengxia19.github.io/', PROD)).toBe(false); // 尾斜杠不等价
+    for (const dev of DEV_ORIGINS) {
+      expect(isOriginAllowed(dev, PROD)).toBe(false); // 生产缺省不放行本地原点
+    }
   });
 
   it('正向：白名单解析容忍空白与空项', () => {

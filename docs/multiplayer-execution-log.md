@@ -144,3 +144,16 @@
 - **命令与退出码**：`npm --prefix worker run typecheck` → 0；`npm --prefix worker test` → 0；deploy.yml 未动（前端零改动）。
 - **复审结论**：独立复审 PASS——范围合规（index.ts 属验收临时接线，N10 移除）；拒绝采样均匀性（limit=4772×900000 整周期）、`changes()` 原子判定、DO 内无 await 串行原子、复用代际语义均经代码与证据双重核验；150 并发唯一码、旧凭据失效、N3 claimed=false 与复跑完全一致。非阻塞观察留 N10+：`__*` 路由必须如期移除、重试不去重（概率≈3.5e-5 可忽略）、`release` 返回语义收敛、临时路由限流属 N22。
 - **未解决事项**：`__*` 临时路由与 `verifyGeneration` 语义将在 N10 正式创建/加入 API 中收敛；码空间耗尽仅单测覆盖（E2E 需 90 万 DO，不现实）。
+
+---
+
+## N10 — 创建房间 API 与最低防滥用门槛 ✅ PASS
+
+- **基线 HEAD**：`eec84e9`（N09 之后）
+- **改动文件（4 个逻辑文件 + 3 测试 + 配置）**：`worker/src/room.ts`（`createRoom`：条件 UPDATE+`changes()` 同步占用提交在任何 await 之前，DO 单线程串行保证并发创建同码至多一成功；`room_config`/`seats` 建表（昵称 `UNIQUE COLLATE NOCASE` 为 N11 铺垫；复用码 `DELETE FROM seats` 不继承旧席位）；房主席位签发 `randomHex(32)` 令牌、只存 SHA-256 摘要；移除 `tryClaim/verifyGeneration`，保留 `release`）；`worker/src/room-store.ts`（`allocateRoomCode` 改以 `createRoom` 为原子单元，claim 结果并入 `Allocation`）；`worker/src/index.ts`（`POST /api/rooms`：门槛顺序=Origin 必须存在且允许→每 IP 60s 滑动窗口（vars `CREATE_RATE_LIMIT_PER_MIN=30`）→content-length 与实际 UTF-8 字节双限（`MAX_MESSAGE_BYTES=4096`）→JSON/参数校验→才触达 DO；201 出站白名单 `{code,generation,playerId,seatToken,room}`，不回显摘要/DO id；**N09 `__*` 临时路由全部移除**）；`worker/src/cors.ts`（`isOriginAllowed` 增 `allowDev` 参数，生产缺省不放行本地原点——落实 N08 观察①）；测试 `room-create.test.ts`（6 例 fetch 级）、`room-allocate.test.ts`（5 例改签名）、`cors.test.ts`（dev 原点正反）；`worker/wrangler.jsonc` 增 vars。
+- **单测**：`npm --prefix worker test` → 0（**4 文件 / 20 例**：201 白名单字段+令牌匹配 `SEAT_TOKEN_PATTERN`+无 `hash`/`do-`；S3+seed 与未知字段丢弃；5 类非法参数 400 精确码且 **0 次 DO 调用**；5KB body 与伪造 content-length 两路 413 且 0 DO；缺/非法 Origin 403 且 0 DO；门槛=2 时第 3 请求 429 且 DO 仅 2 次）。
+- **本地模拟（wrangler dev，全新存储）**：P1 201（gen=1、64hex 令牌）；P2 容量 2–6×模式 S1/S2/S3+seed×等级 1/5/10 组合 5 例全 201、令牌全 TOKEN-OK、6 码全唯一；P3 污染字段响应无 `evilField`；N1 5 例 400 精确码；N2 413 TOO_LARGE；N3 缺 Origin 403；N4 并发 40 → **17×201+23×429**，与「30/min − 此前计入 13」精确吻合（服务端日志逐条对应）。证据 `evidence/multiplayer/N10/{api-local,wrangler-dev-startup,worker-test,worker-typecheck}.txt` + 脚本 `n10-e2e.ps1`。
+- **实测排障（记入启动证据）**：`job_kill` 只杀 pwsh 包装，`npx wrangler` node 父进程会重拉 workerd（4 实例并存、旧实例持 8787 无响应）；须先杀 CommandLine 含 wrangler 的 node 再杀 workerd。PS `[string]::new(整数)` 是码点转换（产生控制字符致 JSON 400），并发脚本昵称改字符串插值。
+- **命令与退出码**：`npm --prefix worker run typecheck` → 0；`npm --prefix worker test` → 0；deploy.yml 未动（前端零改动）。
+- **复审结论**：独立复审 PASS——范围合规（deploy.yml 哈希与 N01 基线一致、前端/shared 零 diff）；门槛顺序、出站白名单、令牌摘要存储、`__*` 路由移除、allowDev gate 均核验；复跑 20 例全绿与证据一致、429 预算 30−13=17 精确吻合。观察①（await 窗口存在「已占用无席位」瞬态）**当轮采纳**：令牌/摘要生成挪至占用 UPDATE 之前，占用+配置+席位写入构成无 await 同步段，重跑单测与全新 E2E（17×201+23×429）均绿后关闭。
+- **未解决事项**：跨实例全局限流、Retry-After、流式字节截断属 N22；seats 写入事务化与 workerd 级 DO 并发探针留 N11+；`release` 尚无 HTTP 路由（房间关闭属 N12）。

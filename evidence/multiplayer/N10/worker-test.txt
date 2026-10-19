@@ -1,0 +1,18 @@
+
+> neon-blocks-worker@0.0.0 test
+> vitest run
+
+
+ RUN  v5.0.5 D:/tcodes/Neon_Blocks/worker
+
+ ✓ test/cors.test.ts (4 tests) 5ms
+ ✓ test/protocol-boundary.test.ts (5 tests) 36ms
+ ✓ test/room-create.test.ts (6 tests) 54ms
+ ✓ test/room-allocate.test.ts (5 tests) 100ms
+
+ Test Files  4 passed (4)
+      Tests  20 passed (20)
+   Start at  00:21:20
+   Duration  320ms (tests 48%, transform 24%, import 21%, worker 7%)
+
+TEST_EXIT=0

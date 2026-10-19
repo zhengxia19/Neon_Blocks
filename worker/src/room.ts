@@ -1,15 +1,39 @@
 /**
- * N09：房间 Durable Object（SQLite-backed）。
- * 每个有效房间码映射一个 DO（`idFromName(roomCode)`）。占用/释放/代际更新在 DO 内
- * 原子完成（DO 单线程 + 同步 SQL，方法内无 await）；代际（generation）用于
- * 房间码复用隔离：释放后再占用 generation+1，旧代际凭据即刻失效（清单 N09 验收）。
- * 完整状态机/席位/闹钟属 N10–N21；禁止每房间常驻 setInterval（方案 §2.1）。
+ * N10：房间 Durable Object（SQLite-backed）。
+ * 每个有效房间码映射一个 DO（`idFromName(roomCode)`）。占用/配置/房主席位写入在
+ * DO 内原子完成：令牌与摘要先行生成（await 仅发生在任何写入之前），占用
+ * （occupied 0→1、generation+1）经条件 UPDATE + changes() 与配置/席位写入构成
+ * 无 await 同步段，其他调用不可能看到半初始化房间。代际（generation）用于
+ * 房间码复用隔离：释放后再占用 generation+1，旧代际凭据即刻失效（N09）。
+ * 席位令牌只存 SHA-256 摘要（禁止回显内部摘要）；完整状态机属 N11–N21。
  */
 import { DurableObject } from 'cloudflare:workers';
+import type { CreateRoomRequest, RoomSettings } from '../../shared/protocol';
 import type { Env } from './index';
-import type { ClaimResult } from './room-store';
 
 type RoomMetaRow = { generation: number; occupied: number };
+
+export type CreateClaim =
+  | {
+      claimed: true;
+      generation: number;
+      playerId: string;
+      seatToken: string;
+      settings: RoomSettings;
+    }
+  | { claimed: false; generation: number };
+
+/** 强随机十六进制串（crypto.getRandomValues）。 */
+function randomHex(byteLength: number): string {
+  const bytes = new Uint8Array(byteLength);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
 
 export class RoomDO extends DurableObject<Env> {
   // SQLite DO 访问方式（本地 workerd 实测）：每次经 `this.ctx.storage.sql` 取用；
@@ -19,8 +43,8 @@ export class RoomDO extends DurableObject<Env> {
   }
 
   /**
-   * 惰性建表：房间元数据（单行）。occupied=0 表示空闲可占用；generation 为
-   * 有效占用次数（每次占用 +1），用于复用隔离。N08 旧表补列（幂等）。
+   * 惰性建表：room_meta 单行（occupied/generation）；room_config 单行（当前代际
+   * 配置）；seats 席位（昵称大小写不敏感唯一，令牌只存摘要）。
    */
   #ensureSchema(): void {
     const sql = this.#sql;
@@ -37,6 +61,26 @@ export class RoomDO extends DurableObject<Env> {
     } catch {
       // 列已存在（N08 旧库）：幂等忽略。
     }
+    sql.exec(
+      `CREATE TABLE IF NOT EXISTS room_config (
+         id INTEGER PRIMARY KEY CHECK (id = 1),
+         capacity INTEGER NOT NULL,
+         random_mode TEXT NOT NULL,
+         start_level INTEGER NOT NULL,
+         custom_seed TEXT,
+         generation INTEGER NOT NULL
+       );`,
+    );
+    sql.exec(
+      `CREATE TABLE IF NOT EXISTS seats (
+         player_id TEXT PRIMARY KEY,
+         nickname TEXT NOT NULL UNIQUE COLLATE NOCASE,
+         token_hash TEXT NOT NULL,
+         is_host INTEGER NOT NULL,
+         join_order INTEGER NOT NULL,
+         generation INTEGER NOT NULL
+       );`,
+    );
   }
 
   /** 确保元数据行存在（初始：generation=0、空闲）。 */
@@ -48,47 +92,68 @@ export class RoomDO extends DurableObject<Env> {
   }
 
   /**
-   * 原子占用：空闲则 occupied=1 且 generation+1（返回新代际）；已占用则原样返回。
+   * 原子创建：空闲则占用（generation+1）、写入配置与房主席位并签发席位令牌；
+   * 已占用返回 claimed=false（由 Worker 换码重试，禁止客户端先检查再提交）。
    * 注意（本地 workerd 实测陷阱）：不可用「SELECT `.next()` 判空再 INSERT」守卫——
    * 未耗尽游标会使后续写入对之后查询不可见；用 `INSERT OR IGNORE` 幂等插入。
-   * 方法内无 await：DO 单线程保证与其他调用串行（清单 N09「DO 内原子完成」）。
+   * 令牌与摘要在任何 await 之前先行生成（纯随机+哈希，无副作用），因此占用
+   * （条件 UPDATE + changes()）与配置/席位写入构成无 await 的同步段：不存在
+   * 「已占用但无席位」的半初始化窗口（N10 复审观察①）。
    */
-  tryClaim(): ClaimResult {
+  async createRoom(req: CreateRoomRequest): Promise<CreateClaim> {
     this.#ensureSchema();
     this.#ensureRow();
+    const playerId = `p_${randomHex(6)}`;
+    const seatToken = randomHex(32); // 64 位 hex，符合 SEAT_TOKEN_PATTERN
+    const tokenHash = await sha256Hex(seatToken);
     this.#sql.exec(
       'UPDATE room_meta SET occupied = 1, generation = generation + 1 WHERE id = 1 AND occupied = 0',
     );
-    // changes() 判定本次 UPDATE 是否生效：已占用时 claimed=false（本次未占用成功）。
     const changed = this.#sql.exec<{ c: number }>('SELECT changes() AS c').one();
     const row = this.#sql
       .exec<RoomMetaRow>('SELECT generation, occupied FROM room_meta WHERE id = 1')
       .one();
-    return { claimed: Number(changed.c) === 1, generation: Number(row.generation) };
+    const generation = Number(row.generation);
+    if (Number(changed.c) !== 1) {
+      return { claimed: false, generation };
+    }
+    // 占用已同步提交：清理旧代际残留，写入新配置（复用码不继承旧席位）。
+    this.#sql.exec('DELETE FROM seats');
+    this.#sql.exec(
+      `INSERT OR REPLACE INTO room_config
+         (id, capacity, random_mode, start_level, custom_seed, generation)
+       VALUES (1, ?, ?, ?, ?, ?)`,
+      req.capacity,
+      req.randomMode,
+      req.startLevel,
+      req.customSeed ?? null,
+      generation,
+    );
+    this.#sql.exec(
+      `INSERT INTO seats (player_id, nickname, token_hash, is_host, join_order, generation)
+       VALUES (?, ?, ?, 1, 1, ?)`,
+      playerId,
+      req.nickname,
+      tokenHash,
+      generation,
+    );
+    const settings: RoomSettings = {
+      capacity: req.capacity,
+      randomMode: req.randomMode,
+      startLevel: req.startLevel,
+    };
+    if (req.customSeed !== undefined) settings.customSeed = req.customSeed;
+    return { claimed: true, generation, playerId, seatToken, settings };
   }
 
   /** 释放：occupied=0；代际保留，下次占用 +1（旧凭据失效依据）。 */
-  release(): ClaimResult {
+  release(): { generation: number } {
     this.#ensureSchema();
     this.#ensureRow();
     this.#sql.exec('UPDATE room_meta SET occupied = 0 WHERE id = 1');
     const row = this.#sql
       .exec<RoomMetaRow>('SELECT generation, occupied FROM room_meta WHERE id = 1')
       .one();
-    return { claimed: false, generation: Number(row.generation) };
-  }
-
-  /** 凭据校验：仅当代际等于当前代际且房间处于占用态时有效（复用隔离）。 */
-  verifyGeneration(generation: number): { valid: boolean; generation: number } {
-    this.#ensureSchema();
-    this.#ensureRow();
-    const row = this.#sql
-      .exec<RoomMetaRow>('SELECT generation, occupied FROM room_meta WHERE id = 1')
-      .one();
-    const current = Number(row.generation);
-    return {
-      valid: row.occupied === 1 && generation === current,
-      generation: current,
-    };
+    return { generation: Number(row.generation) };
   }
 }

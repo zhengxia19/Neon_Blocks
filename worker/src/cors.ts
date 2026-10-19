@@ -25,12 +25,18 @@ export function parseAllowlist(raw: string | undefined): string[] {
 /**
  * Origin 是否允许：
  * - `null`（无 Origin 请求）→ 允许（不适用 CORS）；
- * - 命中生产白名单（vars）或本地开发白名单 → 允许；
+ * - 命中生产白名单（vars）→ 允许；
+ * - `allowDev=true`（仅本地模拟/测试显式开启，N09 复审观察①）时并入本地开发白名单；
  * - 其他 → 拒绝。
  */
-export function isOriginAllowed(origin: string | null, productionAllowlist: string | undefined): boolean {
+export function isOriginAllowed(
+  origin: string | null,
+  productionAllowlist: string | undefined,
+  allowDev = false,
+): boolean {
   if (origin === null) return true;
-  const allowed = new Set([...parseAllowlist(productionAllowlist), ...DEV_ORIGINS]);
+  const dev = allowDev ? DEV_ORIGINS : [];
+  const allowed = new Set([...parseAllowlist(productionAllowlist), ...dev]);
   return allowed.has(origin);
 }
 
