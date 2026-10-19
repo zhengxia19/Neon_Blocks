@@ -22,7 +22,7 @@ function makeFakeNs(joinImpl: (code: string, nickname: string) => Promise<JoinRe
       issueTicket: async () => {
         throw new Error('unused in join tests');
       },
-      consumeTicket: async () => {
+      fetch: async () => {
         throw new Error('unused in join tests');
       },
     }),

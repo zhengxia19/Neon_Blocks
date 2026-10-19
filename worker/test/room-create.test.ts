@@ -25,7 +25,7 @@ function makeFakeNs(onCreate: (code: string, req: CreateRoomRequest) => CreateCl
       issueTicket: async () => {
         throw new Error('unused in create tests');
       },
-      consumeTicket: async () => {
+      fetch: async () => {
         throw new Error('unused in create tests');
       },
     }),

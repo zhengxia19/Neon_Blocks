@@ -52,7 +52,7 @@ function fakeNamespace(script: (code: string, attempt: number) => CreateClaim): 
       issueTicket: async () => {
         throw new Error('unused in allocate tests');
       },
-      consumeTicket: async () => {
+      fetch: async () => {
         throw new Error('unused in allocate tests');
       },
     }),

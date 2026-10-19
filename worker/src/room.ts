@@ -57,6 +57,9 @@ export type ConsumeResult =
 /** N13：握手票据有效期 30s（单次短期票据，席位令牌本身不进 URL）。 */
 export const TICKET_TTL_MS = 30_000;
 
+/** N14：Hibernation 附件——连接身份随 socket 持久化，DO 休眠/热重启后可恢复。 */
+export type WsAttachment = { playerId: string; generation: number };
+
 /** 强随机十六进制串（crypto.getRandomValues）。 */
 function randomHex(byteLength: number): string {
   const bytes = new Uint8Array(byteLength);
@@ -441,6 +444,151 @@ export class RoomDO extends DurableObject<Env> {
       return { ok: false, error: 'SEAT_TAKEN' };
     }
     return { ok: true, playerId: row.player_id, generation: Number(meta.generation) };
+  }
+
+  // —— N14：WebSocket Hibernation 接线（不与 ws.accept 混用）——
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    // 热重启/驱逐重建后恢复连接上下文：按附件核验席位与代际，失效连接即刻关闭
+    // 并释放连接声明；房间配置从 SQLite 读取，无常驻内存、无轮询。
+    this.#restoreHibernated();
+  }
+
+  /**
+   * 票据消费 + Hibernation 接管：DO 内 `ctx.websocket.acceptWebSocket(ws, attachment)`
+   * 完成升级登记（fetch 入口不再 `server.accept()`），附件携带席位身份。
+   */
+  async attachWebSocket(ticket: string, ws: WebSocket): Promise<ConsumeResult> {
+    const result = await this.consumeTicket(ticket);
+    if (!result.ok) {
+      return result;
+    }
+    // workers-types：acceptWebSocket 第二参为 tags；附件经 serializeAttachment 随
+    // socket 持久化，休眠/重建后 deserializeAttachment 恢复席位身份。
+    this.ctx.acceptWebSocket(ws);
+    ws.serializeAttachment({
+      playerId: result.playerId,
+      generation: result.generation,
+    } satisfies WsAttachment);
+    return result;
+  }
+
+  /**
+   * N14：升级请求交接入口：fetch 入口把升级请求原样 `stub.fetch(request)` 转发。
+   * 生产运行时把 server 端连接挂在 `request.webSocket` 上（WebSocket 不可作为
+   * RPC 方法参数序列化）；本地 wrangler dev（miniflare loopback）不附加该属性，
+   * 则 DO 自建 WebSocketPair：server 端交 Hibernation 接管，client 端经 101
+   * Response 回传运行时完成握手。两条路径都只经 acceptWebSocket，不混用 accept()。
+   */
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    if (url.pathname.startsWith('/ws/')) {
+      const jsonError = (error: string, status: number): Response =>
+        new Response(JSON.stringify({ error }), {
+          status,
+          headers: { 'content-type': 'application/json' },
+        });
+      if ((request.headers.get('upgrade') ?? '').toLowerCase() !== 'websocket') {
+        return jsonError('BAD_MESSAGE', 400);
+      }
+      const ticket = url.searchParams.get('ticket') ?? '';
+      const runtimeWs = (request as unknown as { webSocket?: WebSocket | null }).webSocket;
+      let server: WebSocket;
+      let client: WebSocket | null = null;
+      if (runtimeWs !== undefined && runtimeWs !== null) {
+        // 生产路径：运行时已创建 server 端连接，Hibernation 直接接管。
+        server = runtimeWs;
+      } else {
+        // 本地 dev 路径：DO 自建 pair，client 端随 101 回传（miniflare 会把它与
+        // 真实客户端 socket 对接；workerd RPC 支持 Response.webSocket 透传）。
+        const pair = new WebSocketPair() as unknown as WebSocket[];
+        server = pair[1];
+        client = pair[0];
+      }
+      const result = await this.attachWebSocket(ticket, server);
+      if (!result.ok) {
+        return jsonError(result.error, result.error === 'SEAT_TAKEN' ? 409 : 401);
+      }
+      return client !== null
+        ? new Response(null, { status: 101, webSocket: client } as unknown as ResponseInit)
+        : new Response(null, { status: 101 });
+    }
+    return new Response('not found', { status: 404 });
+  }
+
+  /** 事件回调（平台在休眠实例上直接唤起）：N14 提供 liveness ping/pong，协议消息 N16+。 */
+  webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
+    const att = this.#attachmentOf(ws);
+    if (att === null) {
+      ws.close(4001, 'attachment missing');
+      return;
+    }
+    if (typeof message === 'string' && message === 'ping') {
+      ws.send(JSON.stringify({ type: 'pong' }));
+    }
+    // 其余消息类型属 N16 协议接线；未知内容忽略不放大（防滥用属 N25）。
+  }
+
+  webSocketClose(ws: WebSocket, _code: number, _reason: string, _wasClean: boolean): void {
+    this.#releaseSeatConn(ws);
+  }
+
+  webSocketError(ws: WebSocket, _error: unknown): void {
+    this.#releaseSeatConn(ws);
+  }
+
+  #attachmentOf(ws: WebSocket): WsAttachment | null {
+    const raw = ws.deserializeAttachment() as unknown;
+    if (
+      typeof raw !== 'object' || raw === null ||
+      typeof (raw as WsAttachment).playerId !== 'string' ||
+      !Number.isInteger((raw as WsAttachment).generation)
+    ) {
+      return null;
+    }
+    return raw as WsAttachment;
+  }
+
+  /** 断线即释放该席位的连接声明（重连换发新票据即可再占；宽限/淘汰属 N20）。 */
+  #releaseSeatConn(ws: WebSocket): void {
+    const att = this.#attachmentOf(ws);
+    if (att === null) return;
+    this.#ensureSchema();
+    this.#sql.exec(
+      'DELETE FROM seat_conns WHERE player_id = ? AND generation = ?',
+      att.playerId,
+      att.generation,
+    );
+  }
+
+  /** 热重启重建：遍历 Hibernation 存量连接，附件缺失或席位/代际/占用态失效即关闭。 */
+  #restoreHibernated(): void {
+    this.#ensureSchema();
+    this.#ensureRow();
+    const sockets = this.ctx.getWebSockets();
+    if (sockets.length === 0) return;
+    const meta = this.#sql
+      .exec<RoomMetaRow>('SELECT generation, occupied FROM room_meta WHERE id = 1')
+      .one();
+    for (const ws of sockets) {
+      const att = this.#attachmentOf(ws);
+      if (att === null) {
+        ws.close(4001, 'attachment missing');
+        continue;
+      }
+      const seat = [
+        ...this.#sql.exec<{ n: number }>(
+          'SELECT 1 AS n FROM seats WHERE player_id = ? AND generation = ?',
+          att.playerId,
+          att.generation,
+        ),
+      ];
+      if (meta.occupied !== 1 || att.generation !== Number(meta.generation) || seat.length === 0) {
+        ws.close(4001, 'stale connection');
+        this.#sql.exec('DELETE FROM seat_conns WHERE player_id = ?', att.playerId);
+      }
+    }
   }
 
   /** 释放：occupied=0；代际保留，下次占用 +1（旧凭据失效依据）。 */

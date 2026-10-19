@@ -1,0 +1,11 @@
+HEALTH=200
+CREATE=201 code=873142
+JOIN=200
+WS1_CONNECT=True
+WS1_PONG={"type":"pong"}
+TICKET2=200
+WS2_RECONNECT=True
+WS2_PONG={"type":"pong"}
+WS3_REPLAY={"err":"The server returned status code '401' when status code '101' was expected.","ok":false,"ws":null}
+WS4_GUEST=True
+WS4_PONG={"type":"pong"}

@@ -36,11 +36,31 @@ export function makeSqlStorage(dbPath = ':memory:') {
   };
 }
 
-/** 最小 DO ctx：仅 storage.sql（RoomDO 只用到该面）。 */
+/** 最小 DO ctx：storage.sql + N14 Hibernation 面（acceptWebSocket/getWebSockets）。 */
+export interface FakeHibernationCtx {
+  storage: { sql: ReturnType<typeof makeSqlStorage>['sql'] };
+  acceptWebSocket(ws: FakeHibernatableSocket, attachment?: unknown): void;
+  getWebSockets(): FakeHibernatableSocket[];
+}
+
+export interface FakeHibernatableSocket {
+  send(message: string): void;
+  close(code?: number, reason?: string): void;
+  serializeAttachment(attachment: unknown): string;
+  deserializeAttachment(): unknown;
+}
+
 export function makeFakeCtx(dbPath = ':memory:') {
   const store = makeSqlStorage(dbPath);
-  return {
-    ctx: { storage: { sql: store.sql } },
-    store,
+  const accepted: FakeHibernatableSocket[] = [];
+  const ctx: FakeHibernationCtx = {
+    storage: { sql: store.sql },
+    acceptWebSocket(ws, attachment) {
+      accepted.push(ws);
+      // 模拟平台接管；附件序列化由 DO 显式调用（与真实 API 一致）。
+      if (attachment !== undefined) ws.serializeAttachment(attachment);
+    },
+    getWebSockets: () => accepted.slice(),
   };
+  return { ctx, store, accepted };
 }

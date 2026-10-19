@@ -1,14 +1,14 @@
 // N13：POST /api/rooms/<码>/ticket 与 GET /ws/<码> 路由（fetch 级，fake DO）。
 import { beforeEach, describe, expect, it } from 'vitest';
 import worker, { __resetCreateRateWindow, type Env } from '../src/index';
-import type { ConsumeResult, TicketResult } from '../src/room';
+import type { TicketResult } from '../src/room';
 import type { RoomNamespaceLike } from '../src/room-store';
 
 const PROD = 'https://zhengxia19.github.io';
 
 function makeFakeNs(handlers?: {
   issue?: (p: string, t: string) => Promise<TicketResult>;
-  consume?: (t: string) => Promise<ConsumeResult>;
+  handshake?: (req: Request) => Promise<Response>;
 }) {
   const calls: unknown[][] = [];
   const ns: RoomNamespaceLike = {
@@ -26,11 +26,11 @@ function makeFakeNs(handlers?: {
           ? handlers.issue(p, t)
           : { issued: true, ticket: 'a'.repeat(32), expiresAt: Date.now() + 30_000 };
       },
-      consumeTicket: async (t: string) => {
-        calls.push(['consume', String(id), t]);
-        return handlers?.consume
-          ? handlers.consume(t)
-          : { ok: true, playerId: 'p_abc123def456', generation: 1 };
+      fetch: async (req: Request) => {
+        calls.push(['handshake', String(id), req.url, (req as unknown as { webSocket?: unknown }).webSocket]);
+        return handlers?.handshake
+          ? handlers.handshake(req)
+          : new Response('ok', { status: 200 });
       },
     }),
   };
@@ -129,21 +129,27 @@ describe('N13 ws 握手入口路由', () => {
   });
 
   it('票据拒绝映射：REPLAY/EXPIRED/STALE/UNAUTHORIZED→401、SEAT_TAKEN→409', async () => {
-    const errors: Array<[ConsumeResult, number]> = [
-      [{ ok: false, error: 'TOKEN_REPLAY' }, 401],
-      [{ ok: false, error: 'TOKEN_EXPIRED' }, 401],
-      [{ ok: false, error: 'GENERATION_STALE' }, 401],
-      [{ ok: false, error: 'UNAUTHORIZED' }, 401],
-      [{ ok: false, error: 'SEAT_TAKEN' }, 409],
+    const errors: Array<[string, number]> = [
+      ['TOKEN_REPLAY', 401],
+      ['TOKEN_EXPIRED', 401],
+      ['GENERATION_STALE', 401],
+      ['UNAUTHORIZED', 401],
+      ['SEAT_TAKEN', 409],
     ];
-    for (const [result, status] of errors) {
-      const { ns, calls } = makeFakeNs({ consume: async () => result });
+    for (const [err, status] of errors) {
+      const { ns, calls } = makeFakeNs({
+        handshake: async () =>
+          new Response(JSON.stringify({ error: err }), {
+            status: err === 'SEAT_TAKEN' ? 409 : 401,
+            headers: { 'content-type': 'application/json' },
+          }),
+      });
       const res = await worker.fetch(wsRequest('?ticket=aa'), makeEnv(ns));
       expect(res.status).toBe(status);
-      expect(((await res.json()) as Record<string, unknown>).error).toBe(
-        result.ok ? undefined : result.error,
-      );
+      expect(((await res.json()) as Record<string, unknown>).error).toBe(err);
       expect(calls.length).toBe(1);
+      // 升级请求原样转发：DO 收到的 URL 即含单次票据。
+      expect(String(calls[0][2])).toContain('ticket=aa');
     }
   });
 });

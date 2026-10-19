@@ -14,7 +14,7 @@ import {
   validateRoomCode,
 } from '../../shared/validate';
 import { corsHeaders, isOriginAllowed } from './cors';
-import type { ConsumeResult, JoinResult, TicketResult } from './room';
+import type { JoinResult, TicketResult } from './room';
 import { allocateRoomCode, type RoomNamespaceLike } from './room-store';
 
 // Wrangler 要求 DO 类从入口模块导出（N08 绑定校验）。
@@ -256,8 +256,10 @@ export default {
       return jsonResponse({ code: code.value, ticket: result.ticket, expiresAt: result.expiresAt }, 200, origin);
     }
 
-    // N13：GET /ws/<码>?ticket=<单次票据> WS 握手入口。Origin 必检（全局白名单已先行）；
-    // 票据单次/过期/代际/席位连接唯一性由 DO 原子消费。N14 将改 Hibernation 接线。
+    // N14：GET /ws/<码>?ticket=<单次票据> WS 握手入口（Hibernation）。Origin 必检
+    // （全局白名单已先行）；升级请求原样转发给 DO：生产运行时把 server 端连接挂
+    // 在 request.webSocket 上；本地 dev（miniflare loopback）不附加该属性，DO 会
+    // 自建连接对并把 client 端随 101 回传。fetch 入口不再 accept()（禁止混用）。
     const wsMatch = /^\/ws\/([^/]+)$/.exec(url.pathname);
     if (wsMatch !== null && request.method === 'GET') {
       if (origin === null) {
@@ -275,17 +277,17 @@ export default {
         return errorResponse('BAD_MESSAGE', 400, origin);
       }
       const id = env.ROOM_DO.idFromName(code.value);
-      const result: ConsumeResult = await (
-        env.ROOM_DO.get(id) as unknown as { consumeTicket(t: string): Promise<ConsumeResult> }
-      ).consumeTicket(ticket);
-      if (!result.ok) {
-        const status = result.error === 'SEAT_TAKEN' ? 409 : 401;
-        return errorResponse(result.error, status, origin);
+      const sub = await (
+        env.ROOM_DO.get(id) as unknown as { fetch(r: Request): Promise<Response> }
+      ).fetch(request);
+      if (sub.status === 101) {
+        // 握手成功：101 由运行时完成（WS 握手不受 CORS 约束，无需补头）。
+        return sub;
       }
-      const pair = new WebSocketPair();
-      const [client, server] = Object.values(pair);
-      server.accept();
-      return new Response(null, { status: 101, webSocket: client, headers: corsHeaders(origin, 'GET') });
+      const parsed = (await sub.json().catch(() => null)) as { error?: string } | null;
+      const fail = parsed?.error ?? 'TOKEN_REPLAY';
+      const status = fail === 'SEAT_TAKEN' ? 409 : fail === 'BAD_MESSAGE' ? 400 : 401;
+      return errorResponse(fail, status, origin);
     }
 
     return errorResponse('NOT_FOUND', 404, origin, '接口不存在。');
