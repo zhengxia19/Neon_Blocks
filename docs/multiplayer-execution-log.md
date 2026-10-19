@@ -53,3 +53,18 @@
 - **命令与退出码**：`npm run typecheck` → 0；`npm run test` → 0（**11 文件 / 243 例**，新增 10 例：全消息序列化往返、类型白名单、版本判定、非法 JSON 返回 null、未知类型、污染字段、shared 与 `src/game/constants` 棋盘尺寸一致、错误目录完整性与未知码回退）；`npm run build` → 0；`npm --prefix worker run typecheck` → 0；`npm --prefix worker test` → 0（**4 例**，证明 Worker 侧引用同一 `PROTOCOL_VERSION` 与同一错误目录）。
 - **复审结论**：前后端引用同一协议版本与同一错误目录（两侧测试各自断言）；协议版本错误、未知类型、服务端禁止字段均有反向断言；`shared/` 保持纯类型/常量，无 DOM/Worker API。
 - **未解决事项**：运行时严格校验（昵称/房间码/坐标/字节上限）留待 N04。
+
+---
+
+## N04 — 协议校验与报文体上限 ✅ PASS
+
+- **基线 HEAD**：`6b70ac8`
+- **改动文件（1 个逻辑文件 + 2 个测试）**：新增 `shared/validate.ts`；新增 `tests/unit/validate.test.ts`（12 例）；`worker/test/protocol-boundary.test.ts`（+1 例）
+- **实现要点**：不使用 `as Type` 代替校验，所有出站对象由校验器重新构造（白名单字段，未知字段丢弃，`__proto__` 污染不生效）；失败返回错误码而非抛异常（`Result<T> = {ok:true,value} | {ok:false,code}`）。
+  - 字段校验：昵称 `^[A-Za-z0-9]{1,16}$`；房间码 6 位数字且 100000–999999（字符串或整数输入统一规范化为 6 位字符串）；容量 2–6；等级 1–10；模式 S1/S2/S3；S3 必须带 1–32 位字母数字种子、S1/S2 必须不带；棋盘严格 24 行 × 每行 10 字符且字符仅 `.`/`IOTSZJL`；活动块 `t/r/x/y` 类型与宽松坐标边界（-4..宽+3 / -4..高+3）；`score/lines/level/seq` 整数范围；快照状态仅 `running|gameover`。
+  - 报文上限：`utf8ByteLength` + `withinMessageLimit`（4 KiB 硬上限，按 UTF-8 原始字节）。
+  - 凭据区分：`seatToken`（机密，`^[A-Za-z0-9_-]{32,128}$`，失败 `UNAUTHORIZED`）与一次性 `ticket`（`{16,128}`，失败 `TOKEN_EXPIRED`）与公开消息分离。
+  - 客户端消息校验顺序：版本 → 类型白名单 → 禁止字段（`FORBIDDEN_FIELD`）→ `seq` → 各类型专属字段。
+- **命令与退出码**：`npm run typecheck` → 0；`npm run test` → 0（**12 文件 / 255 例**，新增 12 例含合法/非法/超限/污染四类）；`npm --prefix worker run typecheck` → 0；`npm --prefix worker test` → 0（**5 例**，Worker 侧复用同一校验器）。
+- **复审结论**：正向断言（全部合法组合、白名单重建、4 KiB 内快照）与反向断言（17 字符昵称、`099999`、容量 1/7/2.5、等级 0/11、`S4`、23 行棋盘、行长 9、非法字符 `X`、坐标 99、`status:'paused'`、负分、`seq:1.5`、版本 0、`type:'chat'`、`winners`/`playerId` 污染、缺 `seq`、`NaN` clientTime、`undefined/null/[]/42/'string'` 均不抛异常）全部通过；无未处理异常路径。
+- **未解决事项**：服务端消息（S→C）的客户端侧轻量校验在 N31 接入时补充。

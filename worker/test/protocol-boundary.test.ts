@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ERROR_CATALOG, describeError, isErrorCode } from '../../shared/errors';
 import { PROTOCOL_ID, PROTOCOL_VERSION } from '../../shared/protocol';
+import { validateClientMessage } from '../../shared/validate';
 import worker from '../src/index';
 
 describe('N02 前后端共享类型边界', () => {
@@ -14,6 +15,14 @@ describe('N02 前后端共享类型边界', () => {
     expect(isErrorCode('MYSTERY')).toBe(false);
     expect(describeError('MYSTERY')).toEqual(ERROR_CATALOG.INTERNAL);
     expect(ERROR_CATALOG.PROTOCOL_VERSION.retryable).toBe(false);
+  });
+
+  it('N04 Worker 侧可复用 shared/validate 严格校验（禁止字段整条拒绝）', () => {
+    const polluted = validateClientMessage({ v: 1, type: 'gameover', seq: 1, playerId: 's_1' });
+    expect(polluted.ok).toBe(false);
+    if (!polluted.ok) expect(polluted.code).toBe('FORBIDDEN_FIELD');
+    const good = validateClientMessage({ v: 1, type: 'ready', seq: 1 });
+    expect(good.ok).toBe(true);
   });
 
   it('正向：/api/health 返回协议版本，不暴露房间或玩家信息', async () => {
