@@ -540,7 +540,7 @@
 - **验证命令/动作**：`npm run typecheck && npm run build`，浏览器切标签实测。
 - **通过条件**：返回后仍 paused，背景经过时间未折算进重力。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T055｜绑定开始、暂停、继续和重开按钮
+#### - [x] T055｜绑定开始、暂停、继续和重开按钮
 - **依赖**：T044, T053。**允许修改文件**：`src/main.ts、src/ui/overlays.ts`。**规格**：S03.3,S04.3,S06。
 - **明确步骤**：
   1. READY 开始调用 engine.start，PAUSED 继续调用 togglePause，GAMEOVER 再玩一次调用 restart。

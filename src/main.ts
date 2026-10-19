@@ -45,6 +45,40 @@ function boot(rootElement: HTMLElement): AppHandle {
   const nextPreviews = refs.nextSlots.map((slot) => createPiecePreview(slot));
   const overlays = createOverlays(refs.overlayRoot);
 
+  // ── 覆盖层/头部按钮行为（S03.3/S04.3/S06，T055）──────────────────────────
+  // READY 开始、PAUSED 继续/重新开始（重开需确认，取消状态不变）、
+  // GAMEOVER 再玩一次、头部暂停切换；Enter 仅 ready/gameover（键盘层已过滤）。
+  overlays.startButton.addEventListener('click', () => {
+    if (engine.getState().status === 'ready') {
+      engine.start();
+    }
+  });
+  overlays.resumeButton.addEventListener('click', () => {
+    if (engine.getState().status === 'paused') {
+      engine.togglePause();
+    }
+  });
+  overlays.restartButton.addEventListener('click', () => {
+    if (engine.getState().status !== 'paused') {
+      return;
+    }
+    // 来自活跃对局的重新开始：原生确认，取消时状态保持 paused 不变。
+    if (window.confirm('重新开始将丢弃当前进度，确认吗？')) {
+      engine.restart();
+    }
+  });
+  overlays.replayButton.addEventListener('click', () => {
+    if (engine.getState().status === 'gameover') {
+      engine.restart();
+    }
+  });
+  refs.pauseButton.addEventListener('click', () => {
+    const status = engine.getState().status;
+    if (status === 'running' || status === 'paused') {
+      engine.togglePause();
+    }
+  });
+
   // ── 输入：键盘（内置长按）+ 触控（独立长按控制器，同 DAS/ARR 参数） ──────
   const keyboard = new KeyboardController(engine, {
     onEscape: () => {

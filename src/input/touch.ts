@@ -25,6 +25,8 @@ export interface TouchControlsOptions {
 export interface TouchControls {
   /** 按钮元素（测试点读）。 */
   buttons: ReadonlyMap<string, HTMLButtonElement>;
+  /** 释放全部按下态（失焦/切后台时由装配层调用，T054）。 */
+  releaseAll(): void;
   dispose(): void;
 }
 
