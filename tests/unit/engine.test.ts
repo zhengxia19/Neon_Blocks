@@ -653,17 +653,180 @@ describe('GameEngine 自然重力 step（T028，S03.3）', () => {
     expect(snapshot(engine)).toEqual(before);
   });
 
-  it('触底后持续 step：不下降、零加分、不崩溃（锁定延迟由 T029 接管）', () => {
+  it('触底后持续 step：不下降、零加分、不崩溃；T029 锁定计时满 500ms 后锁定', () => {
     const engine = newRunning();
     // 软降至 y=22 贴底（I r0 实体行 23 已满）
     for (let i = 0; i < 20; i += 1) engine.softDrop();
     expect(engine.getState().active?.y).toBe(22);
     const scoreBefore = engine.getState().score;
-    for (let i = 0; i < 30; i += 1) engine.step(100); // 3000ms 远超 900
+    // T029 前契约：着地不立即锁定——400ms 时仍为原块且位置保持
+    for (let i = 0; i < 4; i += 1) engine.step(100);
+    expect(engine.getState().active?.y).toBe(22);
+    expect(engine.getState().active?.type).toBe('I');
+    expect(engine.getState().lockElapsedMs).toBeCloseTo(400, 10);
+    // 累计 ≥500ms 后由 step 锁定（T029 接管锁定），此后不再下降、不加分、不崩溃
+    for (let i = 0; i < 26; i += 1) engine.step(100);
     const s = engine.getState();
-    expect(s.active?.y).toBe(22); // 不能下降：位置保持
-    expect(s.score).toBe(scoreBefore); // 不加分
-    expect(s.active).not.toBeNull(); // 未锁定（T029 前 step 不负责锁定）
-    expect(s.gravityElapsedMs).toBeGreaterThanOrEqual(0); // 时间照常累积不为负
+    expect(s.score).toBe(scoreBefore); // 锁定本身与重力均不加分（清行分留 T033）
+    for (const x of [3, 4, 5, 6]) {
+      expect(s.board[23][x]).toBe('I'); // 已锁定在棋盘
+    }
+    expect(s.active).not.toBeNull(); // 新块已生成，后续 step 正常推进
+    expect(s.gravityElapsedMs).toBeGreaterThanOrEqual(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T029：落地锁定延迟与限次重置（S03.3）
+// ---------------------------------------------------------------------------
+describe('GameEngine 锁定延迟（T029，S03.3）', () => {
+  // rng=()=>0：首块 I（r0 实体行 y+1、列 x..x+3），次块 L、再次 J。
+  const newRunning = (board?: Board): GameEngine => {
+    const engine = new GameEngine(() => 0, board);
+    engine.start();
+    return engine;
+  };
+
+  /** 软降至贴底（空盘 I r0 → y=22）。 */
+  const toBottom = (engine: GameEngine, times: number): void => {
+    for (let i = 0; i < times; i += 1) engine.softDrop();
+  };
+
+  it('499ms 不锁、满 500ms 锁定：锁入棋盘、发 lock 事件（count=消行数）、生成新块并复位计时', () => {
+    const engine = newRunning();
+    toBottom(engine, 20);
+    expect(engine.getState().active?.y).toBe(22);
+    for (let i = 0; i < 4; i += 1) engine.step(100);
+    engine.step(99); // 累计 499ms：不锁
+    let s = engine.getState();
+    expect(s.active?.type).toBe('I');
+    expect(s.lockElapsedMs).toBeCloseTo(499, 10);
+    engine.step(1); // 恰 500ms：锁定
+    s = engine.getState();
+    for (const x of [3, 4, 5, 6]) {
+      expect(s.board[23][x]).toBe('I');
+    }
+    expect(s.active?.type).toBe('L'); // 新块出生
+    expect(s.active?.y).toBe(2);
+    expect(s.lastEvent).toEqual({ id: 1, kind: 'lock', count: 0 });
+    expect(s.lockElapsedMs).toBe(0); // 新块计时复位
+    expect(s.lockResetCount).toBe(0);
+    expect(s.gravityElapsedMs).toBe(0);
+    expect(s.score).toBe(20); // 仅软降分保留，锁定不加分
+  });
+
+  it('着地成功移动重置计时并消耗配额；失败移动不重置', () => {
+    const engine = newRunning();
+    toBottom(engine, 20);
+    for (let i = 0; i < 4; i += 1) engine.step(100); // 累计 400ms
+    expect(engine.getState().lockElapsedMs).toBeCloseTo(400, 10);
+    engine.move(1); // x=4 着地成功 → 重置
+    let s = engine.getState();
+    expect(s.lockElapsedMs).toBe(0);
+    expect(s.lockResetCount).toBe(1);
+    for (let i = 0; i < 4; i += 1) engine.step(100); // 再累计 400ms
+    engine.move(1); // x=5 成功 → 再重置
+    s = engine.getState();
+    expect(s.lockElapsedMs).toBe(0);
+    expect(s.lockResetCount).toBe(2);
+    for (let i = 0; i < 4; i += 1) engine.step(100); // 再累计 400ms
+    engine.move(1); // x=6（贴右墙前最后一格）着地成功 → 重置、配额 3
+    s = engine.getState();
+    expect(s.active?.x).toBe(6);
+    expect(s.lockElapsedMs).toBe(0);
+    expect(s.lockResetCount).toBe(3);
+    for (let i = 0; i < 4; i += 1) engine.step(100); // 再累计 400ms
+    engine.move(1); // 贴墙失败：不重置、计时原样
+    s = engine.getState();
+    expect(s.active?.x).toBe(6);
+    expect(s.lockElapsedMs).toBeCloseTo(400, 10); // 失败动作后计时原样
+    expect(s.lockResetCount).toBe(3); // 仅 3 次成功各计 1
+  });
+
+  it('着地成功旋转同样消耗重置配额（L 贴底右转）', () => {
+    const engine = newRunning();
+    engine.hardDrop(); // I 立即锁定，L 出生（r0 实体最低行 y+2）
+    expect(engine.getState().active?.type).toBe('L');
+    toBottom(engine, 19); // L r0 贴底 y=21
+    expect(engine.getState().active?.y).toBe(21);
+    for (let i = 0; i < 3; i += 1) engine.step(100); // 累计 300ms
+    engine.rotate(1); // r0→r1：实体行 y..y+1=21..22，可放置
+    const s = engine.getState();
+    expect(s.active?.rotation).toBe(1); // 旋转成功
+    expect(s.lockElapsedMs).toBe(0); // 计时重置
+    expect(s.lockResetCount).toBe(1); // 配额消耗 1
+  });
+
+  it('重置上限 15 次：第 16 次成功移动不再重置，计时继续累计至 500ms 锁定', () => {
+    const engine = newRunning();
+    toBottom(engine, 20);
+    // 每轮：累计 100ms → 左右交替成功移动 → 重置并消耗配额
+    for (let i = 1; i <= 15; i += 1) {
+      engine.step(100);
+      engine.move(i % 2 === 1 ? 1 : -1); // x 在 3/4 间往返，着地成功
+      const s = engine.getState();
+      expect(s.lockResetCount).toBe(i);
+      expect(s.lockElapsedMs).toBe(0);
+    }
+    engine.step(100); // 第 16 轮：累计 100ms
+    engine.move(1); // 成功但配额已尽：不重置
+    let s = engine.getState();
+    expect(s.lockResetCount).toBe(15); // 封顶不再增长
+    expect(s.lockElapsedMs).toBeCloseTo(100, 10); // 计时保留
+    for (let i = 0; i < 4; i += 1) engine.step(100); // 100+400=500ms
+    s = engine.getState();
+    // 往返后停在 x=4，最后一次成功移动（不重置）到 x=5 → 锁定列 5..8
+    for (const x of [5, 6, 7, 8]) {
+      expect(s.board[23][x]).toBe('I'); // 终锁定，无无限重置
+    }
+    expect(s.active?.type).toBe('L');
+  });
+
+  it('离地清零计时但保留重置次数；重落地重新计时并在 500ms 后锁定', () => {
+    // 第 23 行预填 x=0,1,2,5：I 在 x=3..5 上方受 x=5 支撑停于 y=21；
+    // 右移至 x=6 时第 23 行 x=6..9 全空 → 离地（预填 4 格 + I 4 格 = 8 格，不会清行，锁定格可检查）
+    const src = createEmptyBoard();
+    for (const x of [0, 1, 2, 5]) src[23][x] = 'O';
+    const engine = newRunning(src);
+    toBottom(engine, 19); // 软降至 y=21（第 23 行 x=5 挡住 y=22）
+    expect(engine.getState().active?.y).toBe(21);
+    for (let i = 0; i < 4; i += 1) engine.step(100); // 着地累计 400ms
+    engine.move(1); // x=4：第 23 行 x=5 仍挡 → 着地，重置消耗 1
+    for (let i = 0; i < 3; i += 1) engine.step(100);
+    engine.move(1); // x=5：第 23 行 x=5 仍挡 → 着地，重置消耗 2
+    for (let i = 0; i < 2; i += 1) engine.step(100);
+    engine.move(1); // x=6：第 23 行 x=6..9 全空 → 离地
+    let s = engine.getState();
+    expect(s.active?.x).toBe(6);
+    expect(s.lockElapsedMs).toBe(0); // 离地清零
+    expect(s.lockResetCount).toBe(2); // 次数保留
+    expect(canPlace(s.board as never, { ...s.active!, y: s.active!.y + 1 } as never)).toBe(true);
+    // 重力落入空档至 y=22 后重新计时（本场景 gravityElapsedMs 已有存量，
+    // 落地时刻不作精确断言），锁定必发生在重新着地再累计 ≥500ms 之后
+    let locked = false;
+    for (let i = 0; i < 20 && !locked; i += 1) {
+      engine.step(100);
+      locked = engine.getState().board[23][6] === 'I';
+    }
+    s = engine.getState();
+    expect(s.board[23][6]).toBe('I'); // 最终锁定在空档
+    for (const x of [6, 7, 8, 9]) {
+      expect(s.board[23][x]).toBe('I');
+    }
+    expect(s.lastEvent).toEqual({ id: 1, kind: 'lock', count: 0 }); // 8 格不满行，count=0
+    expect(s.active?.type).toBe('L'); // 新块已生成
+  });
+
+  it('自然锁定带清行：lock 事件 count=消行数 1，清行分/lines 留 T033 结算', () => {
+    const src = createEmptyBoard();
+    for (const x of [0, 1, 2, 7, 8, 9]) src[23][x] = 'O'; // 第 23 行留 x=3..6 缺口
+    const engine = newRunning(src);
+    toBottom(engine, 20); // I 落入缺口 y=22，着地
+    for (let i = 0; i < 5; i += 1) engine.step(100); // 恰 500ms 锁定并清行
+    const s = engine.getState();
+    expect(s.board).toEqual(createEmptyBoard()); // 整行已清除
+    expect(s.lastEvent).toEqual({ id: 1, kind: 'lock', count: 1 });
+    expect(s.score).toBe(20); // 仅软降分，未提前计清行分
+    expect(s.lines).toBe(0);
   });
 });

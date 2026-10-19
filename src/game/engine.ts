@@ -1,8 +1,10 @@
-// T022–T028：GameEngine 类——私有状态、初始 ready 状态、NEXT 队列补充与出生活动块、
-// 水平移动、顺逆旋转、单次软降、硬降立即锁块、基于 dt 的自然重力（规格 S03.1–S03.5）。
+// T022–T029：GameEngine 类——私有状态、初始 ready 状态、NEXT 队列补充与出生活动块、
+// 水平移动、顺逆旋转、单次软降、硬降立即锁块、基于 dt 的自然重力、
+// 落地锁定延迟与限次重置（规格 S03.1–S03.5）。
 // 纯逻辑模块：不访问 DOM/Canvas/localStorage；UI 仅经 getState() 只读视图读取状态。
 // 动作 API（move/rotate/softDrop/…）由 T024+ 逐个补齐。
 import { canPlace, clearFullRows, cloneBoard, createEmptyBoard, getGhostY, mergePiece } from './board';
+import { LOCK_DELAY_MS, LOCK_RESET_LIMIT } from './constants';
 import { drawFromBag } from './random';
 import { dropPoints, gravityIntervalMs } from './scoring';
 import { tryRotate } from './srs';
@@ -120,15 +122,79 @@ export class GameEngine {
   }
 
   /**
+   * 锁定当前活动块（S03.3，自然锁定路径；hardDrop 的立即锁定在 T027 内联）：
+   * `mergePiece` 锁入 → `clearFullRows` 一次性清行 → 发出 `lock` 事件
+   * （count=消行数，id 单调递增）→ 生成下一块。清行得分/lines/等级统一在 T033 结算。
+   */
+  #lockPiece(): void {
+    const active = this.#state.active;
+    if (active === null) {
+      return;
+    }
+    this.#state.board = mergePiece(this.#state.board, active);
+    const clear = clearFullRows(this.#state.board);
+    this.#state.board = clear.board;
+    this.#eventSeq += 1;
+    this.#state.lastEvent = { id: this.#eventSeq, kind: 'lock', count: clear.cleared };
+    this.#spawnNext();
+  }
+
+  /**
+   * 成功动作后的落地检查（S03.3 锁定延迟重置）：着地且计时 >0 时重置计时并
+   * 消耗一次重置配额（每块最多 `LOCK_RESET_LIMIT=15` 次）；离地仅清零计时、
+   * 不消耗配额（重置次数保留，重落地重新计时）。失败动作不调用本方法。
+   */
+  #onSuccessfulAction(): void {
+    if (this.#state.active === null) {
+      return;
+    }
+    const grounded = !canPlace(this.#state.board, {
+      ...this.#state.active,
+      y: this.#state.active.y + 1,
+    });
+    if (!grounded) {
+      this.#state.lockElapsedMs = 0; // 离地：停止地面计时，保留 lockResetCount
+      return;
+    }
+    if (this.#state.lockElapsedMs > 0 && this.#state.lockResetCount < LOCK_RESET_LIMIT) {
+      this.#state.lockElapsedMs = 0;
+      this.#state.lockResetCount += 1;
+    }
+  }
+
+  /**
+   * 水平移动（S03.3）：仅 running 且存在活动块时处理；经 `canPlace` 判定新 x，
+   * 横向不能穿过边界/锁定块。成功只改 active.x（不加分、不动其他字段），
+   * 着地成功时经 `#onSuccessfulAction` 参与锁定延迟限次重置（T029）；
+   * 非法移动彻底不改变状态（原子失败，S03.1）。
+   */
+  move(dx: -1 | 1): void {
+    if (this.#state.status !== 'running' || this.#state.active === null) {
+      return;
+    }
+    const moved: ActivePiece = { ...this.#state.active, x: this.#state.active.x + dx };
+    if (canPlace(this.#state.board, moved)) {
+      this.#state.active = moved;
+      this.#onSuccessfulAction();
+    }
+  }
+
+  /**
    * 旋转（S03.3/S03.4）：仅 running 且存在活动块时处理；直接委托 `srs.tryRotate`
    * （引擎不实现第二套自制踢墙），成功返回的新位置和旋转态写回 state，
-   * 全败时 tryRotate 原样返回入参引用，状态完全不变。旋转本身不加分。
+   * 全败时 tryRotate 原样返回入参引用，状态完全不变、不消耗重置配额。
+   * 旋转本身不加分；着地成功经 `#onSuccessfulAction` 参与限次重置（T029）。
    */
   rotate(dir: 1 | -1): void {
     if (this.#state.status !== 'running' || this.#state.active === null) {
       return;
     }
-    this.#state.active = tryRotate(this.#state.board, this.#state.active, dir);
+    const before = this.#state.active;
+    const next = tryRotate(this.#state.board, before, dir);
+    this.#state.active = next;
+    if (next !== before) {
+      this.#onSuccessfulAction();
+    }
   }
 
   /**
@@ -141,21 +207,6 @@ export class GameEngine {
     }
     this.#state.status = 'running';
     this.#spawnNext();
-  }
-
-  /**
-   * 水平移动（S03.3）：仅 running 且存在活动块时处理；经 `canPlace` 判定新 x，
-   * 横向不能穿过边界/锁定块。成功只改 active.x（不加分、不动其他字段）；
-   * 非法移动彻底不改变状态（原子失败，S03.1）。
-   */
-  move(dx: -1 | 1): void {
-    if (this.#state.status !== 'running' || this.#state.active === null) {
-      return;
-    }
-    const moved: ActivePiece = { ...this.#state.active, x: this.#state.active.x + dx };
-    if (canPlace(this.#state.board, moved)) {
-      this.#state.active = moved;
-    }
   }
 
   /**
@@ -228,6 +279,22 @@ export class GameEngine {
       this.#state.active = moved;
       this.#state.gravityElapsedMs -= interval;
       moves += 1;
+    }
+    // 落地锁定延迟（S03.3/T029）：着地时按本次 delta 累计，满 LOCK_DELAY_MS 即锁定
+    // （走 #lockPiece：锁入→清行→发事件→生新块）；离地仅清零计时、保留重置次数。
+    if (this.#state.active !== null) {
+      const grounded = !canPlace(this.#state.board, {
+        ...this.#state.active,
+        y: this.#state.active.y + 1,
+      });
+      if (grounded) {
+        this.#state.lockElapsedMs += delta;
+        if (this.#state.lockElapsedMs >= LOCK_DELAY_MS) {
+          this.#lockPiece();
+        }
+      } else {
+        this.#state.lockElapsedMs = 0;
+      }
     }
   }
 
