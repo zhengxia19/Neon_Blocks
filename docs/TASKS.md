@@ -437,7 +437,7 @@
 - **验证命令/动作**：`npm run typecheck && npm run build`，通过模拟状态检查显示值。
 - **通过条件**：数值对应 state，任意分数不会显示 NaN/undefined。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T044｜创建 ready/paused/gameover HTML 覆盖层
+#### - [x] T044｜创建 ready/paused/gameover HTML 覆盖层
 - **依赖**：T035。**允许修改文件**：`src/ui/overlays.ts、src/styles/app.css`。**规格**：S04.3。
 - **明确步骤**：
   1. 添加三种 `role=dialog` 覆盖层，ready 有“开始游戏”、paused 有“继续”、gameover 有“再玩一次”。
