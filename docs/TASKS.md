@@ -549,7 +549,7 @@
 - **验证命令/动作**：`npm run typecheck && npm run build`，完整开始→暂停→继续→重开手动测试。
 - **通过条件**：不出现两个活动游戏同时运行；无意外重启。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T056｜绑定设置、音效、最高分与 Ghost
+#### - [x] T056｜绑定设置、音效、最高分与 Ghost
 - **依赖**：T045, T047, T048, T049, T053, T055。**允许修改文件**：`src/main.ts、src/ui/overlays.ts`。**规格**：S05,S07,S08。
 - **明确步骤**：
   1. 启动读取 settings/best，实时将 Ghost/降低动画传给 renderer/effects，将 sound 传给 SoundManager。

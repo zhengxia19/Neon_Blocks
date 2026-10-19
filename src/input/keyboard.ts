@@ -30,8 +30,18 @@ function isEditableTarget(target: EventTarget | null): boolean {
   if (target.isContentEditable) {
     return true;
   }
-  // 对话框内（设置弹窗等）任何控件获得焦点时都不劫持游戏快捷键。
-  return target.closest('[role="dialog"]') !== null;
+  // 打开中的对话框（设置弹窗等）内控件获得焦点时不劫持游戏快捷键；
+  // 已关闭（hidden/未渲染）的对话框不算——其按钮焦点回归 body 前，
+  // 快捷键不得被误吞（T056 关闭设置后立即按键继续的健壮性）。
+  const dialog = target.closest('[role="dialog"]');
+  if (dialog !== null) {
+    const box = dialog as HTMLElement;
+    if (box.hidden || box.offsetParent === null) {
+      return false;
+    }
+    return true;
+  }
+  return false;
 }
 
 export class KeyboardController {
