@@ -36,9 +36,13 @@ export function makeSqlStorage(dbPath = ':memory:') {
   };
 }
 
-/** 最小 DO ctx：storage.sql + N14 Hibernation 面（acceptWebSocket/getWebSockets）。 */
+/** 最小 DO ctx：storage.sql + N14 Hibernation 面 + N17 Alarm 面（setAlarm/getAlarm）。 */
 export interface FakeHibernationCtx {
-  storage: { sql: ReturnType<typeof makeSqlStorage>['sql'] };
+  storage: {
+    sql: ReturnType<typeof makeSqlStorage>['sql'];
+    setAlarm(time: number | Date): void;
+    getAlarm(): number | undefined;
+  };
   acceptWebSocket(ws: FakeHibernatableSocket, attachment?: unknown): void;
   getWebSockets(): FakeHibernatableSocket[];
 }
@@ -53,8 +57,19 @@ export interface FakeHibernatableSocket {
 export function makeFakeCtx(dbPath = ':memory:') {
   const store = makeSqlStorage(dbPath);
   const accepted: FakeHibernatableSocket[] = [];
+  // N17：Alarm 语义对齐——单一待触发闹钟，setAlarm 覆盖，记录全部调用供断言。
+  const alarmCalls: number[] = [];
+  let alarmAt: number | undefined;
   const ctx: FakeHibernationCtx = {
-    storage: { sql: store.sql },
+    storage: {
+      sql: store.sql,
+      setAlarm(time) {
+        const t = typeof time === 'number' ? time : time.getTime();
+        alarmCalls.push(t);
+        alarmAt = t;
+      },
+      getAlarm: () => alarmAt,
+    },
     acceptWebSocket(ws, attachment) {
       accepted.push(ws);
       // 模拟平台接管；附件序列化由 DO 显式调用（与真实 API 一致）。
@@ -62,5 +77,5 @@ export function makeFakeCtx(dbPath = ':memory:') {
     },
     getWebSockets: () => accepted.slice(),
   };
-  return { ctx, store, accepted };
+  return { ctx, store, accepted, alarmCalls, getAlarmAt: () => alarmAt };
 }

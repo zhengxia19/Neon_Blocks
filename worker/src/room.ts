@@ -25,6 +25,7 @@ import {
 import type {
   CountdownMsg,
   CreateRoomRequest,
+  MatchEndMsg,
   MatchId,
   MatchStartMsg,
   RandomMode,
@@ -630,6 +631,8 @@ export class RoomDO extends DurableObject<Env> {
       startAt,
       deadlineAt,
     );
+    // N17：倒计时截止由 DO Alarm 触发（服务器权威时间；无每心跳轮询）。
+    this.ctx.storage.setAlarm(startAt);
     const seatSeeds: Record<string, number> = {};
     for (const r of seatRows) {
       seatSeeds[r.player_id] =
@@ -743,6 +746,8 @@ export class RoomDO extends DurableObject<Env> {
     if (now < startAt) return { started: false, error: 'TOO_EARLY' };
     this.#sql.exec("UPDATE room_config SET state = 'RUNNING' WHERE id = 1");
     this.#sql.exec('UPDATE match_state SET running_at = ? WHERE id = 1', now);
+    // N17：开赛即重排 600 秒截止闹钟（deadlineAt 已持久化，驱逐后可重建）。
+    this.ctx.storage.setAlarm(Number(row.deadline_at));
     const seatIndex = new Map<string, number>();
     for (const s of this.#sql.exec<{ player_id: string; join_order: number }>(
       'SELECT player_id, join_order FROM seats',
@@ -765,8 +770,93 @@ export class RoomDO extends DurableObject<Env> {
     return { started: true, matchId: row.match_id, startAt, deadlineAt: Number(row.deadline_at) };
   }
 
+  /**
+   * N17：DO Alarm 回调——超时/倒计时到点的**唯一权威触发源**（服务器时间，
+   * 独立于客户端消息与心跳；不在每心跳上轮询）。到期语义见 #handleDeadline。
+   */
+  async alarm(): Promise<void> {
+    this.#handleDeadline(Date.now());
+  }
+
+  /**
+   * N17：按服务器权威时间处理当前局截止。COUNTDOWN：now≥startAt → advanceToRunning
+   * （内部重排 deadline 闹钟）；否则重排 startAt。RUNNING：now≥deadlineAt →
+   * #endAtDeadline（幂等）；否则重排 deadlineAt。LOBBY/FINISHED/未占用/代际陈旧 →
+   * 无操作（重复触发安全）。
+   */
+  #handleDeadline(now: number): void {
+    this.#ensureSchema();
+    this.#ensureRow();
+    const meta = this.#sql
+      .exec<RoomMetaRow>('SELECT generation, occupied FROM room_meta WHERE id = 1')
+      .one();
+    if (meta.occupied !== 1) return;
+    const config = this.#readConfig();
+    if (config === null || config.generation !== Number(meta.generation)) return;
+    if (config.state !== 'COUNTDOWN' && config.state !== 'RUNNING') return;
+    const row = this.#readMatchState(Number(meta.generation));
+    if (row === undefined) return;
+    if (config.state === 'COUNTDOWN') {
+      if (now >= Number(row.start_at)) this.advanceToRunning(now);
+      else this.ctx.storage.setAlarm(Number(row.start_at));
+      return;
+    }
+    if (now >= Number(row.deadline_at)) this.#endAtDeadline(row.match_id);
+    else this.ctx.storage.setAlarm(Number(row.deadline_at));
+  }
+
+  /**
+   * N17：超时终局裁决（闹钟/重建路径专用，客户端无权触发）。finishGame 幂等门：
+   * 非 RUNNING 直接返回，不重复广播。此刻尚无淘汰面（N18），名单全员存活 →
+   * winners=冻结名单全体；最终名次 standings 由 N19 ranking 填充。
+   */
+  #endAtDeadline(matchId: string): void {
+    const res = this.finishGame();
+    if (!res.finished) return;
+    const winners = [
+      ...this.#sql.exec<{ player_id: string }>('SELECT player_id FROM match_roster'),
+    ].map((r) => r.player_id);
+    this.#broadcast(
+      () =>
+        ({
+          v: PROTOCOL_VERSION,
+          type: 'match_end',
+          revision: 1,
+          matchId,
+          reason: 'timeout',
+          winners,
+          standings: [],
+        }) as MatchEndMsg,
+    );
+  }
+
+  /** 当代 match_state 单行（时间/种子权威）；不存在或代际陈旧返回 undefined。 */
+  #readMatchState(generation: number):
+    | { match_id: string; start_at: number; deadline_at: number }
+    | undefined {
+    return [
+      ...this.#sql.exec<{ match_id: string; start_at: number; deadline_at: number }>(
+        'SELECT match_id, start_at, deadline_at FROM match_state WHERE id = 1 AND generation = ?',
+        generation,
+      ),
+    ][0];
+  }
+
+  /**
+   * N17：驱逐/重启后由持久化 deadline 重建闹钟——决策与 alarm 回调同源
+   * （#handleDeadline）：截止已过即刻恢复推进/终局（浏览器全离线也不延长），
+   * 否则 setAlarm 最近截止。构造期异常 fail-safe（下次 RPC 再经闹钟面兜底）。
+   */
+  #restoreAlarms(): void {
+    try {
+      this.#handleDeadline(Date.now());
+    } catch {
+      // 构造期存储面异常：不阻断实例化。
+    }
+  }
+
   /** 向全部 Hibernation 存量连接按席位身份发送一条服务端消息（附件缺失跳过）。 */
-  #broadcast(build: (playerId: string) => CountdownMsg | MatchStartMsg): number {
+  #broadcast(build: (playerId: string) => CountdownMsg | MatchStartMsg | MatchEndMsg): number {
     let sent = 0;
     for (const ws of this.ctx.getWebSockets()) {
       const att = this.#attachmentOf(ws);
@@ -975,6 +1065,8 @@ export class RoomDO extends DurableObject<Env> {
     // 热重启/驱逐重建后恢复连接上下文：按附件核验席位与代际，失效连接即刻关闭
     // 并释放连接声明；房间配置从 SQLite 读取，无常驻内存、无轮询。
     this.#restoreHibernated();
+    // N17：闹钟由持久化 deadline 重建（驱逐后 Alarm 可能丢失，不依赖连接/心跳）。
+    this.#restoreAlarms();
   }
 
   /**

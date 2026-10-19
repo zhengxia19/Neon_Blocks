@@ -1,0 +1,12 @@
+HEALTH=200
+CREATE=201
+CODE=868183
+JOIN=200
+TICKET=200
+WS_CONNECT=True
+System.Threading.Tasks.VoidTaskResult
+WS_PONG={"type":"pong"}
+WS_ERR=Exception calling "Wait" with "0" argument(s): "One or more errors occurred. (The remote party closed the WebSocket connection without completing the close handshake.)"
+TICKET_BAD=401 {"error":"UNAUTHORIZED","message":"席位凭据无效，请重新加入房间。"}
+NO_STATE_ROUTE=404
+DONE

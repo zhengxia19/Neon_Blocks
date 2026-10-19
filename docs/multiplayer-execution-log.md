@@ -235,3 +235,16 @@
 - **命令与退出码**：`npm --prefix worker run typecheck`→0；`npm --prefix worker test`→0；根 `npm run test`→0（15 文件/278 例，协议改动无前端回归）；deploy.yml 未动（前缀 5A08B009）。
 - **复审结论**：独立复审 PASS——范围合规（仅 2 逻辑文件、src/ 零 diff、deploy.yml 前缀一致）；金样本经 node 独立复算吻合；三模式语义与 §3.1 一致；无 await 原子段+代际核验；验收三条（三模式约定牌序、临界与提前拒绝、服务器权威一致时间不逐秒）直接断言。非阻塞观察 O1（陈旧 match 信息）与 O2（广播载荷未用协议类型）**已在本任务内修复**并补测试；O3 revision 硬编码 1（revision 语义属 N26）；O4 fnv1a32 仅取低字节（输入受 pattern/hex 约束，注释已声明）；O5 取模 bias（确定性由金样本锁定）；O9 离席连接 seatIndex 兜底 0（N18/N20 边界）。
 - **未解决事项**：startAt 到期自动调用 `advanceToRunning` 的 DO Alarm 属 N17；`ready/start/settings_update` 入站 HTTP/WS 面属 N22/N25；revision 计数器属 N26。
+
+---
+
+## N17 — 600 秒到期闹钟 ✅ PASS
+
+- **基线 HEAD**：`22a0bc3`（N16 之后）
+- **改动文件（1 个逻辑文件 + 1 测试 + 测试桩）**：`worker/src/room.ts`（`startGame` 与 match_state 同原子段后 `setAlarm(startAt)`；`advanceToRunning` 开赛重排 `setAlarm(deadlineAt)`；`alarm()` 回调→`#handleDeadline(now)`——COUNTDOWN：`now≥startAt`→`advanceToRunning`（内部重排 deadline 闹钟）否则重排 startAt；RUNNING：`now≥deadlineAt`→`#endAtDeadline` 否则重排 deadlineAt；LOBBY/FINISHED/未占用/代际陈旧无操作；`#endAtDeadline` 经 `finishGame` 幂等门（非 RUNNING 不重复广播）后向存量连接广播 `match_end`（reason=timeout、winners=冻结名单全体、standings=[] 留 N19）；`#readMatchState` 代际核验辅助；构造器 `#restoreAlarms` 与 `#handleDeadline` 决策同源（复审 O3 合并）+try/catch fail-safe——**闹钟由持久化 deadline 重建**；`#broadcast` 联合类型加 `MatchEndMsg`）；`worker/test/stubs/sqlite-storage.ts`（Fake ctx 增 `storage.setAlarm/getAlarm`+`alarmCalls` 记录）；新增 `room-alarm.test.ts`（8 例，`vi.useFakeTimers` 假时钟 T0=1.7e12）。超时触发源唯一：无 HTTP/WS 客户端路径可达 `#endAtDeadline`（grep 证实），心跳 ping 不触碰闹钟。
+- **单测**：`npm --prefix worker test` → 0（**14 文件 / 96 例**：新增 8 例——调度链 startAt→deadlineAt 且差=600000；COUNTDOWN 下 startAt-1 不提前推进并重排；startAt 临界推进 RUNNING；**startAt+599999ms 保持 RUNNING（不结束）**、**+600000ms 临界结束**且 match_end 逐字段（winners 钉死=冻结名单全体）；幂等——3 次 alarm 仅 1 次 match_end、状态保持 FINISHED；RUNNING 中驱逐→新实例构造器凭持久化 deadline 即刻 FINISHED（**浏览器全离线不延长**）；ping→pong 零 setAlarm（不轮询）；反向：LOBBY 无 match_state 时 alarm 无操作不排闹钟）。
+- **本地模拟（wrangler dev 冒烟回归）**：Alarm 面与构造器重建下既有面不受影响——health 200、create 201、join 200、ticket 200、WS 101+pong；反向：错误 seatToken→401、状态路由 404。证据 `evidence/multiplayer/N17/{smoke-local,wrangler-dev-startup,worker-test,worker-typecheck,root-test}.txt` + 脚本 `n17-smoke.ps1`。
+- **实测排障**：新测试文件 `COUNTDOWN_MS` 未用导入致 tsc TS6133→移除；600 秒真实等待不可行于冒烟，边界语义由假时钟测试锁定（清单指定假时钟验收）。
+- **命令与退出码**：`npm --prefix worker run typecheck`→0；`npm --prefix worker test`→0；根 `npm run test`→0（15 文件/278 例）；deploy.yml 未动（前缀 5A08B009）。
+- **复审结论**：独立复审 PASS——触发源唯一、边界/幂等/重建/载荷协议合规、闹钟链完整、假时钟真实控制 Date.now；复跑 96 例全绿。非阻塞观察 O1（测试注释不精确）、O2（winners 未钉死）、O3（决策逻辑重复）**已在本任务内修复**（注释修正、winners 全体断言、`#restoreAlarms` 合并到 `#handleDeadline`）；O4 `finishGame` 保持仅服务端内部调用（N18 接线注意）；O5 真实唤醒时构造器与 alarm 交叠已由幂等门覆盖。
+- **未解决事项**：淘汰触发的提前终局与 standings 填充属 N18/N19；空房闹钟与多闹钟协调属 N21；`ready/start` 入站面属 N22/N25。
