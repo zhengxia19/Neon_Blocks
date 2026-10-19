@@ -53,6 +53,8 @@ export interface FakeHibernatableSocket {
   close(code?: number, reason?: string): void;
   serializeAttachment(attachment: unknown): string;
   deserializeAttachment(): unknown;
+  // N25：出站背压测试面（workerd 真实 socket 提供 bufferedAmount）。
+  bufferedAmount?: number;
 }
 
 export function makeFakeCtx(dbPath = ':memory:') {

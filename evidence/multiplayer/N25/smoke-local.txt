@@ -1,0 +1,25 @@
+N25 本地烟测（真实 workerd / wrangler dev :8787，Hibernation 开启）
+命令：pwsh -File evidence\multiplayer\N25\n25-smoke.ps1   （exit 0）
+
+CREATE=201
+JOIN=200
+PING_PONG={"type":"pong"}
+COUNTDOWN_HOST=True COUNTDOWN_GUEST=True
+BADJSON_REPLY={"v":1,"type":"error","revision":1,"code":"BAD_MESSAGE","message":"BAD_MESSAGE","retryable":false}
+GAMEOVER_BROADCAST=True
+BINARY_CLOSED=True CODE=0
+SMOKE_FAIL=0
+SMOKE_EXIT=0
+
+断言面：
+1) 裸 ping → {"type":"pong"}（N14 liveness 保留）。
+2) WS ready/ready/start 接线 → 双端收到 countdown 广播（真实 Alarm 到点）。
+3) 合法 snapshot 信封入账无回复；紧随非法载荷 → error/BAD_MESSAGE 回复且连接保持。
+4) 倒计时到点（真实 Alarm → RUNNING）后 guest 发 gameover{reason:topout}，
+   matchId 由服务器供给 → host 收到 player_left{playerId=guest}（客户端伪造 matchId 被拒由单测覆盖）。
+5) 1,000,001 字符报文静默丢弃（无回复、连接保持，实测 STATE=Open）；
+   二进制帧 → 服务器关闭连接。wrangler dev 代理不转发自定义关闭码（本地 CODE=0），
+   精确 4003 由 worker/test/room-snapshot.test.ts 断言。
+
+排障记录：wrangler dev 的 WS 代理对 close 帧不透传 4003（实测 code=0），
+故烟测断言"收到关闭帧"而非具体码；单测在 DO 层直接断言 ws.close(4003)。

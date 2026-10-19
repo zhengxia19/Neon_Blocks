@@ -1,0 +1,13 @@
+== worker: npx vitest run (exit 0) ==
+ Test Files  20 passed (20)
+      Tests  159 passed (159)
+   Duration  2.60s (tests 81%, import 11%, transform 5%, worker 3%)
+== worker: npx tsc --noEmit -p tsconfig.json (exit 0) ==
+== root: npx vitest run (exit 0) ==
+ Test Files  17 passed (17)
+      Tests  300 passed (300)
+   Duration  892ms (tests 55%, transform 20%, import 19%, worker 6%)
+== root: npx tsc --noEmit -p tsconfig.json (exit 0) ==
+== root: npm run build (exit 0) ==
+== playwright test (exit 0) ==
+  7 passed (3.3s)

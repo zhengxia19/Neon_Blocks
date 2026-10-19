@@ -14,6 +14,7 @@ import {
   DISCONNECT_GRACE_MS,
   EMPTY_ROOM_TTL_MS,
   MATCH_DURATION_MS,
+  MAX_MESSAGE_BYTES,
   MAX_PLAYERS,
   MAX_START_LEVEL,
   MIN_PLAYERS,
@@ -21,6 +22,7 @@ import {
   PROTOCOL_VERSION,
   RANDOM_MODES,
   RNG_ALGO,
+  VERSION_CLOSE_CODE,
   deriveSeatSeed,
   normalizeSeed32,
 } from '../../shared/protocol';
@@ -35,10 +37,28 @@ import type {
   RngAlgo,
   RoomPhase,
   RoomSettings,
+  SnapshotMsg,
 } from '../../shared/protocol';
+import { describeError } from '../../shared/errors';
+import { validateClientMessage, withinMessageLimit } from '../../shared/validate';
 import type { Env } from './index';
 
 type RoomMetaRow = { generation: number; occupied: number };
+
+// N25：入站硬限流——每连接每秒消息上限（客户端快照节奏 5Hz，留 4 倍余量；
+// 超限在 JSON 解析**之前**丢弃，恶意 100Hz 不放大 CPU/内存）。
+const INBOUND_RATE_PER_SEC = 20;
+// N25：出站背压阈值——ws.bufferedAmount 超过此值时快照帧只入单槽队列
+// （丢弃旧帧保留新帧），缓冲回落后补发。槽数受连接数约束（≤6）。
+const OUTBOUND_BUFFER_LIMIT = 16_384;
+
+/** N25：席位最新快照槽（内存态，绝不写 SQLite；N26 单目标路由读取源）。 */
+export type SnapshotSlot = {
+  encoded: string;
+  seq: number;
+  matchId: MatchId;
+  receivedAt: number;
+};
 
 export type CreateClaim =
   | {
@@ -210,6 +230,16 @@ async function sha256Hex(text: string): Promise<string> {
 }
 
 export class RoomDO extends DurableObject<Env> {
+  // —— N25：入站快照管线（全部内存态，绝不逐帧写 SQLite；规模受席位/连接数约束）——
+  // playerId → 最新快照槽（每局开局清空，席位至多 6 槽）。
+  readonly #snapLatest = new Map<string, SnapshotSlot>();
+  // connId → 已接受信封 seq（连接内严格单调；重连即新 connId 重新计数）。
+  readonly #connSeq = new Map<string, number>();
+  // connId → 最近 1 秒入站时刻滑窗（每窗至多 INBOUND_RATE_PER_SEC 条）。
+  readonly #connRate = new Map<string, number[]>();
+  // connId → 出站背压单槽（缓冲超限时覆盖旧帧保留新帧）。
+  readonly #outSlots = new Map<string, string>();
+
   // SQLite DO 访问方式（本地 workerd 实测）：每次经 `this.ctx.storage.sql` 取用；
   // 构造器缓存句柄在驱逐后写入不可见。
   get #sql(): SqlStorage {
@@ -688,6 +718,8 @@ export class RoomDO extends DurableObject<Env> {
     const matchId = `m_${randomHex(8)}`;
     const startAt = Date.now() + COUNTDOWN_MS;
     const deadlineAt = startAt + MATCH_DURATION_MS;
+    // N25：新一局快照槽清空（陈旧局快照不得跨局存活）。
+    this.#snapLatest.clear();
     this.#sql.exec(
       `INSERT OR REPLACE INTO match_state
          (id, match_id, generation, master_seed, rng_algo, start_at, deadline_at, running_at)
@@ -1047,6 +1079,11 @@ export class RoomDO extends DurableObject<Env> {
     this.#sql.exec('DELETE FROM match_state');
     this.#sql.exec('DELETE FROM eliminations');
     this.#sql.exec('DELETE FROM room_config');
+    // N25：业务释放同时清空全部内存管线态（快照/序号/限流窗/背压槽）。
+    this.#snapLatest.clear();
+    this.#connSeq.clear();
+    this.#connRate.clear();
+    this.#outSlots.clear();
     void this.ctx.storage.deleteAlarm();
   }
 
@@ -1354,6 +1391,8 @@ export class RoomDO extends DurableObject<Env> {
     // N16 复审 O1：下一局重新开局前不得残留上局 match 信息（getMatchInfo 陈旧）。
     this.#sql.exec('DELETE FROM match_state');
     this.#sql.exec('DELETE FROM eliminations');
+    // N25：下一局重新开局前清空上局快照槽（与 match_state 删除同步）。
+    this.#snapLatest.clear();
     // N21：下一局若全员连接已意外离线，空置闹钟仍适用（重排最近候选）。
     this.#markIdleIfEmpty(Date.now());
     this.#rescheduleAlarms(Date.now());
@@ -1628,17 +1667,225 @@ export class RoomDO extends DurableObject<Env> {
     return new Response('not found', { status: 404 });
   }
 
-  /** 事件回调（平台在休眠实例上直接唤起）：N14 提供 liveness ping/pong，协议消息 N16+。 */
+  /**
+   * N25：入站消息管线（席位身份只认连接附件，客户端不可冒充）：
+   * 二进制帧关闭 → 每秒硬限流（解析前丢弃）→ 原始字节硬上限（1MiB 不进解析）
+   * → 信封严格校验（版本/白名单/禁止字段/seq）→ 连接内 seq 严格单调（陈旧/
+   * 重复丢弃）→ 按类型分派。校验失败回复 error（受同一限流约束，不放大）。
+   */
   webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
     const att = this.#attachmentOf(ws);
     if (att === null) {
       ws.close(4001, 'attachment missing');
       return;
     }
-    if (typeof message === 'string' && message === 'ping') {
-      ws.send(JSON.stringify({ type: 'pong' }));
+    // N25：协议仅文本帧；二进制直接关闭（不解析、不回复，防放大）。
+    if (typeof message !== 'string') {
+      ws.close(4003, 'binary frame not allowed');
+      return;
     }
-    // 其余消息类型属 N16 协议接线；未知内容忽略不放大（防滥用属 N25）。
+    // liveness：平台健康检查/烟测的裸 'ping'（非协议信封，保持 N14 语义）。
+    // 有意豁免 20/s 限流：固定 4 字节成本、1:1 pong、连接数 ≤6 有界（N14 契约）。
+    if (message === 'ping') {
+      ws.send(JSON.stringify({ type: 'pong' }));
+      return;
+    }
+    // N25：每秒硬上限——超限消息在解析前丢弃（恶意 100Hz 不放大 CPU）。
+    if (!this.#allowInbound(att.connId, Date.now())) return;
+    // N25：原始字节硬上限（4KiB 口径）：UTF-16 长度先行廉价预检（字节数 ≥ 长度，
+    // 长度超则字节必超，1MiB 恶意报文不进 TextEncoder/JSON 解析），
+    // 再以 TextEncoder 实际 UTF-8 字节数严格拒绝（多字节字符不放大门槛）。
+    if (message.length > MAX_MESSAGE_BYTES || !withinMessageLimit(message)) return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(message);
+    } catch {
+      this.#sendProtocolError(ws, 'BAD_MESSAGE');
+      return;
+    }
+    const result = validateClientMessage(parsed);
+    if (!result.ok) {
+      if (result.code === 'PROTOCOL_VERSION') {
+        // 冻结契约（shared/protocol.ts 注释 1）：先回 error(PROTOCOL_VERSION) 再 1002 关闭。
+        this.#sendProtocolError(ws, 'PROTOCOL_VERSION');
+        ws.close(VERSION_CLOSE_CODE, 'protocol version mismatch');
+        return;
+      }
+      this.#sendProtocolError(ws, result.code);
+      return;
+    }
+    const msg = result.value;
+    // N25：连接内 seq 严格单调递增——陈旧/重复/乱序回退消息丢弃（不回复）。
+    const lastSeq = this.#connSeq.get(att.connId) ?? -1;
+    if (msg.seq <= lastSeq) return;
+    this.#connSeq.set(att.connId, msg.seq);
+    switch (msg.type) {
+      case 'ping': {
+        ws.send(
+          JSON.stringify({
+            v: PROTOCOL_VERSION,
+            type: 'pong',
+            seq: msg.seq,
+            serverTime: Date.now(),
+          }),
+        );
+        return;
+      }
+      case 'snapshot': {
+        this.#ingestSnapshot(att, msg);
+        return;
+      }
+      case 'gameover': {
+        // N18 接线：matchId 由服务器当前局供给（客户端不可指定），淘汰时刻
+        // 为服务端接收时刻（禁止客户端指定时间）。
+        const matchId = this.#currentMatchId();
+        if (matchId !== null) this.reportElimination(att.playerId, matchId, Date.now());
+        return;
+      }
+      case 'ready': {
+        this.setReady(att.playerId, true);
+        return;
+      }
+      case 'start': {
+        this.startGame(att.playerId);
+        return;
+      }
+      case 'leave': {
+        this.leaveRoom(att.playerId);
+        return;
+      }
+      case 'settings_update': {
+        // 大厅设置的服务端接线属 N33（当前经 HTTP 配置路径，WS 通道暂不放大）。
+        return;
+      }
+    }
+  }
+
+  /** N25：每连接每秒滑窗硬限流（窗口 ≤INBOUND_RATE_PER_SEC 条，随连接清理）。 */
+  #allowInbound(connId: string, now: number): boolean {
+    let window = this.#connRate.get(connId);
+    if (window === undefined) {
+      window = [];
+      this.#connRate.set(connId, window);
+    }
+    const cutoff = now - 1000;
+    let drop = 0;
+    while (drop < window.length && window[drop] <= cutoff) drop += 1;
+    if (drop > 0) window.splice(0, drop);
+    if (window.length >= INBOUND_RATE_PER_SEC) return false;
+    window.push(now);
+    return true;
+  }
+
+  /**
+   * N25：快照入账（只读 SQLite、零写入）。仅接受：当前代际、RUNNING、
+   * 该局冻结名单内且未淘汰的参赛者；快照 seq 每局每人严格单调（陈旧丢弃）。
+   * 客户端声明的 status/分数不参与任何裁决（权威在服务器状态机）。
+   */
+  #ingestSnapshot(att: WsAttachment, msg: SnapshotMsg): void {
+    this.#ensureSchema();
+    this.#ensureRow();
+    const meta = this.#sql
+      .exec<RoomMetaRow>('SELECT generation, occupied FROM room_meta WHERE id = 1')
+      .one();
+    if (meta.occupied !== 1 || att.generation !== Number(meta.generation)) return;
+    const config = this.#readConfig();
+    if (config === null || config.generation !== Number(meta.generation) || config.state !== 'RUNNING') {
+      return;
+    }
+    const row = this.#readMatchState(Number(meta.generation));
+    if (row === undefined) return;
+    const matchId = String(row.match_id) as MatchId;
+    const roster = [
+      ...this.#sql.exec<{ player_id: string }>(
+        'SELECT player_id FROM match_roster WHERE player_id = ? AND generation = ?',
+        att.playerId,
+        att.generation,
+      ),
+    ];
+    if (roster.length === 0) return; // 非该局冻结名单成员（附件身份，不可冒充）
+    const eliminated = [
+      ...this.#sql.exec<{ n: number }>(
+        'SELECT 1 AS n FROM eliminations WHERE player_id = ? AND generation = ? AND match_id = ?',
+        att.playerId,
+        att.generation,
+        matchId,
+      ),
+    ];
+    if (eliminated.length > 0) return; // 已淘汰：不再接收其快照
+    const prev = this.#snapLatest.get(att.playerId);
+    if (prev !== undefined && (prev.matchId !== matchId || msg.snapshot.seq <= prev.seq)) {
+      return; // 陈旧/重复快照（跨局残留同样丢弃）
+    }
+    this.#snapLatest.set(att.playerId, {
+      encoded: JSON.stringify(msg.snapshot),
+      seq: msg.snapshot.seq,
+      matchId,
+      receivedAt: Date.now(),
+    });
+  }
+
+  /** 当前 RUNNING 局的 matchId（非 RUNNING/无局返回 null）。 */
+  #currentMatchId(): MatchId | null {
+    this.#ensureSchema();
+    this.#ensureRow();
+    const meta = this.#sql
+      .exec<RoomMetaRow>('SELECT generation, occupied FROM room_meta WHERE id = 1')
+      .one();
+    if (meta.occupied !== 1) return null;
+    const config = this.#readConfig();
+    if (config === null || config.generation !== Number(meta.generation) || config.state !== 'RUNNING') {
+      return null;
+    }
+    const row = this.#readMatchState(Number(meta.generation));
+    return row === undefined ? null : (String(row.match_id) as MatchId);
+  }
+
+  /** 协议 error 回复（message/retryable 取自 shared 错误目录；revision 暂硬编码 1，N26 统一修订号接管）。 */
+  #sendProtocolError(ws: WebSocket, code: string): void {
+    const meta = describeError(code);
+    ws.send(
+      JSON.stringify({
+        v: PROTOCOL_VERSION,
+        type: 'error',
+        revision: 1,
+        code,
+        message: meta.message,
+        retryable: meta.retryable,
+      }),
+    );
+  }
+
+  /**
+   * N25：出站背压投递——ws.bufferedAmount 超阈值时只入单槽（覆盖旧帧保留新帧，
+   * 慢客户端不积压陈旧快照）；缓冲回落后先补发槽内最新帧。N26 快照路由使用。
+   */
+  deliverFrame(connId: string, ws: WebSocket, text: string): void {
+    const buffered = (ws as unknown as { bufferedAmount?: number }).bufferedAmount ?? 0;
+    if (buffered > OUTBOUND_BUFFER_LIMIT) {
+      this.#outSlots.set(connId, text); // 单槽覆盖：丢弃旧帧，保留新帧
+      return;
+    }
+    const slot = this.#outSlots.get(connId);
+    if (slot !== undefined) {
+      this.#outSlots.delete(connId);
+      if (slot !== text) ws.send(slot);
+    }
+    ws.send(text);
+  }
+
+  /** N25：读取席位最新快照槽（N26 单目标路由/测试用；无则 null）。 */
+  peekSnapshot(playerId: string): SnapshotSlot | null {
+    return this.#snapLatest.get(playerId) ?? null;
+  }
+
+  /** N25：管线内存态规模（全部受席位/连接数约束；测试断言有界性）。 */
+  pipelineStats(): { snapshots: number; conns: number; outSlots: number } {
+    return {
+      snapshots: this.#snapLatest.size,
+      conns: this.#connSeq.size,
+      outSlots: this.#outSlots.size,
+    };
   }
 
   webSocketClose(ws: WebSocket, _code: number, _reason: string, _wasClean: boolean): void {
@@ -1671,6 +1918,10 @@ export class RoomDO extends DurableObject<Env> {
   #releaseSeatConn(ws: WebSocket): void {
     const att = this.#attachmentOf(ws);
     if (att === null) return;
+    // N25：连接终结即清理其内存管线态（含被替换的陈旧 connId，防 Map 无界增长）。
+    this.#connSeq.delete(att.connId);
+    this.#connRate.delete(att.connId);
+    this.#outSlots.delete(att.connId);
     this.#ensureSchema();
     this.#sql.exec(
       'DELETE FROM seat_conns WHERE player_id = ? AND conn_id = ?',

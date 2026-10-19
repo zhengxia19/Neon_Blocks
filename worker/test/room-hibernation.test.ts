@@ -151,7 +151,9 @@ describe('N14 事件回调', () => {
     room.webSocketMessage(ws, 'ping');
     expect(state.sent).toEqual(['{"type":"pong"}']);
     room.webSocketMessage(ws, 'unknown-payload');
-    expect(state.sent.length).toBe(1); // 未知消息忽略不放大
+    // N25：非法载荷回复 error（受每秒限流约束）且连接保持，不放大断连。
+    expect(state.sent.length).toBe(2);
+    expect(JSON.parse(state.sent[1])).toMatchObject({ type: 'error', code: 'BAD_MESSAGE' });
   });
 
   it('附件缺失的消息连接 → 4001 关闭', async () => {

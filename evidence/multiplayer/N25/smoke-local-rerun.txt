@@ -1,0 +1,9 @@
+CREATE=201
+JOIN=200
+PING_PONG={"type":"pong"}
+COUNTDOWN_HOST=True COUNTDOWN_GUEST=True
+BADJSON_REPLY={"v":1,"type":"error","revision":1,"code":"BAD_MESSAGE","message":"消息格式不合法。","retryable":true}
+GAMEOVER_BROADCAST=True
+BINARY_CLOSED=True CODE=0
+SMOKE_FAIL=0
+SMOKE_EXIT=0

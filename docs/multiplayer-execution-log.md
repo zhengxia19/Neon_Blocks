@@ -351,3 +351,16 @@
 - **命令与退出码**：根 vitest→0（17/300）；根 tsc→0；build→0；worker vitest→0（19/147）；worker tsc→0；playwright→0（7 passed）；deploy.yml 未动（5A08B009）。
 - **复审结论**：独立只读复审 PASS（无 P0；P1×1=NaN/Infinity 钳制不封闭致 5Hz 静默击穿→已修+补 2 用例；O1 transport_down 独立标签→已修；O5 直发清 pending→已修；O6 60FPS 下界断言→已补）。非阻塞观察：O2 deliver 失败回滚帧在真实 false→true 断线流程会被 dropPending 丢弃（快照语义下靠下一帧覆盖，可接受）；O4 `now` 注入须与 setTimeout 同源（N31 装配注意）；O7 stop() 非终态。
 - **未解决事项**：无阻塞；N25 起 WS 接线时消费 publisher（装配时 setConnected 生命周期）；接收端 seq 单调丢弃兜底属 N25/N26。
+
+---
+
+## N25 — 服务器侧快照校验、限流与背压 ✅ PASS
+
+- **基线 HEAD**：`9b885ac`（N24 之后）
+- **改动文件**：`worker/src/room.ts`（`webSocketMessage` 重写为协议管线：附件缺失→4001；二进制帧→4003 不解析；裸 `ping` liveness 豁免限流（N14 契约，注释论证有界）；`#allowInbound` 每连接 1s 滑窗 20/s 硬上限（解析前丢弃）；4KiB 原始字节双门槛（UTF-16 长度廉价预检 + `withinMessageLimit` TextEncoder 严格字节数——P1 修复：4096 多字节单元=12,288B 亦拒）；JSON.parse 失败→error(BAD_MESSAGE)；`validateClientMessage`（版本不符先回 error(PROTOCOL_VERSION) 再以 `VERSION_CLOSE_CODE` 关闭，对齐冻结契约）；信封 seq 连接内严格单调（陈旧/重复/回退整条丢弃）；分派：ping→pong{seq,serverTime}、snapshot→`#ingestSnapshot`（**零 SQLite 写**：occupied/generation/RUNNING/match_roster/eliminations/冻结 matchId/快照 seq 每局每人单调，入内存槽 `#snapLatest`）、gameover→matchId 与时刻均由服务器供给→`reportElimination`（客户端伪造 matchId→FORBIDDEN_FIELD）、ready/start/leave 接线、settings_update 暂忽略（N33）；`#sendProtocolError` 消费 `describeError`（message/retryable 取自 shared 目录）；`deliverFrame` 出站背压：bufferedAmount>16384→单槽覆盖（丢旧保新），回落后先补发槽内最新帧；清理钩子：startGame/nextRound 清 `#snapLatest`、`#releaseRoomData` 清全部 4 Map、`#releaseSeatConn` 清 connSeq/connRate/outSlots；`peekSnapshot`/`pipelineStats` 为 N26 路由/测试面）；`worker/test/room-snapshot.test.ts`（新增 12 例）；`worker/test/stubs/sqlite-storage.ts`（+可选 bufferedAmount）；`worker/test/room-hibernation.test.ts`（unknown-payload 语义→error 回复）。
+- **单测**：worker `npx vitest run`→0（**20 文件 / 159 例**：room-snapshot 12 例——入账+六表行数零变化；快照 seq 陈旧/重复丢弃；信封 seq 回退整条丢弃；被淘汰者/跨局残留丢弃；gameover 接线（eliminated_at=服务端时刻、match_id=服务器局；伪造 matchId→FORBIDDEN_FIELD 且不写行）；1MiB 与 4096 多字节单元（12,288B）静默丢弃连接保持；二进制→4003；100Hz→仅 20/s 入账、窗口滑过恢复；协议违规不放大（BAD_MESSAGE retryable:true、FORBIDDEN_FIELD retryable:false、连接保持；v:99→error 后 1002）；6 人×100Hz×60s 有界（snapshots/conns/outSlots ≤6）+close 归零；背压单槽覆盖（bufferedAmount 20000→0 直发，回落后先发 frame-B 再 frame-C）；正常缓冲直发不排队。）
+- **本地模拟**：wrangler dev 真实 workerd + Hibernation 烟测 `n25-smoke.ps1`（exit 0）：ping/pong；ready/start→双端 countdown（真实 Alarm 到点）；合法快照无回复+非法载荷→error（目录中文 message+retryable:true）；RUNNING 后 guest gameover→host 收 player_left；1MiB 实测 STATE=Open 无回复；二进制→close 帧。
+- **实测排障**：wrangler dev WS 代理不透传自定义关闭码（4003 实测本地 code=0）→烟测断言"收到 close 帧"、精确 4003 由 DO 层单测断言；ClientWebSocket pending ReceiveAsync 会吞后续 close→Recv 异常安全+排空循环。
+- **命令与退出码**：worker vitest→0（20/159）；worker tsc→0；根 vitest→0（17/300）；根 tsc→0；build→0；playwright→0（7 passed）；deploy.yml 未动（5A08B009）。
+- **复审结论**：独立只读复审 PASS（P1×1=4KiB 门槛系 UTF-16 长度下界口径，多字节最坏 12,288B→已加 `withinMessageLimit` 严格字节拒绝+补 1 例；P2 已修：版本不符先 error 再 1002、`#ensureRow` 一致性、error 元数据消费 shared 目录、ping 豁免注释）。非阻塞观察：裸 ping 豁免无单测（有界）；零写断言为固定表行数求和（漏 UPDATE 不覆盖）；`pipelineStats` 未暴露窗长；`#connSeq`/`#snapLatest` 纯内存 DO 驱逐归零（matchId+限流兜底有界，N26/N28 按 seq 去重）；`deliverFrame` 补发槽帧后无条件直发当前帧（N26 复查缓冲）；error revision:1 硬编码（N26）；ready/start/leave 分派仅烟测覆盖；快照槽存续至下局，N26 路由按存活名单过滤。
+- **未解决事项**：无阻塞；N26 消费 `peekSnapshot`+`deliverFrame` 做单目标路由（O(N) 扇出、revision 统一）。
