@@ -1,4 +1,4 @@
-// T022–T031：GameEngine 初始 ready、NEXT 与出生、移动、旋转、软降、硬降、重力、锁定延迟、Hold、重开/暂停测试（规格 S03.1–S03.5）。
+// T022–T032：GameEngine 初始 ready、NEXT 与出生、移动、旋转、软降、硬降、重力、锁定延迟、Hold、重开/暂停、top-out 测试（规格 S03.1–S03.5）。
 import { describe, expect, it } from 'vitest';
 import { canPlace, createEmptyBoard } from '../../src/game/board';
 import { BOARD_HEIGHT, BOARD_WIDTH } from '../../src/game/constants';
@@ -1058,5 +1058,99 @@ describe('GameEngine 状态转换（T031，S03.3）', () => {
     engine.softDrop();
     expect(engine.getState().active?.y).toBe(3); // 新块自 y=2 软降一格
     expect(engine.getState().score).toBe(41); // 40（hardDrop）+1（softDrop）
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T032：block-out 与 lock-out 结束（S03.1,S03.3）
+// ---------------------------------------------------------------------------
+describe('GameEngine top-out 结束（T032，S03.1/S03.3）', () => {
+  const newRunning = (board?: Board): GameEngine => {
+    const engine = new GameEngine(() => 0, board);
+    engine.start();
+    return engine;
+  };
+
+  /**
+   * lock-out 专用盘（无预存满行——满行会在首次锁定被整体清除、破坏推演）：
+   * 第 4..23 行各填 9/10 格（第 9 列空）；第 3 行仅 x=0,1 预填。I 出生（实体
+   * 第 3 行 x=3..6）合法且着地；锁定后第 3 行 6 格不满不被清除 → 隐藏行占用。
+   */
+  const stackedBoard = (): Board => {
+    const src = createEmptyBoard();
+    src[3][0] = 'O';
+    src[3][1] = 'O';
+    for (let y = 4; y < BOARD_HEIGHT; y += 1) {
+      for (let x = 0; x < BOARD_WIDTH - 1; x += 1) src[y][x] = 'O';
+    }
+    return src;
+  };
+
+  it('block-out：出生碰撞转 gameover、清除 active、发唯一 id 的 gameover 事件', () => {
+    const src = createEmptyBoard();
+    src[3][4] = 'T'; // 挡 I 出生实体格
+    const engine = newRunning(src);
+    const s = engine.getState();
+    expect(s.status).toBe('gameover');
+    expect(s.active).toBeNull(); // 清除 active（S03.3）
+    expect(s.lastEvent).toEqual({ id: 1, kind: 'gameover' });
+  });
+
+  it('lock-out（硬降）：锁定后隐藏行仍被占 → gameover、不生成新块、事件 id 唯一递增', () => {
+    const engine = newRunning(stackedBoard());
+    expect(engine.getState().status).toBe('running'); // I 出生合法
+    engine.hardDrop(); // 落差 0，锁入第 3 行 x=3..6（隐藏行，2+4=6 格不满行不清除）
+    const s = engine.getState();
+    expect(s.status).toBe('gameover');
+    expect(s.active).toBeNull();
+    // hardDrop 事件 id=1 之后，gameover 事件 id=2（唯一 id、不覆盖序号）
+    expect(s.lastEvent).toEqual({ id: 2, kind: 'gameover' });
+    expect([...s.nextQueue]).toEqual(['L', 'J', 'Z', 'S', 'T']); // 不再生成新块：队列未消费
+    expect(s.score).toBe(0); // 落差 0 无加分
+    for (let y = 0; y < 3; y += 1) {
+      for (const cell of s.board[y]) {
+        expect(cell).toBeNull(); // 第 0..2 行未被侵入
+      }
+    }
+    for (const x of [3, 4, 5, 6]) {
+      expect(s.board[3][x]).toBe('I'); // 锁入隐藏行（判负证据）
+    }
+  });
+
+  it('lock-out（自然锁定）：step 计时 500ms 锁定同样判负、不崩溃', () => {
+    const engine = newRunning(stackedBoard());
+    for (let i = 0; i < 5; i += 1) engine.step(100); // 着地恰 500ms → #lockPiece 路径
+    const s = engine.getState();
+    expect(s.status).toBe('gameover');
+    expect(s.active).toBeNull();
+    // lock 事件 id=1（count=0：第 3 行 6 格不满）→ gameover 事件 id=2
+    expect(s.lastEvent).toEqual({ id: 2, kind: 'gameover' });
+    expect(s.board[3][3]).toBe('I'); // 锁入隐藏行（判负证据）
+  });
+
+  it('结束后全部输入失效：move/rotate/软降/硬降/Hold/step 快照完全不变（两类 top-out）', () => {
+    const engines: GameEngine[] = [
+      (() => {
+        const src = createEmptyBoard();
+        src[3][4] = 'T';
+        return newRunning(src); // block-out
+      })(),
+    ];
+    const lockOut = newRunning(stackedBoard());
+    lockOut.hardDrop(); // lock-out
+    engines.push(lockOut);
+    for (const engine of engines) {
+      expect(engine.getState().status).toBe('gameover');
+      const before = snapshot(engine);
+      engine.move(-1);
+      engine.move(1);
+      engine.rotate(1);
+      engine.rotate(-1);
+      engine.softDrop();
+      engine.hardDrop();
+      engine.hold();
+      for (let i = 0; i < 10; i += 1) engine.step(100);
+      expect(snapshot(engine)).toEqual(before);
+    }
   });
 });

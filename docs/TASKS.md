@@ -327,7 +327,7 @@
 - **验证命令/动作**：`npx vitest run tests/unit/engine.test.ts`。
 - **通过条件**：四状态之间仅发生允许的转换；pause 时 step/输入无效。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T032｜处理 block-out 和 lock-out 结束
+#### - [x] T032｜处理 block-out 和 lock-out 结束
 - **依赖**：T027, T030, T031。**允许修改文件**：`src/game/engine.ts、tests/unit/engine.test.ts`。**规格**：S03.1,S03.3。
 - **明确步骤**：
   1. 出生碰撞转 gameover 并清除 active。

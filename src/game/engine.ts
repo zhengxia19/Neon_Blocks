@@ -1,10 +1,11 @@
-// T022–T031：GameEngine 类——私有状态、初始 ready 状态、NEXT 队列补充与出生活动块、
+// T022–T032：GameEngine 类——私有状态、初始 ready 状态、NEXT 队列补充与出生活动块、
 // 水平移动、顺逆旋转、单次软降、硬降立即锁块、基于 dt 的自然重力、
-// 落地锁定延迟与限次重置、Hold 单块一次、重开与暂停状态转换（规格 S03.1–S03.5）。
+// 落地锁定延迟与限次重置、Hold 单块一次、重开与暂停状态转换、
+// block-out/lock-out 结束（规格 S03.1–S03.5）。
 // 纯逻辑模块：不访问 DOM/Canvas/localStorage；UI 仅经 getState() 只读视图读取状态。
 // 动作 API（move/rotate/softDrop/…）由 T024+ 逐个补齐。
 import { canPlace, clearFullRows, cloneBoard, createEmptyBoard, getGhostY, mergePiece } from './board';
-import { LOCK_DELAY_MS, LOCK_RESET_LIMIT } from './constants';
+import { HIDDEN_ROWS, LOCK_DELAY_MS, LOCK_RESET_LIMIT } from './constants';
 import { drawFromBag } from './random';
 import { dropPoints, gravityIntervalMs } from './scoring';
 import { tryRotate } from './srs';
@@ -107,9 +108,37 @@ export class GameEngine {
   }
 
   /**
+   * 结束游戏（S03.3/T032）：status=gameover、active=null，并携带唯一自增 id
+   * 发出 gameover 事件。block-out（出生碰撞）与 lock-out（锁定后隐藏行 0..3
+   * 仍被占用）两类 top-out 共用本路径；结束后所有输入因 running 守卫失效。
+   */
+  #endGame(): void {
+    this.#state.active = null;
+    this.#state.status = 'gameover';
+    this.#eventSeq += 1;
+    this.#state.lastEvent = { id: this.#eventSeq, kind: 'gameover' };
+  }
+
+  /**
+   * lock-out 检测（S03.1/S03.3/T032）：锁定与清行完成后，隐藏区（第 0..
+   * `HIDDEN_ROWS`−1 行）若仍有锁定格，说明堆栈顶出可视区 → 判负。
+   */
+  #hasHiddenOccupancy(): boolean {
+    for (let y = 0; y < HIDDEN_ROWS; y += 1) {
+      for (const cell of this.#state.board[y]) {
+        if (cell !== null) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
    * 在出生位置放置指定类型（S03.2）：x=3/y=2/r0；入场碰撞（与锁定格重叠）→
-   * active=null、status=gameover。成功则开始新块：holdUsedThisPiece 复位、
-   * 重力/锁定计时复位（S03.3 计时基准）。#spawnNext 与 Hold 交换共用本路径。
+   * block-out（`#endGame`：gameover + 事件，active=null）。成功则开始新块：
+   * holdUsedThisPiece 复位、重力/锁定计时复位（S03.3 计时基准）。
+   * #spawnNext 与 Hold 交换共用本路径。
    */
   #spawnType(type: PieceType): void {
     const piece: ActivePiece = {
@@ -119,8 +148,7 @@ export class GameEngine {
       y: SPAWN_Y,
     };
     if (!canPlace(this.#state.board, piece)) {
-      this.#state.active = null;
-      this.#state.status = 'gameover';
+      this.#endGame(); // block-out（S03.3）
       return;
     }
     this.#state.active = piece;
@@ -160,7 +188,9 @@ export class GameEngine {
   /**
    * 锁定当前活动块（S03.3，自然锁定路径；hardDrop 的立即锁定在 T027 内联）：
    * `mergePiece` 锁入 → `clearFullRows` 一次性清行 → 发出 `lock` 事件
-   * （count=消行数，id 单调递增）→ 生成下一块。清行得分/lines/等级统一在 T033 结算。
+   * （count=消行数，id 单调递增）→ lock-out 检查（T032：清行后隐藏行 0..3
+   * 仍被占用 → `#endGame` 且不再生成新块）→ 否则生成下一块。
+   * 清行得分/lines/等级统一在 T033 结算。
    */
   #lockPiece(): void {
     const active = this.#state.active;
@@ -172,6 +202,10 @@ export class GameEngine {
     this.#state.board = clear.board;
     this.#eventSeq += 1;
     this.#state.lastEvent = { id: this.#eventSeq, kind: 'lock', count: clear.cleared };
+    if (this.#hasHiddenOccupancy()) {
+      this.#endGame(); // lock-out（S03.1/S03.3）：不再生成下一块
+      return;
+    }
     this.#spawnNext();
   }
 
@@ -324,6 +358,10 @@ export class GameEngine {
     const clear = clearFullRows(this.#state.board);
     this.#state.board = clear.board;
     // clear.cleared（0..4）的得分/行数/等级结算在 T033 接入锁定路径统一处理。
+    if (this.#hasHiddenOccupancy()) {
+      this.#endGame(); // lock-out（T032）：硬降锁入隐藏行 → 结束，不生成新块
+      return;
+    }
     this.#spawnNext();
   }
 
