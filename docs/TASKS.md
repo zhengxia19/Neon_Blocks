@@ -318,7 +318,7 @@
 - **验证命令/动作**：`npx vitest run tests/unit/engine.test.ts`。
 - **通过条件**：持有次数准确，Hold 不随机偷换或跳队列。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T031｜实现开始、重开、暂停状态转换
+#### - [x] T031｜实现开始、重开、暂停状态转换
 - **依赖**：T022, T023, T028。**允许修改文件**：`src/game/engine.ts、tests/unit/engine.test.ts`。**规格**：S03.3。
 - **明确步骤**：
   1. 在 T023 已有 `start()` 上复核仅 ready 可用；新增 `restart()`：任意状态清空进度并 running。

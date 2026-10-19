@@ -1,4 +1,4 @@
-// T022–T030：GameEngine 初始 ready、NEXT 队列与出生、移动、旋转、软降、硬降锁块、自然重力、锁定延迟、Hold 测试（规格 S03.1–S03.5）。
+// T022–T031：GameEngine 初始 ready、NEXT 与出生、移动、旋转、软降、硬降、重力、锁定延迟、Hold、重开/暂停测试（规格 S03.1–S03.5）。
 import { describe, expect, it } from 'vitest';
 import { canPlace, createEmptyBoard } from '../../src/game/board';
 import { BOARD_HEIGHT, BOARD_WIDTH } from '../../src/game/constants';
@@ -923,5 +923,140 @@ describe('GameEngine Hold（T030，S03.2）', () => {
     engine.hold();
     expect(snapshot(engine)).toEqual(before);
     expect(engine.getState().heldType).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T031：开始、重开、暂停状态转换（S03.3）
+// ---------------------------------------------------------------------------
+describe('GameEngine 状态转换（T031，S03.3）', () => {
+  const newRunning = (board?: Board): GameEngine => {
+    const engine = new GameEngine(() => 0, board);
+    engine.start();
+    return engine;
+  };
+
+  it('start 仅 ready 可用：running 重复 start 与 gameover 后 start 均无效', () => {
+    const engine = newRunning();
+    const runningBefore = snapshot(engine);
+    engine.start();
+    expect(snapshot(engine)).toEqual(runningBefore);
+    const src = createEmptyBoard();
+    src[3][4] = 'T'; // 出生碰撞 → gameover
+    const over = newRunning(src);
+    expect(over.getState().status).toBe('gameover');
+    const overBefore = snapshot(over);
+    over.start();
+    expect(snapshot(over)).toEqual(overBefore);
+  });
+
+  it('restart 清空全部进度：分数/棋盘/Hold/队列/计时器/事件全复位并进入 running', () => {
+    const engine = newRunning();
+    engine.hardDrop(); // I 锁定第 23 行，+40 分，事件 id=1
+    engine.hold(); // 槽 L（此时活动 J）
+    engine.softDrop();
+    engine.step(100);
+    const mid = engine.getState();
+    expect(mid.score).toBe(41);
+    expect(mid.heldType).toBe('L');
+    engine.restart();
+    const s = engine.getState();
+    expect(s.status).toBe('running');
+    expect(s.board).toEqual(createEmptyBoard()); // 空棋盘（不重用 initialBoard 之外来源）
+    expect(s.score).toBe(0);
+    expect(s.lines).toBe(0);
+    expect(s.level).toBe(1);
+    expect(s.heldType).toBeNull();
+    expect(s.holdUsedThisPiece).toBe(false);
+    expect(s.lastEvent).toBeNull();
+    expect(s.gravityElapsedMs).toBe(0);
+    expect(s.lockElapsedMs).toBe(0);
+    expect(s.lockResetCount).toBe(0);
+    // rng=()=>0 恒定 → 洗牌序列与首局一致：I 出生、队列/袋逐值同首局
+    expect(s.active).toEqual({ type: 'I', rotation: 0, x: 3, y: 2 });
+    expect([...s.nextQueue]).toEqual(['L', 'J', 'Z', 'S', 'T']);
+    expect([...s.bag]).toEqual(['O']);
+  });
+
+  it('restart 从 ready/paused/gameover 均可进入 running；gameover 引擎换空棋盘复活', () => {
+    const ready = new GameEngine(() => 0);
+    ready.restart();
+    expect(ready.getState().status).toBe('running');
+    expect(ready.getState().active?.type).toBe('I');
+
+    const paused = newRunning();
+    paused.togglePause();
+    paused.restart();
+    expect(paused.getState().status).toBe('running');
+
+    // 构造出生碰撞 gameover；restart 用空棋盘 → 复活
+    const src = createEmptyBoard();
+    src[3][4] = 'T';
+    const over = newRunning(src);
+    expect(over.getState().status).toBe('gameover');
+    over.restart();
+    const s = over.getState();
+    expect(s.status).toBe('running');
+    expect(s.board).toEqual(createEmptyBoard());
+    expect(s.active?.type).toBe('I');
+  });
+
+  it('restart 后事件 id 跨局连续：新一局首个事件 id 大于上一局最后事件 id', () => {
+    const engine = newRunning();
+    engine.hardDrop(); // 事件 id=1
+    expect(engine.getState().lastEvent?.id).toBe(1);
+    engine.restart();
+    expect(engine.getState().lastEvent).toBeNull();
+    engine.hardDrop();
+    const ev = engine.getState().lastEvent;
+    expect(ev?.id).toBe(2); // 序号不复用，渲染层去重不受重开影响
+    expect(ev?.kind).toBe('hardDrop');
+  });
+
+  it('togglePause：running↔paused 互切；ready/gameover 下无效', () => {
+    const engine = newRunning();
+    engine.togglePause();
+    expect(engine.getState().status).toBe('paused');
+    engine.togglePause();
+    expect(engine.getState().status).toBe('running');
+
+    const ready = new GameEngine(() => 0);
+    const readyBefore = snapshot(ready);
+    ready.togglePause();
+    expect(snapshot(ready)).toEqual(readyBefore);
+    expect(ready.getState().status).toBe('ready');
+
+    const src = createEmptyBoard();
+    src[3][4] = 'T';
+    const over = newRunning(src);
+    const overBefore = snapshot(over);
+    over.togglePause();
+    expect(snapshot(over)).toEqual(overBefore);
+    expect(over.getState().status).toBe('gameover');
+  });
+
+  it('paused 下全部输入与 step 无效（补齐 T024–T028/T030 预留项），恢复后正常', () => {
+    const engine = newRunning();
+    engine.hardDrop(); // 锁定一块，产生棋盘与事件
+    engine.togglePause();
+    expect(engine.getState().status).toBe('paused');
+    const before = snapshot(engine);
+    // 全部动作逐一尝试
+    engine.move(-1);
+    engine.move(1);
+    engine.rotate(1);
+    engine.rotate(-1);
+    engine.softDrop();
+    engine.hardDrop();
+    engine.hold();
+    for (let i = 0; i < 30; i += 1) engine.step(100); // 3000ms 也不推进重力/锁定
+    engine.start(); // ready-only，也应无效
+    expect(snapshot(engine)).toEqual(before);
+    // 恢复 running 后输入重新生效
+    engine.togglePause();
+    expect(engine.getState().status).toBe('running');
+    engine.softDrop();
+    expect(engine.getState().active?.y).toBe(3); // 新块自 y=2 软降一格
+    expect(engine.getState().score).toBe(41); // 40（hardDrop）+1（softDrop）
   });
 });

@@ -1,6 +1,6 @@
-// T022–T030：GameEngine 类——私有状态、初始 ready 状态、NEXT 队列补充与出生活动块、
+// T022–T031：GameEngine 类——私有状态、初始 ready 状态、NEXT 队列补充与出生活动块、
 // 水平移动、顺逆旋转、单次软降、硬降立即锁块、基于 dt 的自然重力、
-// 落地锁定延迟与限次重置、Hold 单块一次（规格 S03.1–S03.5）。
+// 落地锁定延迟与限次重置、Hold 单块一次、重开与暂停状态转换（规格 S03.1–S03.5）。
 // 纯逻辑模块：不访问 DOM/Canvas/localStorage；UI 仅经 getState() 只读视图读取状态。
 // 动作 API（move/rotate/softDrop/…）由 T024+ 逐个补齐。
 import { canPlace, clearFullRows, cloneBoard, createEmptyBoard, getGhostY, mergePiece } from './board';
@@ -243,6 +243,44 @@ export class GameEngine {
     }
     this.#state.status = 'running';
     this.#spawnNext();
+  }
+
+  /**
+   * 重开（S03.3）：任意状态（ready/running/paused/gameover）均清空全部进度
+   * （空棋盘、分数/行数/等级归零、Hold 槽与限制清除、队列与袋清空、三计时器
+   * 复位、lastEvent 置 null）并立即进入 running 生成第一块。restart 始终从
+   * 空棋盘开始（initialBoard 仅构造注入，不在此复用）。事件自增序号跨局保留，
+   * 保证渲染层按 id 去重不受重开影响。
+   */
+  restart(): void {
+    this.#state.board = createEmptyBoard();
+    this.#state.active = null;
+    this.#state.nextQueue = [];
+    this.#state.bag = [];
+    this.#state.heldType = null;
+    this.#state.holdUsedThisPiece = false;
+    this.#state.status = 'running'; // 先置 running 令 #spawnNext 正常生效
+    this.#state.score = 0;
+    this.#state.lines = 0;
+    this.#state.level = 1;
+    this.#state.gravityElapsedMs = 0;
+    this.#state.lockElapsedMs = 0;
+    this.#state.lockResetCount = 0;
+    this.#state.lastEvent = null;
+    this.#spawnNext();
+  }
+
+  /**
+   * 暂停/恢复（S03.3）：running↔paused 双向切换；ready/gameover 下调用无效。
+   * paused 下 move/rotate/softDrop/hardDrop/hold/step 全部无效（各方法均守卫
+   * `status === 'running'`），恢复后按累积计时继续。
+   */
+  togglePause(): void {
+    if (this.#state.status === 'running') {
+      this.#state.status = 'paused';
+    } else if (this.#state.status === 'paused') {
+      this.#state.status = 'running';
+    }
   }
 
   /**
