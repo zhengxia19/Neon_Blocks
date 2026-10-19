@@ -475,7 +475,7 @@
 - **验证命令/动作**：`npx vitest run tests/unit/settings.test.ts`。
 - **通过条件**：刷新后最高分准确，写入失败不阻塞游戏。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T048｜制作设置弹窗 HTML/CSS
+#### - [x] T048｜制作设置弹窗 HTML/CSS
 - **依赖**：T044, T046。**允许修改文件**：`src/ui/overlays.ts、src/styles/app.css`。**规格**：S04.3,S07。
 - **明确步骤**：
   1. 设置弹窗提供 Sound、Ghost、Reduced motion 三个 labeled checkbox。

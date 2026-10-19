@@ -1,8 +1,12 @@
-// Neon Blocks — READY / PAUSED / GAMEOVER 覆盖层（规格 S04.3，任务 T044）。
+// Neon Blocks — READY / PAUSED / GAMEOVER 覆盖层与设置弹窗（规格 S04.3/S07，任务 T044/T048）。
 // 三种覆盖层均为真实 HTML role=dialog 对话框（S04.3：不是只在 Canvas 绘制文字），
 // 由外部状态驱动显示/隐藏（update 由 T053/T055 装配调用；本任务不绑定交互）。
 // 隐藏使用 hidden 属性 + [hidden]{display:none}：隐藏控件不可聚焦（T044 步骤 3）。
+// T048：设置弹窗 = 三个 labeled checkbox（Sound/Ghost/Reduced motion）+ 保存/关闭；
+// 勾选变化即时 saveSettings（S07），运行态自动暂停的接线留 T056；Escape 关闭规则
+// 由键盘层（T050）经 close() 接入。
 
+import { loadSettings, saveSettings, type GameSettings } from '../storage/settings';
 import { formatScore } from './hud';
 
 export type OverlayStatus = 'ready' | 'running' | 'paused' | 'gameover';
@@ -134,4 +138,121 @@ export function createOverlays(overlayRoot: HTMLElement): OverlayControls & {
       finalBest.textContent = formatScore(best);
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// T048：设置弹窗（S04.3/S07）
+// ---------------------------------------------------------------------------
+
+/** 设置弹窗控制器（键盘 Escape / 设置按钮的接线由 T050/T053/T056 调用）。 */
+export interface SettingsDialog {
+  root: HTMLElement;
+  soundCheckbox: HTMLInputElement;
+  ghostCheckbox: HTMLInputElement;
+  reducedMotionCheckbox: HTMLInputElement;
+  saveButton: HTMLButtonElement;
+  closeButton: HTMLButtonElement;
+  /** 用给定设置（缺省读存储）初始化三个勾选项并打开弹窗。 */
+  open(settings?: GameSettings): void;
+  /** 关闭弹窗（写回由 change/save 完成；此处只隐藏）。 */
+  close(): void;
+  /** 读取当前勾选项。 */
+  readSettings(): GameSettings;
+  /** 勾选项变化后的可选监听（T053 用于即时应用音量/特效开关）。 */
+  onChange?: (settings: GameSettings) => void;
+}
+
+function checkboxRow(
+  parent: HTMLElement,
+  { id, label, checked }:
+  { id: string; label: string; checked: boolean },
+): HTMLInputElement {
+  const row = document.createElement('label');
+  row.className = 'settings-row';
+  row.htmlFor = id;
+  const input = document.createElement('input');
+  input.type = 'checkbox';
+  input.id = id;
+  input.checked = checked;
+  const text = document.createElement('span');
+  text.className = 'settings-label';
+  text.textContent = label;
+  row.append(input, text);
+  parent.appendChild(row);
+  return input;
+}
+
+/**
+ * 在 overlayRoot 内构建设置弹窗。三个 labeled checkbox（label[for] 可见文字），
+ * 任一勾选变化即 saveSettings（S07 保存重开保持）；「保存」显式落盘并关闭；
+ * 「关闭」隐藏弹窗。Tab 焦点自然可进入（真实控件），隐藏后不可聚焦。
+ */
+export function createSettingsDialog(overlayRoot: HTMLElement): SettingsDialog {
+  const root = document.createElement('div');
+  root.className = 'overlay overlay-settings';
+  root.setAttribute('role', 'dialog');
+  root.setAttribute('aria-modal', 'true');
+  root.setAttribute('aria-label', '设置');
+  root.hidden = true;
+  const title = document.createElement('h2');
+  title.className = 'overlay-title';
+  title.textContent = '设置';
+  root.appendChild(title);
+
+  const defaults = loadSettings();
+  const soundCheckbox = checkboxRow(root, { id: 'set-sound', label: 'Sound 音效', checked: defaults.soundEnabled });
+  const ghostCheckbox = checkboxRow(root, { id: 'set-ghost', label: 'Ghost 落点预判', checked: defaults.ghostEnabled });
+  const reducedMotionCheckbox = checkboxRow(root, { id: 'set-reduced', label: 'Reduced motion 减少动画', checked: defaults.reducedMotion });
+
+  const actions = document.createElement('div');
+  actions.className = 'settings-actions';
+  root.appendChild(actions);
+  const saveButton = button(actions, '保存', 'btn-settings-save', true);
+  const closeButton = button(actions, '关闭', 'btn-settings-close');
+
+  overlayRoot.appendChild(root);
+
+  const dialog: SettingsDialog = {
+    root,
+    soundCheckbox,
+    ghostCheckbox,
+    reducedMotionCheckbox,
+    saveButton,
+    closeButton,
+    open(settings?: GameSettings): void {
+      const s = settings ?? loadSettings();
+      soundCheckbox.checked = s.soundEnabled;
+      ghostCheckbox.checked = s.ghostEnabled;
+      reducedMotionCheckbox.checked = s.reducedMotion;
+      root.hidden = false;
+    },
+    close(): void {
+      root.hidden = true;
+    },
+    readSettings(): GameSettings {
+      return {
+        soundEnabled: soundCheckbox.checked,
+        ghostEnabled: ghostCheckbox.checked,
+        reducedMotion: reducedMotionCheckbox.checked,
+      };
+    },
+  };
+
+  // 勾选变化即时写回存储（S07：保存后重开浏览器保持）；T048 步骤 3。
+  const applyChange = (): void => {
+    const s = dialog.readSettings();
+    saveSettings(s);
+    dialog.onChange?.(s);
+  };
+  for (const input of [soundCheckbox, ghostCheckbox, reducedMotionCheckbox]) {
+    input.addEventListener('change', applyChange);
+  }
+  saveButton.addEventListener('click', () => {
+    applyChange();
+    dialog.close();
+  });
+  closeButton.addEventListener('click', () => {
+    dialog.close();
+  });
+  return dialog;
 }
