@@ -1,10 +1,14 @@
-// Neon Blocks — 键盘输入映射（规格 S03.3/S06，任务 T050；长按 T051 扩展）。
-// KeyboardController 只做「键 → Engine 方法」的一次性映射与输入卫生：
+// Neon Blocks — 键盘输入映射（规格 S03.3/S06，任务 T050/T051）。
+// KeyboardController 只做「键 → Engine 方法」的映射与输入卫生：
 // 不改变 UI（开始/覆盖层快捷键经回调交给 main）、文本输入与打开的对话框
 // 内不劫持快捷键、一次性动作忽略 event.repeat、仅在游戏进行中对映射键
 // preventDefault。dispose() 完整移除监听。
+// T051：←/→/↓ 长按交给 RepeatController（DAS 150/ARR 45/软降 35）——首次
+// 按下立即执行，节奏由装配层每帧调用 update(dtMs) 推进（无独立计时器）；
+// event.repeat 不再触发动作（首次 keydown 已记录按住态）。
 
 import type { GameEngine } from '../game/engine';
+import { RepeatController } from './repeat';
 
 /** 交给装配层（main）处理的非棋盘快捷键。 */
 export interface KeyboardCallbacks {
@@ -33,12 +37,28 @@ function isEditableTarget(target: EventTarget | null): boolean {
 export class KeyboardController {
   readonly #engine: GameEngine;
   readonly #callbacks: KeyboardCallbacks;
+  readonly #repeat: RepeatController;
   #target: Window | null = null;
   #handler: ((event: KeyboardEvent) => void) | null = null;
+  #keyupHandler: ((event: KeyboardEvent) => void) | null = null;
 
   constructor(engine: GameEngine, callbacks: KeyboardCallbacks = {}) {
     this.#engine = engine;
     this.#callbacks = callbacks;
+    this.#repeat = new RepeatController({
+      move: (direction) => this.#engine.move(direction),
+      softDrop: () => this.#engine.softDrop(),
+    });
+  }
+
+  /** 主循环每帧调用（T053 由 rAF 传入 dtMs）：推进 DAS/ARR/软降节奏。 */
+  update(dtMs: number): void {
+    this.#repeat.update(dtMs);
+  }
+
+  /** 释放全部长按状态（失焦 / 切后台时由装配层调用，T051 步骤 2）。 */
+  releaseAll(): void {
+    this.#repeat.releaseAll();
   }
 
   /** 挂到 window（或测试指定的事件目标）开始监听；重复调用先卸载旧监听。 */
@@ -47,21 +67,50 @@ export class KeyboardController {
     const handler = (event: KeyboardEvent): void => {
       this.#handleKey(event);
     };
+    const keyupHandler = (event: KeyboardEvent): void => {
+      this.#handleKeyUp(event);
+    };
     this.#target = target;
     this.#handler = handler;
+    this.#keyupHandler = keyupHandler;
     target.addEventListener('keydown', handler);
+    target.addEventListener('keyup', keyupHandler);
   }
 
-  /** 移除键盘监听（T050 步骤 3）。 */
+  /** 移除键盘监听（T050 步骤 3）并清空按住状态。 */
   dispose(): void {
     this.detach();
   }
 
   private detach(): void {
-    if (this.#target !== null && this.#handler !== null) {
-      this.#target.removeEventListener('keydown', this.#handler);
+    if (this.#target !== null) {
+      if (this.#handler !== null) {
+        this.#target.removeEventListener('keydown', this.#handler);
+      }
+      if (this.#keyupHandler !== null) {
+        this.#target.removeEventListener('keyup', this.#keyupHandler);
+      }
       this.#target = null;
       this.#handler = null;
+      this.#keyupHandler = null;
+    }
+    this.#repeat.releaseAll();
+  }
+
+  /** 松开：←/→/↓ 解除长按（抬键后立即停止，T051 验收）。 */
+  #handleKeyUp(event: KeyboardEvent): void {
+    switch (event.code) {
+      case 'ArrowLeft':
+        this.#repeat.releaseDirection('left');
+        break;
+      case 'ArrowRight':
+        this.#repeat.releaseDirection('right');
+        break;
+      case 'ArrowDown':
+        this.#repeat.releaseSoft();
+        break;
+      default:
+        break;
     }
   }
 
@@ -71,9 +120,9 @@ export class KeyboardController {
       return;
     }
     const code = event.code;
-    // 已按住的自动重复：旋转/硬降/Hold/暂停等一次性动作忽略（步骤 2）。
-    // 长按移动/软降由 T051 RepeatController 接管，repeat 不作为动作来源。
-    if (event.repeat && (code === 'ArrowUp' || code === 'KeyX' || code === 'KeyZ' || code === 'Space' || code === 'KeyC' || code === 'KeyP')) {
+    // 已按住的自动重复：一次性动作直接忽略（步骤 2）；←/→/↓ 的长按节奏由
+    // RepeatController 推进，repeat 事件不再触发 press（按住态已在首次记录）。
+    if (event.repeat) {
       return;
     }
     const status = this.#engine.getState().status;
@@ -112,13 +161,13 @@ export class KeyboardController {
 
     switch (code) {
       case 'ArrowLeft':
-        this.#engine.move(-1);
+        this.#repeat.pressDirection('left'); // 立即一步 + 进入 DAS（T051）
         break;
       case 'ArrowRight':
-        this.#engine.move(1);
+        this.#repeat.pressDirection('right');
         break;
       case 'ArrowDown':
-        this.#engine.softDrop();
+        this.#repeat.pressSoft();
         break;
       case 'ArrowUp':
       case 'KeyX':

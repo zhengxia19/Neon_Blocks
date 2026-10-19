@@ -502,7 +502,7 @@
 - **验证命令/动作**：`npm run typecheck && npm run build`，手动 keydown 测试映射。
 - **通过条件**：任意单次输入只调用一次 Engine 方法；文本输入/设置弹窗不劫持快捷键。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T051｜实现键盘移动与软降长按
+#### - [x] T051｜实现键盘移动与软降长按
 - **依赖**：T050。**允许修改文件**：`src/input/keyboard.ts、src/input/repeat.ts`。**规格**：S03.3,S06。
 - **明确步骤**：
   1. 在 repeat.ts 实现可复用的 RepeatController，提供 DAS=150ms、ARR=45ms 和 soft=35ms，无独立计时器；键盘首次按下立即执行，左右 DAS 150ms 后 ARR 45ms，向下间隔 35ms。
