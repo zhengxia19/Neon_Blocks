@@ -1,0 +1,5 @@
+dist/assets/index-BJjq2Xrv.css        7.76 kB │ gzip:  2.28 kB
+dist/assets/multiplayer-DZnL3u_B.js   3.37 kB │ gzip:  1.64 kB
+dist/assets/index-BLVT69WY.js        35.68 kB │ gzip: 12.63 kB
+
+✓ built in 101ms

@@ -300,3 +300,15 @@
 - **命令与退出码**：`npx vitest run`→0；`npx tsc --noEmit`→0；根 `npm run test`→0（15/278）；deploy.yml 未动（前缀 5A08B009）。
 - **复审结论**：独立复审 PASS（无 P0/P1）——空置只记一次、29:59/30:00 边界判定式、7 表清空+代际保留的旧凭据失效链、leaveRoom 全程同步无 await 窗口、min 候选协调、替换窗口 conn_id 防护、测试含反向断言、N17/N18/N20 语义不变。非阻塞观察：O1 从未挂过 WS 的占用房间实例存活期不释放（清单字面外，重建/nextRound 补记）；O2 attach 不重排闹钟，空置闹钟空触发一次由自愈消化；O3 joinRoom 不重锚 idle_since（与「无连接=空置」定义一致）；O4 `void deleteAlarm` 浮动 Promise（风险极低）；O5 空置判定依赖平台 close 前移出登记语义（stub 已对齐，偏差方向保守）。
 - **未解决事项**：O1/O2/O3 空置边缘语义在 N25/N26 文档化；「连接中断/已淘汰」UI 与 gameover 接线属 N25；SEAT_TAKEN 死支清理属 N22。
+
+---
+
+## G1 — 关口验收（N08–N21）✅ PASS
+
+- **基线 HEAD**：`3ae1caa`（N21 之后）
+- **验收范围**：清单 §6 关口 G1——N08–N21 全部 14 项通过；DO 房间生命周期、身份、600 秒闹钟、空置删除完整可测。
+- **完整性核对**：日志 N08–N21 十四项均 ✅ PASS；提交链 `9fd8b68..3ae1caa` 恰 14 个 feat 逐项对应；`evidence/multiplayer/N08..N21/` 原始输出齐备；deploy.yml 仅 2 条历史提交（N08 后未动，前缀 5A08B009）；协议三常量（600000/30000/1800000）单一来源直用。
+- **四要素可测性**：生命周期=room-allocate/room-leave/room-join（原子占用、代际隔离、转让唯一）；身份=room-ticket/room-ticket-route/room-hibernation/room-grace（摘要存储、单次消费、conn_id 替换）；600 秒闹钟=room-alarm/room-countdown（599999/600000 假时钟边界、deadline 重建幂等）；空置删除=room-idle/room-leave（29:59/30:00 边界、候选协调、deleteAlarm）。
+- **复跑与退出码**：worker `npx vitest run`→0（18/138）；worker `npx tsc --noEmit`→0；根 `npm run test`→0（15/278）；根 `npm run typecheck`→0；`npm run build`→0；`npm run test:e2e`→0（7 passed）。证据 `evidence/multiplayer/G1/{gate-report,root-typecheck,root-build,e2e}.txt`。
+- **复审结论**：独立只读关口复审 PASS——日志/证据/提交链三方一致，复跑数字与 N21 证据吻合，四要素逐项有测试锚点，无阻塞缺口；既有非阻塞观察项均已留痕并标注归属（N22/N25/N26/N31）。
+- **未解决事项**：无关口级缺口；进入 N22（HTTP 防滥用加固）。

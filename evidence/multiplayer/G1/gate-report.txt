@@ -1,0 +1,38 @@
+G1 关口验收报告 2026-10-20 05:11  HEAD=3ae1caa
+
+== worker vitest ==
+ Test Files  18 passed (18)
+      Tests  138 passed (138)
+   Duration  391ms (tests 56%, import 21%, transform 17%, worker 5%)
+WORKER_VITEST_EXIT=0
+
+== worker tsc ==
+TSC_EXIT=0
+
+== root vitest ==
+ Test Files  15 passed (15)
+      Tests  278 passed (278)
+   Duration  326ms (import 33%, transform 29%, tests 29%, worker 9%)
+ROOT_TEST_EXIT=0
+
+== root typecheck/build/e2e（见 root-typecheck.txt/root-build.txt/e2e.txt）==
+TYPECHECK_EXIT=0 BUILD_EXIT=0 E2E=7 passed E2E_EXIT=0
+
+== deploy.yml SHA256 前缀 ==
+5A08B009
+
+== N08–N21 提交链 ==
+3ae1caa feat(N21): 房间空置与到期清理——全员离开即销毁、意外离线30分钟回收、闹钟候选协调与deleteAlarm
+d0353f3 feat(N20): 断线宽限与单席位重连——conn_id 核验替换、30 秒参赛者淘汰、席位存续与 30 分钟清理分离、不停表
+4644f7a feat(N19): 生存赛最终名次——纯函数生存者优先、分数→消行、淘汰时刻排序、显式并列与独立胜者
+bf942cd feat(N18): 淘汰及提前终局裁决——服务端淘汰时间、只认当前局 matchId、批次同刻并列、退出视为淘汰、超时胜者=存活者
+44331af feat(N17): 600 秒到期闹钟——DO Alarm 唯一权威超时、假时钟 599999/600000ms 边界、持久化 deadline 重建、幂等终局与 match_end 广播
+22a0bc3 feat(N16): 统一倒计时与开局种子派生——服务器权威 startAt/deadlineAt、xorshift32+7-bag 金样本锁定、三模式席位种子派生、临界时刻与提前开始拒绝
+57ec770 feat(N15): 服务器会话状态机（LOBBY→COUNTDOWN→RUNNING→FINISHED→下一局）、准备与开局门槛、改配置重置准备、join_order MAX+1 修复
+3a679ef feat(N14): DO WebSocket Hibernation 接线（升级请求转发、附件恢复、close 释放连接声明）
+e10f3ca feat(N13): 单次短期握手票据（摘要存储/30s TTL/原子消费）与 GET /ws/<码> 握手入口（席位连接唯一）
+1bbaba3 feat(N12): 席位快照、主动退出与房主按加入序号唯一转让（最后离开即关闭业务态）
+ee1d8b3 feat(N11): POST /api/rooms/<码>/join 大厅加入 API（容量 2–6、昵称大小写不敏感冲突、并发最后席位原子、state 列与错误映射）
+f8bc003 feat(N10): POST /api/rooms 创建房间 API 与最低防滥用门槛（Origin 必检/每 IP 限流/字节双限/席位令牌摘要，移除 __* 临时路由）
+eec84e9 feat(N09): 房间码随机分配、DO 内原子占用与代际复用隔离
+9fd8b68 feat(N08): Wrangler/SQLite-DO 骨架、CORS 白名单与本地模拟验收
