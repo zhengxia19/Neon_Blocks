@@ -12,7 +12,7 @@ import './styles/responsive.css';
 
 import { GameEngine } from './game/engine';
 import type { PieceType } from './game/types';
-import { loadSettings, readBestScore, writeBestScore, type GameSettings } from './storage/settings';
+import { loadSettings, saveSettings, readBestScore, writeBestScore, type GameSettings } from './storage/settings';
 import { SoundManager } from './audio/sound';
 import { KeyboardController } from './input/keyboard';
 import { RepeatController } from './input/repeat';
@@ -131,6 +131,23 @@ function boot(rootElement: HTMLElement): AppHandle {
       engine.togglePause(); // 弹设置不偷跑游戏（T056 验收）
     }
     settingsDialog.open(settings);
+  });
+
+  // ── 头部声音按钮（S04.3 三操作之一；T059 复查发现的接线缺口，+1 修复）：
+  //    快速切换音效开关，与设置弹窗共用同一份持久化设置（S07）。 ─────────────
+  const syncSoundButtonState = (): void => {
+    refs.soundButton.setAttribute('aria-pressed', String(settings.soundEnabled));
+  };
+  syncSoundButtonState();
+  refs.soundButton.addEventListener('click', () => {
+    settings = { ...settings, soundEnabled: !settings.soundEnabled };
+    saveSettings(settings);
+    sound.setEnabled(settings.soundEnabled);
+    syncSoundButtonState();
+    // 设置弹窗若处于打开态，勾选同步显示。
+    if (!settingsDialog.root.hidden) {
+      settingsDialog.soundCheckbox.checked = settings.soundEnabled;
+    }
   });
 
   // ── 输入：键盘（内置长按）+ 触控（独立长按控制器，同 DAS/ARR 参数） ──────

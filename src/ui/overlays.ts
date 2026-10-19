@@ -210,6 +210,9 @@ export function createSettingsDialog(overlayRoot: HTMLElement): SettingsDialog {
   const saveButton = button(actions, '保存', 'btn-settings-save', true);
   const closeButton = button(actions, '关闭', 'btn-settings-close');
 
+  // 打开来源元素（关闭后归还焦点，T059）。
+  let lastFocused: HTMLElement | null = null;
+
   overlayRoot.appendChild(root);
 
   const dialog: SettingsDialog = {
@@ -224,10 +227,18 @@ export function createSettingsDialog(overlayRoot: HTMLElement): SettingsDialog {
       soundCheckbox.checked = s.soundEnabled;
       ghostCheckbox.checked = s.ghostEnabled;
       reducedMotionCheckbox.checked = s.reducedMotion;
+      // 焦点管理（T059/S06）：打开即把焦点移入对话框首个控件，
+      // 记住来源元素供关闭时归还。
+      lastFocused =
+        document.activeElement instanceof HTMLElement ? document.activeElement : null;
       root.hidden = false;
+      soundCheckbox.focus({ preventScroll: true });
     },
     close(): void {
       root.hidden = true;
+      // 焦点归还给触发按钮（如头部“设置”），键盘用户不丢焦点（T059）。
+      lastFocused?.focus({ preventScroll: true });
+      lastFocused = null;
     },
     readSettings(): GameSettings {
       return {
@@ -253,6 +264,14 @@ export function createSettingsDialog(overlayRoot: HTMLElement): SettingsDialog {
   });
   closeButton.addEventListener('click', () => {
     dialog.close();
+  });
+  // 对话框打开时 Escape 关闭并阻止冒泡（不得切暂停、不得穿透游戏快捷键，T059）。
+  root.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      event.stopPropagation();
+      event.preventDefault();
+      dialog.close();
+    }
   });
   return dialog;
 }
