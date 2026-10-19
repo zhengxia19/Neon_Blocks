@@ -199,6 +199,26 @@ body {
   gap: var(--space-1);
 }
 
+/* ── 预览 4×4 小格（T042）：格子 DOM 固定，仅更新 background-color ───────── */
+.piece-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 16px);
+  grid-template-rows: repeat(4, 16px);
+  gap: 2px;
+}
+
+.piece-cell {
+  border-radius: 3px;
+  background-color: transparent;
+}
+
+/* 空槽占位：虚线框提示可暂存位置（HOLD 空态） */
+.piece-grid.is-empty {
+  outline: 1px dashed rgba(166, 181, 212, 0.35);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
 /* ── 底部键盘说明与移动端虚拟键容器 ──────────────────────────────────────── */
 .key-guide {
   text-align: center;
