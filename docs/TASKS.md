@@ -383,7 +383,7 @@
 - **验证命令/动作**：`npm run build`，Chrome 响应模式检查 320/390px。
 - **通过条件**：两种宽度 documentElement.scrollWidth <= innerWidth；棋盘完全可见，面板无重叠。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T038｜实现 Canvas 高清缩放
+#### - [x] T038｜实现 Canvas 高清缩放
 - **依赖**：T035, T037。**允许修改文件**：`src/ui/renderer.ts`。**规格**：S05。
 - **明确步骤**：
   1. 导出 `BoardRenderer` 类接收 canvas，公开 `resize()`、`render(state,opts)`；初始 render 可只清屏。
