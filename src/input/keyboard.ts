@@ -3,7 +3,7 @@
 // 不改变 UI（开始/覆盖层快捷键经回调交给 main）、文本输入与打开的对话框
 // 内不劫持快捷键、一次性动作忽略 event.repeat、仅在游戏进行中对映射键
 // preventDefault。dispose() 完整移除监听。
-// T051：←/→/↓ 长按交给 RepeatController（DAS 150/ARR 45/软降 35）——首次
+// T051：只有 ↓ 长按交给 RepeatController（DAS 150/ARR 45/软降 35）——首次
 // 按下立即执行，节奏由装配层每帧调用 update(dtMs) 推进（无独立计时器）；
 // event.repeat 不再触发动作（首次 keydown 已记录按住态）。
 
