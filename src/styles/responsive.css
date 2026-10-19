@@ -19,9 +19,6 @@
     gap: 6px;
   }
 
-  .brand-cn {
-    display: none; /* 标题压缩：中文副名让位给棋盘宽度 */
-  }
 
   .mode-caption {
     display: none;
