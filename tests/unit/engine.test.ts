@@ -1,4 +1,4 @@
-// T022/T023：GameEngine 初始 ready 状态、NEXT 队列补充与出生活动块测试（规格 S03.1,S03.2,S03.3）。
+// T022/T023/T024：GameEngine 初始 ready 状态、NEXT 队列补充与出生活动块、水平移动测试（规格 S03.1,S03.2,S03.3）。
 import { describe, expect, it } from 'vitest';
 import { canPlace, createEmptyBoard } from '../../src/game/board';
 import { BOARD_HEIGHT, BOARD_WIDTH } from '../../src/game/constants';
@@ -180,5 +180,97 @@ describe('GameEngine NEXT 队列与出生活动块（T023，S03.1/S03.2/S03.3）
     expect(s.gravityElapsedMs).toBe(0);
     expect(s.lockElapsedMs).toBe(0);
     expect(s.lockResetCount).toBe(0);
+  });
+});
+
+/** 深快照：非法动作后逐字段比较完整状态（JSON 克隆，避免引用共享）。 */
+function snapshot(engine: GameEngine): unknown {
+  return JSON.parse(JSON.stringify(engine.getState()));
+}
+
+describe('GameEngine 水平移动（T024，S03.3）', () => {
+  // rng=()=>0 确定性首块 I（r0 实体格占 x..x+3 共 4 列，出生 x=3）。
+  const newRunning = (): GameEngine => {
+    const engine = new GameEngine(() => 0);
+    engine.start();
+    return engine;
+  };
+
+  it('普通移动：move(1)/move(-1) 仅更改 x，type/rotation/y 与分数字段不变', () => {
+    const engine = newRunning();
+    const before = engine.getState();
+    expect(before.active?.x).toBe(3);
+    engine.move(1);
+    const after = engine.getState();
+    expect(after.active?.x).toBe(4);
+    expect(after.active?.type).toBe(before.active?.type);
+    expect(after.active?.rotation).toBe(before.active?.rotation);
+    expect(after.active?.y).toBe(before.active?.y);
+    // 移动本身不加分、不动计时器与队列
+    expect(after.score).toBe(0);
+    expect(after.gravityElapsedMs).toBe(0);
+    expect(after.lockElapsedMs).toBe(0);
+    expect(after.lastEvent).toBeNull();
+    expect(after.nextQueue).toHaveLength(5);
+    engine.move(-1);
+    expect(engine.getState().active?.x).toBe(3);
+  });
+
+  it('贴左墙：I 从 x=3 左移 3 次至 x=0 后，move(-1) 无效且状态快照完全不变', () => {
+    const engine = newRunning();
+    for (let i = 0; i < 3; i += 1) {
+      engine.move(-1);
+    }
+    expect(engine.getState().active?.x).toBe(0); // 实体列 0..3 贴左墙
+    const before = snapshot(engine);
+    engine.move(-1);
+    expect(snapshot(engine)).toEqual(before); // 原子失败：x/一切字段不变
+  });
+
+  it('贴右墙：I 从 x=3 右移 3 次至 x=6（实体列 6..9）后，move(1) 无效且状态不变', () => {
+    const engine = newRunning();
+    for (let i = 0; i < 3; i += 1) {
+      engine.move(1);
+    }
+    expect(engine.getState().active?.x).toBe(6);
+    const before = snapshot(engine);
+    engine.move(1);
+    expect(snapshot(engine)).toEqual(before);
+  });
+
+  it('不可横向穿过锁定块：board[3][7] 预置锁定格挡住 I 右移一格', () => {
+    const src = createEmptyBoard();
+    src[3][7] = 'T'; // I 出生实体格为第 3 行 x=3..6，右移一格将占用 (7,3)
+    const engine = new GameEngine(() => 0, src);
+    engine.start();
+    expect(engine.getState().status).toBe('running'); // 出生本身仍可放置
+    const before = snapshot(engine);
+    engine.move(1);
+    expect(engine.getState().active?.x).toBe(3);
+    expect(snapshot(engine)).toEqual(before);
+    engine.move(-1); // 反方向无障碍，验证移动能力本身正常
+    expect(engine.getState().active?.x).toBe(2);
+  });
+
+  it('ready 状态下 move 无效：状态快照与初态完全一致（active=null）', () => {
+    const engine = new GameEngine(() => 0);
+    const before = snapshot(engine);
+    engine.move(1);
+    engine.move(-1);
+    expect(snapshot(engine)).toEqual(before);
+    expect(engine.getState().active).toBeNull();
+    expect(engine.getState().status).toBe('ready');
+  });
+
+  it('gameover 状态下 move 无效（active=null 时同样不改变状态）', () => {
+    const src = createEmptyBoard();
+    src[3][4] = 'T'; // 出生碰撞 → gameover
+    const engine = new GameEngine(() => 0, src);
+    engine.start();
+    expect(engine.getState().status).toBe('gameover');
+    const before = snapshot(engine);
+    engine.move(1);
+    engine.move(-1);
+    expect(snapshot(engine)).toEqual(before);
   });
 });

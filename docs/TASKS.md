@@ -255,7 +255,7 @@
 - **验证命令/动作**：`npx vitest run tests/unit/engine.test.ts`。
 - **通过条件**：出生位置/初态对；任何时候 NEXT 至少 5 个。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T024｜实现 Engine 的水平移动
+#### - [x] T024｜实现 Engine 的水平移动
 - **依赖**：T014, T022, T023。**允许修改文件**：`src/game/engine.ts、tests/unit/engine.test.ts`。**规格**：S03.3。
 - **明确步骤**：
   1. 实现 `move(-1|1)`，仅 running 时处理；调用 canPlace 决定是否更改 x。

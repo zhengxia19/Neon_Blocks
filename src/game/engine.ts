@@ -1,5 +1,5 @@
-// T022/T023：GameEngine 类——私有状态、初始 ready 状态、NEXT 队列补充与出生活动块
-// （规格 S03.1,S03.2,S03.3）。
+// T022/T023/T024：GameEngine 类——私有状态、初始 ready 状态、NEXT 队列补充与出生活动块、
+// 水平移动（规格 S03.1,S03.2,S03.3）。
 // 纯逻辑模块：不访问 DOM/Canvas/localStorage；UI 仅经 getState() 只读视图读取状态。
 // 动作 API（move/rotate/softDrop/…）由 T024+ 逐个补齐。
 import { canPlace, cloneBoard, createEmptyBoard } from './board';
@@ -123,6 +123,21 @@ export class GameEngine {
     }
     this.#state.status = 'running';
     this.#spawnNext();
+  }
+
+  /**
+   * 水平移动（S03.3）：仅 running 且存在活动块时处理；经 `canPlace` 判定新 x，
+   * 横向不能穿过边界/锁定块。成功只改 active.x（不加分、不动其他字段）；
+   * 非法移动彻底不改变状态（原子失败，S03.1）。
+   */
+  move(dx: -1 | 1): void {
+    if (this.#state.status !== 'running' || this.#state.active === null) {
+      return;
+    }
+    const moved: ActivePiece = { ...this.#state.active, x: this.#state.active.x + dx };
+    if (canPlace(this.#state.board, moved)) {
+      this.#state.active = moved;
+    }
   }
 
   /** 只读状态快照（S03.3）：嵌套数组同为只读视图，UI 不得修改。 */
