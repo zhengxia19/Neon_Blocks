@@ -26,6 +26,12 @@ npm run build     # 类型检查 + 生产构建 → dist/
 npm run preview   # 本地预览 dist（构建产物）
 ```
 
+> **Windows 提示**：部分 Windows 环境（本机实测）中 Vite 默认绑定 `localhost`
+> 时实际只监听 IPv6 环回 `[::1]`，浏览器按 IPv4（`127.0.0.1`）解析会得到
+> “连接被拒绝”。此时显式绑定 IPv4 即可：
+> `npm run dev -- --host 127.0.0.1` 后打开 <http://127.0.0.1:5173/>；
+> 预览同理：`npm run preview -- --host 127.0.0.1`。
+
 ## 静态部署
 
 `npm run build` 后把 `dist/` 整个目录交给任意静态服务器
