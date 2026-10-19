@@ -261,3 +261,16 @@
 - **命令与退出码**：`npm --prefix worker run typecheck`→0；`npm --prefix worker test`→0；根 `npm run test`→0（15/278）；deploy.yml 未动（前缀 5A08B009）。
 - **复审结论**：独立复审 PASS——eliminations 全库唯一 INSERT 且时刻仅服务端提供、matchId 严格、幂等三重（重复/已结束/闹钟交叠）、超时胜者=存活者、leaveRoom 入账不破坏转让、裁决段全同步；复跑 108 例全绿。非阻塞观察：O1 提前终局未取消 deadline 闹钟（FINISHED 门空转无害，**归 N21 闹钟协调**）；O2 `now` 为测试缝参数（N25 必须传服务端接收时刻）；O3 `#eliminatedAtOf` 未带 generation（matchId 随机碰撞可忽略）；O4 并列组内顺序未定义（N19 加次级排序键）；O5 RUNNING 最后席位退出可致「退出者并列胜」（§1.7 合规反直觉，N19 复盘明示）；O6 超时存活者现全体并列（排序属 N19）。
 - **未解决事项**：终局名次 standings 与分数/消行排序属 N19；提前终局的闹钟取消属 N21；gameover 入站接线属 N25。
+
+---
+
+## N19 — 超时获胜和最终名次 ✅ PASS
+
+- **基线 HEAD**：`bf942cd`（N18 之后）
+- **改动文件（1 个逻辑文件 + 1 测试，均新增）**：`worker/src/ranking.ts`（纯函数 `computeFinalRanking(RankInput[]) → {standings: StandingEntry[], winners}`，方案 §1.6～§1.8：存活者恒先于已淘汰者（**已死高分不夺冠**）；存活者段分数降序→消行降序；已淘汰段淘汰时刻降序（存活久者先）→分数→消行；并列由 `sameRankKey` 显式判定（不含 playerId/joinOrder，joinOrder 仅稳定显示序）；placement 竞赛排名跳号（1,1,3）、已淘汰 `placement=null`（协议 StandingEntry 规定）；胜者独立：有存活→并列第一存活者，零存活→最晚时刻组内分数/消行判定、完全同条件并列；拷贝入参、全序比较器保证确定性。与 N27 排行榜**零复用**：ranking.ts 仅 import 协议类型，无任何生产代码 import 它）。新增 `worker/test/ranking.test.ts`（11 例）。room.ts/index.ts 未改（成绩存储与 standings 接线属 N25/N27）。
+- **单测**：`npm --prefix worker test` → 0（**16 文件 / 119 例**：新增 11——已死高分不夺冠+已淘汰无 placement；超时存活分数→消行排序；完全并列双胜者+跳号 1,1,3 且显示序不暗判 ID；淘汰时刻降序无视分数差；同时刻按分数/消行；零存活最晚组独胜/并列；六人混合全段名次；乱序输入输出一致；纯函数不改入参+空输入+单人局；反向「胜者永不含已淘汰者」）。
+- **本地模拟（wrangler dev 冒烟回归）**：纯模块零接线，既有 HTTP+WS 面回归——health 200/create 201/join 200/ticket 200/WS 101+pong；反向 401/404。证据 `evidence/multiplayer/N19/{smoke-local,wrangler-dev-startup,worker-test,worker-typecheck,root-test}.txt` + `n19-smoke.ps1`。
+- **实测排障**：首版实现为密集排名（1,1,2）与测试预期竞赛排名（1,1,3）不符——按「并列第一后续跳号」标准语义改为 `placement = index + 1`。
+- **命令与退出码**：`npm --prefix worker run typecheck`→0；`npm --prefix worker test`→0；根 `npm run test`→0（15/278）；deploy.yml 未动（前缀 5A08B009）。
+- **复审结论**：独立复审 PASS——§1.6/§1.7/§1.8 逐条对照正确、并列等价类相邻性成立、与排行榜零复用、复跑 119 例全绿。非阻塞观察：O1 joinOrder 重复时显示序退化输入序（实际唯一，N25 接线可加 playerId 末位显示键，禁入 sameRankKey）；O2 winners 数组为显示序（接线方勿依赖其顺序）；O3 standings 字段透传靠类型兜底（N25 接线测试补逐字段）；O4 smoke WS_ERR 为已知收尾现象。
+- **未解决事项**：成绩（score/lines）服务端存储与 match_end standings 接线属 N25/N27；N18-O5「最后席位退出者并列胜」语义在 N25 接线时于 UI 明示。
