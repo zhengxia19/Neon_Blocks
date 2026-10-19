@@ -2,6 +2,7 @@
 // T007：导入设计 Token；T035：挂载静态页面骨架（一次性构建，不逐帧重建）；
 // 引擎、渲染器、HUD、覆盖层与输入的装配在 T053 完成。
 import './styles/tokens.css';
+import './styles/app.css';
 import { mountLayout } from './ui/layout';
 
 const appRoot = document.getElementById('app');

@@ -1,0 +1,213 @@
+/* Neon Blocks — 桌面端静态样式（规格 S04.1 / S04.2 / S04.3，任务 T036）。
+   移动断点（<768px）在 responsive.css（T037）覆盖，本文件不写媒体查询。 */
+
+/* ── 页面背景：深蓝紫径向渐变 + 两个低透明柔光斑 + 静态点阵（S04.1，禁止全屏粒子） ── */
+body {
+  background:
+    radial-gradient(720px 480px at 18% -12%, rgba(165, 140, 255, 0.10), transparent 62%),
+    radial-gradient(900px 560px at 86% 112%, rgba(69, 214, 232, 0.07), transparent 60%),
+    radial-gradient(rgba(188, 198, 255, 0.05) 1px, transparent 1.4px),
+    var(--bg);
+  background-size: auto, auto, 24px 24px, auto;
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
+/* ── 主区域：最大宽 1060px、外侧安全边距 24px（S04.3） ───────────────────── */
+#app {
+  width: 100%;
+  max-width: var(--page-max-width);
+  margin-inline: auto;
+  padding: var(--space-4) var(--space-4) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* ── 顶部：品牌 + 模式描述 + 操作按钮 ────────────────────────────────────── */
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.brand {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--text);
+}
+
+.brand-glyph {
+  color: var(--accent-2);
+  font-size: 20px;
+}
+
+.brand-cn {
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0.3em;
+  color: var(--muted);
+}
+
+.mode-caption {
+  margin: 0;
+  flex: 1 1 100%;
+  order: 3;
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  color: var(--muted);
+}
+
+/* 移动端压缩读数：桌面隐藏（responsive.css 显示） */
+.mini-status {
+  display: none;
+}
+
+.header-actions {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.icon-button {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-button);
+  border: var(--card-border);
+  background: var(--panel);
+  color: var(--accent-2);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, transform 80ms ease;
+}
+
+.icon-button:hover {
+  background: #1a2340;
+  border-color: rgba(165, 140, 255, 0.45);
+}
+
+.icon-button:active {
+  transform: scale(0.94);
+}
+
+.icon-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ── 中部三栏：列间距 16–24px，主棋盘 300px 醒目（S04.3） ────────────────── */
+.playfield {
+  display: grid;
+  grid-template-columns: minmax(210px, 260px) auto minmax(210px, 260px);
+  justify-content: center;
+  align-items: start;
+  gap: var(--space-3) var(--space-3);
+}
+
+/* UI 卡片：16px 圆角、1px 边框、柔和阴影（S04.2） */
+.panel {
+  background: var(--panel);
+  border: var(--card-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--card-shadow);
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.panel-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  color: var(--muted);
+}
+
+/* 主棋盘：淡紫发光外框，比两侧醒目（S04.1/S04.3） */
+.panel-board {
+  position: relative;
+  padding: var(--space-2);
+  border-color: rgba(165, 140, 255, 0.38);
+  box-shadow:
+    var(--card-shadow),
+    0 0 26px rgba(165, 140, 255, 0.16),
+    0 0 60px rgba(165, 140, 255, 0.08);
+  justify-self: center;
+}
+
+.board-canvas {
+  display: block;
+  width: 300px;
+  height: 600px;
+  background: var(--board);
+  border-radius: 10px;
+}
+
+/* 覆盖层挂载点：盖住棋盘内部，真实 HTML 对话框（T044 填充） */
+.overlay-root {
+  position: absolute;
+  inset: var(--space-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none; /* 无对话框时不拦截棋盘交互；对话框自身开启 */
+}
+
+/* ── 统计读数块（T043 写数值；tabular-nums 已在 body 全局） ──────────────── */
+.stat-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stat-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  color: var(--muted);
+}
+
+.stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* ── 预览容器：HOLD 一枚、NEXT 三枚（内部小格由 T042 生成） ───────────────── */
+.preview-box {
+  width: 96px;
+  height: 72px;
+  border-radius: 10px;
+  border: 1px solid rgba(188, 198, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+  display: grid;
+  place-items: center;
+}
+
+.preview-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* ── 底部键盘说明与移动端虚拟键容器 ──────────────────────────────────────── */
+.key-guide {
+  text-align: center;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+/* 桌面隐藏触屏按键（responsive.css 在 <768px 显示，T047 填充按钮） */
+.touch-controls {
+  display: none;
+}
