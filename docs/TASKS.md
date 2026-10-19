@@ -569,7 +569,7 @@
 - **验证命令/动作**：`npm run test:e2e -- --project=chromium`。
 - **通过条件**：全部 E2E 通过；有可重现断言，非只检查截图。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T058｜移动 Playwright 触控闭环
+#### - [x] T058｜移动 Playwright 触控闭环
 - **依赖**：T005, T052, T056。**允许修改文件**：`tests/e2e/mobile.spec.ts、playwright.config.ts（仅必要时）`。**规格**：S04.3,S08。
 - **明确步骤**：
   1. 在 mobile-chrome project 检查 390×844：触控开始、左移、旋转、硬降、暂停、继续。
