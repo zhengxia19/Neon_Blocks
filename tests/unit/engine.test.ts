@@ -1,4 +1,4 @@
-// T022/T023/T024/T025：GameEngine 初始 ready 状态、NEXT 队列与出生、水平移动、顺逆旋转测试（规格 S03.1,S03.2,S03.3,S03.4）。
+// T022/T023/T024/T025/T026：GameEngine 初始 ready 状态、NEXT 队列与出生、水平移动、顺逆旋转、软降测试（规格 S03.1,S03.2,S03.3,S03.4,S03.5）。
 import { describe, expect, it } from 'vitest';
 import { canPlace, createEmptyBoard } from '../../src/game/board';
 import { BOARD_HEIGHT, BOARD_WIDTH } from '../../src/game/constants';
@@ -394,5 +394,91 @@ describe('GameEngine 顺逆旋转（T025，S03.3/S03.4）', () => {
     over.rotate(1);
     over.rotate(-1);
     expect(snapshot(over)).toEqual(overBefore);
+  });
+});
+// ---------------------------------------------------------------------------
+// T026：单次软降及每格加分（S03.3/S03.5）
+// ---------------------------------------------------------------------------
+describe('GameEngine 软降（T026，S03.3/S03.5）', () => {
+  // rng=()=>0 确定性首块 I（r0 实体占行 y+3、列 x..x+3，出生 x=3/y=2）。
+  const newRunning = (): GameEngine => {
+    const engine = new GameEngine(() => 0);
+    engine.start();
+    return engine;
+  };
+
+  it('成功一次：y+1、score+1，其余字段（x/rotation/type/队列/计时器/事件）全部不变', () => {
+    const engine = newRunning();
+    const before = engine.getState();
+    expect(before.active?.y).toBe(2);
+    expect(before.score).toBe(0);
+    engine.softDrop();
+    const after = engine.getState();
+    expect(after.active?.y).toBe(3);
+    expect(after.score).toBe(1);
+    // 仅 y 与 score 变化
+    expect(after.active?.x).toBe(before.active?.x);
+    expect(after.active?.rotation).toBe(before.active?.rotation);
+    expect(after.active?.type).toBe(before.active?.type);
+    expect(after.nextQueue).toEqual(before.nextQueue);
+    expect(after.gravityElapsedMs).toBe(0);
+    expect(after.lockElapsedMs).toBe(0);
+    expect(after.lastEvent).toBeNull();
+    expect(after.status).toBe('running');
+  });
+
+  it('连续软降：每次恰 +1 分 +1 格（软降分独立累计，无双重加分）', () => {
+    const engine = newRunning();
+    for (let i = 1; i <= 5; i += 1) {
+      engine.softDrop();
+      const s = engine.getState();
+      expect(s.active?.y).toBe(2 + i);
+      expect(s.score).toBe(i);
+    }
+  });
+
+  it('触底：保持位置、分数不变、不锁定——active 仍在、棋盘未写入锁定格、status=running', () => {
+    const engine = newRunning();
+    // 空盘 I r0（实体行 y+3）贴底时 y=22（T019 getGhostY 已验证）：自 y=2 软降 20 次到 22
+    for (let i = 0; i < 20; i += 1) {
+      engine.softDrop();
+    }
+    let s = engine.getState();
+    expect(s.active?.y).toBe(22);
+    expect(s.score).toBe(20);
+    const before = snapshot(engine);
+    // 触底后再软降：完全原子失败，零变化（不锁定、不清除 active、不发事件）
+    engine.softDrop();
+    engine.softDrop();
+    expect(snapshot(engine)).toEqual(before);
+    s = engine.getState();
+    expect(s.active).not.toBeNull();
+    expect(s.status).toBe('running');
+    for (const row of s.board) {
+      for (const cell of row) {
+        expect(cell).toBeNull(); // 未锁定：棋盘仍全空
+      }
+    }
+  });
+
+  it('ready 状态软降无效：快照完全不变、不加一分（paused 测试在 T031 补齐）', () => {
+    const engine = new GameEngine(() => 0);
+    const before = snapshot(engine);
+    engine.softDrop();
+    engine.softDrop();
+    expect(snapshot(engine)).toEqual(before);
+    expect(engine.getState().score).toBe(0);
+  });
+
+  it('gameover 状态（active=null）软降无效：分数保持、不再生效', () => {
+    const src = createEmptyBoard();
+    src[3][4] = 'T'; // 出生碰撞 → gameover
+    const engine = new GameEngine(() => 0, src);
+    engine.start();
+    expect(engine.getState().status).toBe('gameover');
+    const before = snapshot(engine);
+    engine.softDrop();
+    expect(snapshot(engine)).toEqual(before);
+    expect(engine.getState().score).toBe(0);
   });
 });

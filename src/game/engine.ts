@@ -1,9 +1,10 @@
-// T022/T023/T024/T025：GameEngine 类——私有状态、初始 ready 状态、NEXT 队列补充与出生活动块、
-// 水平移动、顺逆旋转（规格 S03.1,S03.2,S03.3,S03.4）。
+// T022/T023/T024/T025/T026：GameEngine 类——私有状态、初始 ready 状态、NEXT 队列补充与出生活动块、
+// 水平移动、顺逆旋转、单次软降（规格 S03.1,S03.2,S03.3,S03.4,S03.5）。
 // 纯逻辑模块：不访问 DOM/Canvas/localStorage；UI 仅经 getState() 只读视图读取状态。
 // 动作 API（move/rotate/softDrop/…）由 T024+ 逐个补齐。
 import { canPlace, cloneBoard, createEmptyBoard } from './board';
 import { drawFromBag } from './random';
+import { dropPoints } from './scoring';
 import { tryRotate } from './srs';
 import type { ActivePiece, Board, Cell, GameState, PieceType, Rotation } from './types';
 
@@ -151,6 +152,24 @@ export class GameEngine {
     if (canPlace(this.#state.board, moved)) {
       this.#state.active = moved;
     }
+  }
+
+  /**
+   * 单次软降（S03.3/S03.5）：仅 running 且存在活动块时处理；经 `canPlace` 判定
+   * 下方一格，可行则 y+1 并按 `dropPoints('soft', 1)` 加 1 分（计分唯一来源为
+   * scoring 模块，软降分与自然重力分独立、不双重加分）。不能下降时保持位置、
+   * 分数不变、不立即锁定（锁定由 step 的 500ms 延迟计时处理，T028/T029）。
+   */
+  softDrop(): void {
+    if (this.#state.status !== 'running' || this.#state.active === null) {
+      return;
+    }
+    const moved: ActivePiece = { ...this.#state.active, y: this.#state.active.y + 1 };
+    if (canPlace(this.#state.board, moved)) {
+      this.#state.active = moved;
+      this.#state.score += dropPoints('soft', 1);
+    }
+    // 不可下降：状态完全不变（无事件、无锁定，S03.3）
   }
 
   /** 只读状态快照（S03.3）：嵌套数组同为只读视图，UI 不得修改。 */

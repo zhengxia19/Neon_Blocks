@@ -273,7 +273,7 @@
 - **验证命令/动作**：`npx vitest run tests/unit/engine.test.ts`。
 - **通过条件**：引擎旋转与 srs.ts 完全一致。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T026｜实现单次软降及每格加分
+#### - [x] T026｜实现单次软降及每格加分
 - **依赖**：T014, T020, T022, T023。**允许修改文件**：`src/game/engine.ts、tests/unit/engine.test.ts`。**规格**：S03.3,S03.5。
 - **明确步骤**：
   1. 定义 `softDrop()`：仅能下一格时 y+1、score+1。
