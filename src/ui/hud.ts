@@ -147,7 +147,7 @@ export function createHud(refs: HudRefs): { update(state: HudState, best: number
       const bestScore = safeInt(best);
       if (score !== lastScore) {
         refs.scoreValue.textContent = formatScore(score);
-        refs.miniScore.textContent = `SCORE ${formatScore(score)}`;
+        refs.miniScore.textContent = `得分 ${formatScore(score)}`;
         lastScore = score;
       }
       if (bestScore !== lastBest) {
@@ -156,7 +156,7 @@ export function createHud(refs: HudRefs): { update(state: HudState, best: number
       }
       if (level !== lastLevel) {
         refs.levelValue.textContent = String(level); // 等级不截断
-        refs.miniLevel.textContent = `LV ${level}`;
+        refs.miniLevel.textContent = `等级 ${level}`;
         lastLevel = level;
       }
       if (lines !== lastLines) {
