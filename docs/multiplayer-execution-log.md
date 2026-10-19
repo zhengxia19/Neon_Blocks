@@ -170,3 +170,16 @@
 - **命令与退出码**：`npm --prefix worker run typecheck` → 0；`npm --prefix worker test` → 0；deploy.yml 未动（前端零改动）。
 - **复审结论**：独立复审 PASS——范围合规（deploy.yml 哈希前缀 `5A08B009` 与 N01 基线一致、src/ 与 shared/ 零 diff）；joinRoom 同步段零 await、NOCASE 冲突走列 collation+UNIQUE 双防线、代际一致性核验；门槛顺序与错误映射、200 白名单无泄漏核验；复跑 32 例全绿、E2E 与服务器日志一一对应、race 恰 1×200/7×409。非阻塞观察：O1 seats 未显式事务（依赖单线程+无 await 不变量）、O2 join 复用 `CREATE_RATE_LIMIT_PER_MIN` 变量名（桶键已分离，建议 N22 拆名）、O3 GAME_STARTED 无 E2E 触发路径（DO+路由双层覆盖，N15 后补）、O4 昵称冲突未按 generation 过滤（靠复用码清席保证）、O5 join 回传 customSeed 给加入者（保密性 N15+ 收敛）、O6 node:sqlite 桩非真实 workerd 并发（E2E N4 段佐证）。
 - **未解决事项**：join 全局限流与 Retry-After 属 N22；GAME_STARTED 的 HTTP 路径待 N15 开赛路由打通后补 E2E。
+
+---
+
+## N12 — 席位、房主转移与主动退出 ✅ PASS
+
+- **基线 HEAD**：`ee1d8b3`（N11 之后）
+- **改动文件（1 个逻辑文件 + 1 测试）**：`worker/src/room.ts`（`getSeats` 席位快照：权限/房主标识/加入序号，供 N15 大厅态复用；`leaveRoom`：席位读取→DELETE→转让判定构成无 await 同步段——仅当退出者为房主时按最小加入序号存活者置 `is_host=1`（新房主唯一），最后一人离开即 `occupied=0` 关闭业务态（代际保留）；退出者席位行删除后其令牌摘要不再匹配=旧凭据失效）；新增 `worker/test/room-leave.test.ts`（7 例 DO 直测）。清单 N12 范围仅 `room.ts`+测试，无 HTTP 面。
+- **单测**：`npm --prefix worker test` → 0（**7 文件 / 39 例**：房主退出→新房主唯一且为最小序号存活者（joinOrder=2 断言）；非房主退出不回报转让、房主不变、退出者再退出 UNAUTHORIZED；房主连续转让至下一序号；最后一人离开 roomClosed=true→再加入 ROOM_NOT_FOUND→重占代际 +1 席位清空；未知席位 UNAUTHORIZED 且席位不变；未占用 ROOM_NOT_FOUND；不变量：逐一退出全程房主恒唯一至空）。
+- **实测缺陷与修复**：首版对非房主退出也执行 `CASE WHEN` 全表重置并回报最小序号为 `newHostPlayerId`（测试暴露语义误）→ 改为仅房主席位空出才转让。
+- **本地模拟（wrangler dev 冒烟回归）**：既有 API 正常（create 201、join 200 joinOrder=2）；退出/转让无 HTTP 触发路径（WS 属 N14+），由 DO 直测覆盖。证据 `evidence/multiplayer/N12/{smoke-local,wrangler-dev-startup,worker-test,worker-typecheck}.txt`。
+- **命令与退出码**：`npm --prefix worker run typecheck` → 0；`npm --prefix worker test` → 0；deploy.yml 未动（前端零改动）。
+- **复审结论**：独立复审 PASS——范围合规（deploy.yml 前缀 `5A08B009` 一致、src/ 与 shared/ 零 diff、仅 room.ts+测试）；leaveRoom 全程无 await 原子段、仅房主退出才转让、按最小 join_order 存活者、最后离开 occupied=0 代际保留、房主唯一性核验；复跑 39 例全绿与证据逐字一致；验收两条（新房主唯一、最后离开立即关闭）均有直接断言。非阻塞观察：O1 leaveRoom 以 playerId 定位，N14/N16 接线须先 token→playerId 认证再调用；O2 join_order 用 COUNT+1 中途退出后会撞号（建议 N15+ 改 MAX+1 或加 UNIQUE）；O3 getSeats 无代际过滤（release 后清席延迟到下次 createRoom）；O4 断线转让待 N14 连接注册表；O5 关闭仅置 occupied=0（state 由重占覆盖）；O6 未显式事务（同 N11 O1）。
+- **未解决事项**：断线（非主动退出）触发的转让与「存活连接」维度待 N14 WS 接线后复用 `leaveRoom` 同机制；HTTP 层退出路由待 N16 协议消息承载。

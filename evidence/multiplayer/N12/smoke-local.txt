@@ -1,0 +1,3 @@
+S1 create => 201 code=972201
+S2 join => 200 joinOrder=2
+NOTE: N12 无 HTTP 面（清单范围 room.ts+测试），冒烟仅回归既有 API；退出/转让由 DO 直测覆盖

@@ -36,6 +36,12 @@ export type JoinResult =
     }
   | { joined: false; error: JoinFailure };
 
+export type SeatInfo = { playerId: string; nickname: string; isHost: boolean; joinOrder: number };
+
+export type LeaveResult =
+  | { left: true; newHostPlayerId: string | null; roomClosed: boolean; generation: number }
+  | { left: false; error: 'ROOM_NOT_FOUND' | 'UNAUTHORIZED' };
+
 /** 强随机十六进制串（crypto.getRandomValues）。 */
 function randomHex(byteLength: number): string {
   const bytes = new Uint8Array(byteLength);
@@ -243,6 +249,65 @@ export class RoomDO extends DurableObject<Env> {
     };
     if (config.customSeed !== undefined) settings.customSeed = config.customSeed;
     return { joined: true, generation: Number(meta.generation), playerId, seatToken, joinOrder, settings };
+  }
+
+  /** 席位快照（N12：权限/房主标识/加入序号；供 N15 大厅态复用）。 */
+  getSeats(): SeatInfo[] {
+    this.#ensureSchema();
+    this.#ensureRow();
+    return [
+      ...this.#sql.exec<{ player_id: string; nickname: string; is_host: number; join_order: number }>(
+        'SELECT player_id, nickname, is_host, join_order FROM seats ORDER BY join_order ASC',
+      ),
+    ].map((row) => ({
+      playerId: row.player_id,
+      nickname: row.nickname,
+      isHost: Number(row.is_host) === 1,
+      joinOrder: Number(row.join_order),
+    }));
+  }
+
+  /**
+   * N12：主动退出。席位删除与房主转让（按存活加入序号最小者）构成无 await 同步段，
+   * DO 单线程串行保证「房主退出后新房主唯一」。最后一人离开即关闭房间业务态
+   * （occupied=0，代际保留）；退出者席位行删除后其令牌摘要不再匹配（旧凭据失效）。
+   */
+  leaveRoom(playerId: string): LeaveResult {
+    this.#ensureSchema();
+    this.#ensureRow();
+    const meta = this.#sql
+      .exec<RoomMetaRow>('SELECT generation, occupied FROM room_meta WHERE id = 1')
+      .one();
+    if (meta.occupied !== 1) {
+      return { left: false, error: 'ROOM_NOT_FOUND' };
+    }
+    const seat = [
+      ...this.#sql.exec<{ is_host: number }>('SELECT is_host FROM seats WHERE player_id = ?', playerId),
+    ][0];
+    if (seat === undefined) {
+      return { left: false, error: 'UNAUTHORIZED' };
+    }
+    this.#sql.exec('DELETE FROM seats WHERE player_id = ?', playerId);
+    if (Number(seat.is_host) !== 1) {
+      return { left: true, newHostPlayerId: null, roomClosed: false, generation: Number(meta.generation) };
+    }
+    const survivors = [
+      ...this.#sql.exec<{ player_id: string }>(
+        'SELECT player_id FROM seats ORDER BY join_order ASC LIMIT 1',
+      ),
+    ];
+    if (survivors.length === 0) {
+      this.#sql.exec('UPDATE room_meta SET occupied = 0 WHERE id = 1');
+      return { left: true, newHostPlayerId: null, roomClosed: true, generation: Number(meta.generation) };
+    }
+    const newHost = survivors[0].player_id;
+    this.#sql.exec('UPDATE seats SET is_host = 1 WHERE player_id = ?', newHost);
+    return {
+      left: true,
+      newHostPlayerId: newHost,
+      roomClosed: false,
+      generation: Number(meta.generation),
+    };
   }
 
   /** 释放：occupied=0；代际保留，下次占用 +1（旧凭据失效依据）。 */

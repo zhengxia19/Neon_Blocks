@@ -1,0 +1,14 @@
+
+ ⛅️ wrangler 4.151.2
+────────────────────
+Your Worker has access to the following bindings:
+Binding                                                             Resource                  Mode
+env.ROOM_DO (RoomDO)                                                Durable Object            local
+env.ALLOWED_ORIGINS ("https://zhengxia19.github.io")                Environment Variable      local
+env.CREATE_RATE_LIMIT_PER_MIN ("30")                                Environment Variable      local
+
+⎔ Starting local server...
+[wrangler:info] Ready on http://127.0.0.1:8787
+[wrangler:info] GET /api/health 200 OK (19ms)
+[wrangler:info] POST /api/rooms 201 Created (57ms)
+[wrangler:info] POST /api/rooms/972201/join 200 OK (16ms)
