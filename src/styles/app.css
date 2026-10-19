@@ -368,3 +368,15 @@ body {
   gap: 10px;
   margin-top: 6px;
 }
+
+/* ── T060：prefers-reduced-motion 系统降级（S05/S08）────────────────────── */
+/* 系统偏好减少动画时移除 UI 过渡动效；JS 侧（main/effects）同用系统偏好 OR
+   用户设置停止清行闪光、硬降拖影与粒子，双通道均系统偏好优先。 */
+@media (prefers-reduced-motion: reduce) {
+  .icon-button,
+  .overlay-button,
+  .settings-actions button,
+  .touch-btn {
+    transition-duration: 1ms !important;
+  }
+}

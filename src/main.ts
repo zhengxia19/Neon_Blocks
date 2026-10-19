@@ -103,11 +103,13 @@ function boot(rootElement: HTMLElement): AppHandle {
     // 活跃对局的重开需确认；取消状态不变，确认先落盘最高分。
     if (window.confirm('重新开始将丢弃当前进度，确认吗？')) {
       commitBestScore();
+      effects.clear(); // 重开清理旧特效，避免旧拖影闪现（T060 步骤 2）
       engine.restart();
     }
   });
   overlays.replayButton.addEventListener('click', () => {
     if (engine.getState().status === 'gameover') {
+      effects.clear(); // T060 步骤 2
       engine.restart();
     }
   });
@@ -164,6 +166,7 @@ function boot(rootElement: HTMLElement): AppHandle {
         engine.start();
       } else if (status === 'gameover') {
         commitBestScore();
+        effects.clear(); // T060 步骤 2：Enter 重开同样清理旧 FX
         engine.restart();
       }
     },
