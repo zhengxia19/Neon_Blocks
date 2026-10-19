@@ -74,12 +74,12 @@ export function mountLayout(root: HTMLElement): LayoutRefs {
   const header = el('header', { className: 'site-header', parent: root });
   const brand = el('h1', { className: 'brand', id: 'brand-title', parent: header });
   el('span', { className: 'brand-glyph', text: '◇', attrs: { 'aria-hidden': 'true' }, parent: brand });
-  el('span', { className: 'brand-text', text: 'NEON BLOCKS', parent: brand });
-  el('span', { className: 'brand-cn', text: '霓虹方块', parent: brand });
-  el('p', { className: 'mode-caption', text: 'ENDLESS / MARATHON · 无尽马拉松', parent: header });
+  el('span', { className: 'brand-text', text: '霓虹方块', parent: brand });
+  
+  el('p', { className: 'mode-caption', text: '无尽马拉松', parent: header });
   const miniBar = el('div', { className: 'mini-status', attrs: { 'aria-label': '当前分数与等级' }, parent: header });
-  const miniScore = el('span', { className: 'mini-stat', id: 'mini-score', text: 'SCORE 000000', parent: miniBar });
-  const miniLevel = el('span', { className: 'mini-stat', id: 'mini-level', text: 'LV 1', parent: miniBar });
+  const miniScore = el('span', { className: 'mini-stat', id: 'mini-score', text: '得分 000000', parent: miniBar });
+  const miniLevel = el('span', { className: 'mini-stat', id: 'mini-level', text: '等级 1', parent: miniBar });
   void miniBar;
   const actions = el('div', {
     className: 'header-actions', parent: header,
@@ -102,10 +102,10 @@ export function mountLayout(root: HTMLElement): LayoutRefs {
   const main = el('main', { className: 'playfield', attrs: { 'aria-label': '游戏区域' }, parent: root });
 
   const leftPanel = el('aside', { className: 'panel panel-left', attrs: { 'aria-label': '暂存与统计' }, parent: main });
-  el('h2', { className: 'panel-title', text: 'HOLD', parent: leftPanel });
+  el('h2', { className: 'panel-title', text: '暂存', parent: leftPanel });
   const holdPreview = el('div', { className: 'preview-box hold-box', id: 'hold-preview', attrs: { 'aria-label': '暂存方块预览' }, parent: leftPanel });
-  const scoreValue = statBlock(leftPanel, 'SCORE', 'score-value', '000000');
-  const bestValue = statBlock(leftPanel, 'BEST', 'best-value', '000000');
+  const scoreValue = statBlock(leftPanel, '得分', 'score-value', '000000');
+  const bestValue = statBlock(leftPanel, '最高分', 'best-value', '000000');
 
   const boardPanel = el('section', { className: 'panel panel-board', attrs: { 'aria-label': '游戏棋盘' }, parent: main });
   const boardCanvas = el('canvas', {
@@ -116,17 +116,17 @@ export function mountLayout(root: HTMLElement): LayoutRefs {
   const overlayRoot = el('div', { className: 'overlay-root', id: 'overlay-root', attrs: { 'aria-live': 'polite' }, parent: boardPanel });
 
   const rightPanel = el('aside', { className: 'panel panel-right', attrs: { 'aria-label': '预览与进度' }, parent: main });
-  el('h2', { className: 'panel-title', text: 'NEXT', parent: rightPanel });
+  el('h2', { className: 'panel-title', text: '下一个', parent: rightPanel });
   const nextWrap = el('div', { className: 'preview-column next-column', id: 'next-preview', attrs: { 'aria-label': '接下来方块预览' }, parent: rightPanel });
   const nextSlots: HTMLElement[] = [];
   for (let i = 0; i < 3; i += 1) {
     nextSlots.push(el('div', { className: 'preview-box next-slot', attrs: { 'aria-hidden': 'true' }, parent: nextWrap }));
   }
-  const levelValue = statBlock(rightPanel, 'LEVEL', 'level-value', '01');
-  const linesValue = statBlock(rightPanel, 'LINES', 'lines-value', '0');
+  const levelValue = statBlock(rightPanel, '等级', 'level-value', '01');
+  const linesValue = statBlock(rightPanel, '消除行数', 'lines-value', '0');
 
   // ── 底部：键盘说明 + 移动端虚拟按钮容器（T047 填充） ────────────────────
-  el('footer', { className: 'key-guide', text: '← → 移动 / ↓ 软降 / ↑ 或 Space 硬降 / Z X 旋转 / C Hold / P 暂停', parent: root });
+  el('footer', { className: 'key-guide', text: '← / →：单次移动一格　↓：按住连续软降　↑ / X：顺时针旋转　Z：逆时针旋转　空格：硬降　C：暂存　P：暂停', parent: root });
   const touchControls = el('div', { className: 'touch-controls', id: 'touch-controls', attrs: { 'aria-label': '触屏操作按键' }, parent: root });
 
   return {
