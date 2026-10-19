@@ -1,0 +1,31 @@
+
+ RUN  v5.0.5 D:/tcodes/Neon_Blocks/worker
+
+ ✓ test/cors.test.ts (4 tests) 5ms
+ ✓ test/seed-derivation.test.ts (7 tests) 7ms
+ ✓ test/ranking.test.ts (11 tests) 8ms
+ ✓ test/room-join-route.test.ts (5 tests) 43ms
+ ✓ test/room-join.test.ts (7 tests) 53ms
+ ✓ test/protocol-boundary.test.ts (5 tests) 37ms
+ ✓ test/room-allocate.test.ts (5 tests) 97ms
+ ✓ test/room-leave.test.ts (7 tests) 50ms
+ ✓ test/room-ticket.test.ts (9 tests) 50ms
+ ✓ test/room-hibernation.test.ts (11 tests) 84ms
+ ✓ test/room-state.test.ts (10 tests) 75ms
+ ✓ test/room-countdown.test.ts (7 tests) 73ms
+ ✓ test/room-alarm.test.ts (8 tests) 97ms
+ ✓ test/room-ticket-route.test.ts (5 tests) 49ms
+ ✓ test/room-idle.test.ts (9 tests) 97ms
+ ✓ test/room-create.test.ts (6 tests) 49ms
+ ✓ test/room-elimination.test.ts (12 tests) 135ms
+ ✓ test/room-grace.test.ts (10 tests) 134ms
+ ✓ test/http-ratelimit.test.ts (9 tests) 455ms
+   ✓ N22 有界窗口表（禁止无限增长进程级 Map） (1)
+     ✓ 4100 个不同 IP 各创建一次：桶数封顶 4096，最旧桶按插入序淘汰后可再创建 396ms
+
+ Test Files  19 passed (19)
+      Tests  147 passed (147)
+   Start at  05:34:05
+   Duration  744ms (tests 64%, import 20%, transform 11%, worker 5%)
+
+TEST_EXIT=0

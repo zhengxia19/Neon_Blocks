@@ -1,9 +1,12 @@
 /**
- * Worker HTTP 入口（N10：POST /api/rooms 创建房间 + 最低防滥用门槛）。
- * N11 接入 join；N13 接入 WebSocket 升级。
+ * Worker HTTP 入口（N10 创建 + N11 加入 + N13 票据 + N14 升级；N22 防滥用加固）。
  * 边界：Worker 只做 HTTP / 升级 / 限流 / 路由，不实现游戏物理。
- * 门槛顺序（清单 N10「在正式创建 DO 前」）：来源校验 → 创建频率 → 请求体字节 →
- * 参数校验 → 才分配/创建 DO。复杂规则统一在 N22 加固。
+ * 门槛顺序（清单 N10「在正式创建 DO 前」）：来源校验 → 创建开关 → 创建频率 →
+ * 请求体字节 → 参数校验 → 才分配/创建 DO。
+ * N22：分端点独立限流桶（创建/加入/换票）、试码失败冷却桶、有界窗口表
+ * （固定容量插入序淘汰，禁止无限增长进程级 Map）、429 带 Retry-After、
+ * 生产创建开关 PUBLIC_CREATE_ENABLED。跨实例分布式 IP 限流依赖 Cloudflare
+ * Rate Limiting Rules（配置与依赖记录见 evidence/multiplayer/N22 与部署文档）。
  */
 import { describeError } from '../../shared/errors';
 import { MAX_MESSAGE_BYTES, PROTOCOL_ID, PROTOCOL_VERSION } from '../../shared/protocol';
@@ -25,8 +28,16 @@ export interface Env {
   ROOM_DO: DurableObjectNamespace;
   /** 逗号分隔的正式 Origin 白名单。 */
   ALLOWED_ORIGINS: string;
-  /** 每 IP 每分钟创建房间上限（最低门槛，N22 加固）。缺省 30。 */
+  /** 每 IP 每分钟创建房间上限（N22 分端点桶之一）。缺省 30。 */
   CREATE_RATE_LIMIT_PER_MIN?: string;
+  /** 每 IP 每分钟加入上限（N22）。缺省 30。 */
+  JOIN_RATE_LIMIT_PER_MIN?: string;
+  /** 每 IP 每分钟换票上限（N22）。缺省 60。 */
+  TICKET_RATE_LIMIT_PER_MIN?: string;
+  /** 每 IP 每分钟试码失败预算：join/ticket/ws 对不存在房间或坏码的失败合计（N22）。缺省 20。 */
+  CODE_PROBE_LIMIT_PER_MIN?: string;
+  /** "false" 时公开创建返回 503 CREATE_DISABLED（N22 生产开关：分布式 IP 限流未落实前的兜底）。缺省启用。 */
+  PUBLIC_CREATE_ENABLED?: string;
   /** "true" 时并入本地开发 Origin 白名单（仅本地模拟/测试；生产缺省关闭）。 */
   ALLOW_DEV_ORIGINS?: string;
 }
@@ -48,9 +59,14 @@ function errorResponse(
   status: number,
   origin: string | null,
   messageOverride?: string,
+  extraHeaders?: Record<string, string>,
 ): Response {
   const message = messageOverride ?? describeError(code).message;
-  return jsonResponse({ error: code, message }, status, origin);
+  const res = jsonResponse({ error: code, message }, status, origin);
+  if (extraHeaders !== undefined) {
+    for (const [k, v] of Object.entries(extraHeaders)) res.headers.set(k, v);
+  }
+  return res;
 }
 
 // N13：席位令牌格式（与 N10 签发 randomHex(32) 对应；票据本身短小单次不进 URL）。
@@ -76,31 +92,86 @@ async function readJsonBody(
   }
 }
 
-// —— 创建频率最低门槛：单实例滑动窗口（60s）。跨实例全局限流属 N22。 ——
-const createWindow = new Map<string, number[]>();
+// —— N22 限流：单实例 60s 滑动窗口，分端点独立桶 + 试码失败桶。
+// 有界性（清单 N22「禁止无限增长进程级 Map」）：桶数固定上限 MAX_RATE_BUCKETS，
+// 超限按插入序淘汰最旧桶（Map 保持插入序 → 确定性有限状态）；每桶命中数 ≤ 该端点
+// 限额（被限请求不再追加，惩罚不延长窗口）。跨实例/跨地域的全局 IP 限流无法由
+// Worker 进程内设施保证——生产依赖 Cloudflare Rate Limiting Rules（配置与依赖
+// 记录见 evidence/multiplayer/N22/rate-limit-rules.md）；免费计划无法支撑时，
+// 以 PUBLIC_CREATE_ENABLED="false" 禁用公开创建直至替代机制落实。
+const RATE_WINDOW_MS = 60_000;
+const MAX_RATE_BUCKETS = 4096;
+const rateWindow = new Map<string, number[]>();
 
-/** 测试钩子：清空窗口。 */
+/** 测试钩子：清空全部限流桶。 */
 export function __resetCreateRateWindow(): void {
-  createWindow.clear();
+  rateWindow.clear();
 }
 
-function isRateLimited(bucket: string, limitPerMin: number, now: number): boolean {
-  const cutoff = now - 60_000;
-  let hits = createWindow.get(bucket);
+/** 测试钩子：当前桶数（验证有界淘汰）。 */
+export function __rateWindowBucketCount(): number {
+  return rateWindow.size;
+}
+
+function rateCheck(
+  bucketKey: string,
+  limitPerMin: number,
+  now: number,
+): { limited: false } | { limited: true; retryAfterSec: number } {
+  const cutoff = now - RATE_WINDOW_MS;
+  let hits = rateWindow.get(bucketKey);
   if (hits === undefined) {
-    hits = [];
-    createWindow.set(bucket, hits);
-  }
-  while (hits.length > 0 && hits[0] <= cutoff) hits.shift();
-  // 窗口表防泄漏：异常多 IP 时清掉过期项。
-  if (createWindow.size > 4096) {
-    for (const [key, list] of createWindow) {
-      if (list.length === 0 || list[list.length - 1] <= cutoff) createWindow.delete(key);
+    if (rateWindow.size >= MAX_RATE_BUCKETS) {
+      const oldest = rateWindow.keys().next();
+      if (!oldest.done) rateWindow.delete(oldest.value);
     }
+    hits = [];
+    rateWindow.set(bucketKey, hits);
+  } else {
+    while (hits.length > 0 && hits[0] <= cutoff) hits.shift();
   }
-  if (hits.length >= limitPerMin) return true;
+  if (hits.length >= limitPerMin) {
+    return {
+      limited: true,
+      retryAfterSec: Math.max(1, Math.ceil((hits[0] + RATE_WINDOW_MS - now) / 1000)),
+    };
+  }
   hits.push(now);
-  return false;
+  return { limited: false };
+}
+
+/** 环境变量正整数解析（非法值回退缺省，防误配放大限额）。 */
+function positiveInt(raw: string | undefined, fallback: number): number {
+  const n = Number(raw ?? String(fallback));
+  return Number.isInteger(n) && n > 0 ? n : fallback;
+}
+
+function clientIp(request: Request): string {
+  return (request.cf as { ip?: string } | undefined)?.ip ?? 'no-cf';
+}
+
+/** 试码预算核验（不消费额度）：窗口内失败次数已达预算则拦下后续试码类请求。 */
+function probeExceeded(bucketKey: string, limitPerMin: number, now: number): boolean {
+  const cutoff = now - RATE_WINDOW_MS;
+  const hits = rateWindow.get(bucketKey);
+  if (hits === undefined) return false;
+  while (hits.length > 0 && hits[0] <= cutoff) hits.shift();
+  return hits.length >= limitPerMin;
+}
+
+/** 记一次试码失败（消费额度；达预算后不再追加，桶有界）。 */
+function probeHit(bucketKey: string, limitPerMin: number, now: number): void {
+  rateCheck(bucketKey, limitPerMin, now);
+}
+
+/** 429 统一响应（带 Retry-After 秒数）。 */
+function rateLimitedResponse(
+  origin: string | null,
+  retryAfterSec: number,
+): Response {
+  return errorResponse('RATE_LIMITED', 429, origin, undefined, {
+    'retry-after': String(retryAfterSec),
+  });
 }
 
 export default {
@@ -131,11 +202,15 @@ export default {
       if (origin === null) {
         return errorResponse('BAD_ORIGIN', 403, null);
       }
-      const limitRaw = Number(env.CREATE_RATE_LIMIT_PER_MIN ?? '30');
-      const limit = Number.isInteger(limitRaw) && limitRaw > 0 ? limitRaw : 30;
-      const ip = (request.cf as { ip?: string } | undefined)?.ip ?? 'no-cf';
-      if (isRateLimited(`create|${ip}`, limit, Date.now())) {
-        return errorResponse('RATE_LIMITED', 429, origin);
+      // N22 生产开关：分布式 IP 限流落实前，可禁用公开创建（503）作兜底。
+      if (env.PUBLIC_CREATE_ENABLED === 'false') {
+        return errorResponse('CREATE_DISABLED', 503, origin);
+      }
+      const ip = clientIp(request);
+      const createLimit = positiveInt(env.CREATE_RATE_LIMIT_PER_MIN, 30);
+      const limited = rateCheck(`create|${ip}`, createLimit, Date.now());
+      if (limited.limited) {
+        return rateLimitedResponse(origin, limited.retryAfterSec);
       }
       const body = await readJsonBody(request, origin);
       if (body.response !== null) return body.response;
@@ -170,15 +245,22 @@ export default {
       if (origin === null) {
         return errorResponse('BAD_ORIGIN', 403, null);
       }
+      const ip = clientIp(request);
+      const probeLimit = positiveInt(env.CODE_PROBE_LIMIT_PER_MIN, 20);
       const code = validateRoomCode(joinMatch[1]);
       if (!code.ok) {
+        probeHit(`probe|${ip}`, probeLimit, Date.now()); // 坏码同样消耗试码预算
         return errorResponse(code.code, 400, origin);
       }
-      const limitRaw = Number(env.CREATE_RATE_LIMIT_PER_MIN ?? '30');
-      const limit = Number.isInteger(limitRaw) && limitRaw > 0 ? limitRaw : 30;
-      const ip = (request.cf as { ip?: string } | undefined)?.ip ?? 'no-cf';
-      if (isRateLimited(`join|${ip}`, limit, Date.now())) {
-        return errorResponse('RATE_LIMITED', 429, origin);
+      const joinLimit = positiveInt(env.JOIN_RATE_LIMIT_PER_MIN, 30);
+      const joinLimited = rateCheck(`join|${ip}`, joinLimit, Date.now());
+      if (joinLimited.limited) {
+        return rateLimitedResponse(origin, joinLimited.retryAfterSec);
+      }
+      // N22 试码冷却：窗口内对不存在房间的失败加入已达预算 → 冷却（正常好友
+      // 低频加入不误拒；成功加入不消耗试码额度）。
+      if (probeExceeded(`probe|${ip}`, probeLimit, Date.now())) {
+        return rateLimitedResponse(origin, RATE_WINDOW_MS / 1000);
       }
       const body = await readJsonBody(request, origin);
       if (body.response !== null) return body.response;
@@ -195,6 +277,9 @@ export default {
         env.ROOM_DO.get(id) as unknown as { joinRoom(n: string): Promise<JoinResult> }
       ).joinRoom(nickname.value);
       if (!result.joined) {
+        if (result.error === 'ROOM_NOT_FOUND') {
+          probeHit(`probe|${ip}`, probeLimit, Date.now()); // 试不存在的码计一次失败
+        }
         const status =
           result.error === 'ROOM_NOT_FOUND' ? 404 : result.error === 'GAME_STARTED' || result.error === 'ROOM_FULL' || result.error === 'NAME_TAKEN' ? 409 : 400;
         return errorResponse(result.error, status, origin);
@@ -220,15 +305,20 @@ export default {
       if (origin === null) {
         return errorResponse('BAD_ORIGIN', 403, null);
       }
+      const ip = clientIp(request);
+      const probeLimit = positiveInt(env.CODE_PROBE_LIMIT_PER_MIN, 20);
       const code = validateRoomCode(ticketMatch[1]);
       if (!code.ok) {
+        probeHit(`probe|${ip}`, probeLimit, Date.now());
         return errorResponse(code.code, 400, origin);
       }
-      const limitRaw = Number(env.CREATE_RATE_LIMIT_PER_MIN ?? '30');
-      const limit = Number.isInteger(limitRaw) && limitRaw > 0 ? limitRaw : 30;
-      const ip = (request.cf as { ip?: string } | undefined)?.ip ?? 'no-cf';
-      if (isRateLimited(`ticket|${ip}`, limit, Date.now())) {
-        return errorResponse('RATE_LIMITED', 429, origin);
+      const ticketLimit = positiveInt(env.TICKET_RATE_LIMIT_PER_MIN, 60);
+      const ticketLimited = rateCheck(`ticket|${ip}`, ticketLimit, Date.now());
+      if (ticketLimited.limited) {
+        return rateLimitedResponse(origin, ticketLimited.retryAfterSec);
+      }
+      if (probeExceeded(`probe|${ip}`, probeLimit, Date.now())) {
+        return rateLimitedResponse(origin, RATE_WINDOW_MS / 1000);
       }
       const body = await readJsonBody(request, origin);
       if (body.response !== null) return body.response;
@@ -250,6 +340,9 @@ export default {
         }
       ).issueTicket(playerId, seatToken);
       if (!result.issued) {
+        if (result.error === 'ROOM_NOT_FOUND') {
+          probeHit(`probe|${ip}`, probeLimit, Date.now());
+        }
         const status = result.error === 'ROOM_NOT_FOUND' ? 404 : 401;
         return errorResponse(result.error, status, origin);
       }
@@ -268,9 +361,19 @@ export default {
       if ((request.headers.get('upgrade') ?? '').toLowerCase() !== 'websocket') {
         return errorResponse('BAD_MESSAGE', 400, origin);
       }
+      // N22（N13-O2）：升级头完整性——缺 Sec-WebSocket-Key 不是合法握手。
+      if ((request.headers.get('sec-websocket-key') ?? '').trim() === '') {
+        return errorResponse('BAD_MESSAGE', 400, origin);
+      }
+      const ip = clientIp(request);
+      const probeLimit = positiveInt(env.CODE_PROBE_LIMIT_PER_MIN, 20);
       const code = validateRoomCode(wsMatch[1]);
       if (!code.ok) {
+        probeHit(`probe|${ip}`, probeLimit, Date.now());
         return errorResponse(code.code, 400, origin);
+      }
+      if (probeExceeded(`probe|${ip}`, probeLimit, Date.now())) {
+        return rateLimitedResponse(origin, RATE_WINDOW_MS / 1000);
       }
       const ticket = url.searchParams.get('ticket');
       if (ticket === null || ticket.length === 0 || ticket.length > 128) {
@@ -286,7 +389,11 @@ export default {
       }
       const parsed = (await sub.json().catch(() => null)) as { error?: string } | null;
       const fail = parsed?.error ?? 'TOKEN_REPLAY';
-      const status = fail === 'SEAT_TAKEN' ? 409 : fail === 'BAD_MESSAGE' ? 400 : 401;
+      // 伪造/重放票据的握手尝试计入试码预算（握手探测与试码同源防滥用）。
+      probeHit(`probe|${ip}`, probeLimit, Date.now());
+      // N22：SEAT_TAKEN 死支清理——N20 起票据消费为替换语义（旧连接以 4003 关闭），
+      // HTTP 层不再出现 409 SEAT_TAKEN。
+      const status = fail === 'BAD_MESSAGE' ? 400 : fail === 'ROOM_NOT_FOUND' ? 404 : 401;
       return errorResponse(fail, status, origin);
     }
 

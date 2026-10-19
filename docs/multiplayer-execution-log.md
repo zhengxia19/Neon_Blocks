@@ -312,3 +312,16 @@
 - **复跑与退出码**：worker `npx vitest run`→0（18/138）；worker `npx tsc --noEmit`→0；根 `npm run test`→0（15/278）；根 `npm run typecheck`→0；`npm run build`→0；`npm run test:e2e`→0（7 passed）。证据 `evidence/multiplayer/G1/{gate-report,root-typecheck,root-build,e2e}.txt`。
 - **复审结论**：独立只读关口复审 PASS——日志/证据/提交链三方一致，复跑数字与 N21 证据吻合，四要素逐项有测试锚点，无阻塞缺口；既有非阻塞观察项均已留痕并标注归属（N22/N25/N26/N31）。
 - **未解决事项**：无关口级缺口；进入 N22（HTTP 防滥用加固）。
+
+---
+
+## N22 — HTTP 防滥用策略加固 ✅ PASS
+
+- **基线 HEAD**：`8a0b470`（G1 之后）
+- **改动文件（3 个逻辑文件 + 2 测试改 + 1 测试新增）**：`worker/src/index.ts`（有界滑动窗口限流器：`rateWindow` Map 60s 窗口、桶数封顶 4096 按插入序淘汰（禁止无限增长进程级 Map）、每桶 hits≤限额（命中不 push，惩罚不延长窗口）、`retryAfterSec=ceil((hits[0]+60s−now)/1000)`∈[1,60]；分端点桶 `create|ip`(30)/`join|ip`(30)/`ticket|ip`(60) + 共享试码预算 `probe|ip`(20)（peek 不消费/失败才消费：坏码、ROOM_NOT_FOUND、ws 握手失败）；429+`Retry-After` 头；门槛顺序 create=Origin→开关→桶→字节→参数→DO，join/ticket/ws 的 probeExceeded 前置冻结 DO 调用；生产开关 `PUBLIC_CREATE_ENABLED="false"`→503 CREATE_DISABLED；ws 缺 `Sec-WebSocket-Key`→400（N13-O2）；SEAT_TAKEN→409 死支清理）；`shared/errors.ts`（目录增 `CREATE_DISABLED`，retryable）；`worker/src/room.ts`（`ConsumeFailure` 去 SEAT_TAKEN、DO fetch 映射统一 401）；`worker/wrangler.jsonc`（JOIN/TICKET/CODE_PROBE 限额 + PUBLIC_CREATE_ENABLED vars，注明每 isolate 计数与边缘规则依赖）。
+- **单测**：worker `npx vitest run`→0（**19 文件 / 147 例**：新增 `http-ratelimit.test.ts` 9 例——create 429+Retry-After∈[1,60]+DO 冻结；桶独立（create 桶耗尽 join/ticket 照常）；非法 env 回退缺省；试码预算耗尽 429 且 DO 冻结；成功 join 不消耗/坏码消耗预算；ws 失败跨端点共享冷却；4100 个不同 IP 桶封顶 ≤4096 且最旧淘汰后可再创建；开关 off→503+0 DO / 缺省→201；OPTIONS 正反。`room-ticket-route.test.ts` 增缺 Sec-WebSocket-Key→400/0 DO，映射去 SEAT_TAKEN 死支。）
+- **本地模拟（wrangler dev 冒烟）**：正常路径不误拒（create 201/join 200/ticket 200/WS Open+pong）；高频创建 29×201+5×429（`Retry-After: 49`）；桶独立（创建桶耗尽后既有房间 join 200）；试码冷却 20×404+4×429（`Retry-After: 60`）。SMOKE_EXIT=0。边缘限流规则配置/依赖见 `evidence/multiplayer/N22/rate-limit-rules.md`（Free 计划每 zone 1 条、10s 周期、IP 特征、workers.dev 预览子域须待自定义域方可挂 zone 规则；不足以支撑时按 §4 置开关禁用公开创建）。
+- **实测排障**：冒烟脚本 `SendAsync(...).GetAwaiter().GetResult()` 顶层泄漏 `VoidTaskResult`→`[void]`；`Headers['Retry-After']` 索引返回 String[]→`Select-Object -First 1`；workerd 被杀后 wrangler 自愈重启但 health 探测过早失败→整链重启（node→workerd→清 .tmp）。
+- **命令与退出码**：worker `npx vitest run`→0（19/147）；worker `npx tsc --noEmit`→0；根 `npx vitest run`→0（15/278）；根 tsc→0；`npm run build`→0；`npx playwright test`→0（7 passed）；deploy.yml 未动（前缀 5A08B009）。
+- **复审结论**：独立只读复审 PASS（无 P0/P1）——prune/限额/retryAfter 正确、有界性证明（4096×限额封顶）、门槛顺序与首请求放行、SEAT_TAKEN 清理彻底（目录保留为超集可接受）、测试正反覆盖与证据链逐项吻合。非阻塞观察：O1 坏码恒 400 不 429（无 DO 放大，边缘兜底）；O2 probe 冷却 Retry-After 固定 60s（保守上界）；O3 冷却期重试同耗端点桶（无害）；O4 淘汰 FIFO 非 LRU；O5 **N44 部署时若停留 workers.dev 预览域须置 `PUBLIC_CREATE_ENABLED="false"`**；O6 join/ticket 桶打满缺直测（后续补例）；O7 positiveInt 无上限封顶。
+- **未解决事项**：O5 属 N44 部署阶段执行项；O6 补例随后续任务顺带；WS 消息级限频（5Hz/2Hz）属 N23。

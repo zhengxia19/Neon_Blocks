@@ -27,7 +27,16 @@
     // CORS/Origin 白名单（逗号分隔）：正式仅 GitHub Pages 站点；本地开发白名单在
     // src/cors.ts 中仅当 ALLOW_DEV_ORIGINS="true"（仅本地模拟/测试设置）时并入。
     "ALLOWED_ORIGINS": "https://zhengxia19.github.io",
-    // 每 IP 每分钟创建房间最低门槛（清单 N10；跨实例全局限流属 N22）。
-    "CREATE_RATE_LIMIT_PER_MIN": "30"
+    // N22 防滥用限额（每 IP / 60 秒滑动窗口）。注意：Worker 内桶为**每实例（isolate/colo）**
+    // 计数，非全局分布式；跨实例分布式 IP 限流由 Cloudflare Rate Limiting Rules 承担
+    // （配置/依赖见 evidence/multiplayer/N22/rate-limit-rules.md）。
+    "CREATE_RATE_LIMIT_PER_MIN": "30",
+    "JOIN_RATE_LIMIT_PER_MIN": "30",
+    "TICKET_RATE_LIMIT_PER_MIN": "60",
+    // 试码冷却：join/ticket/ws 对不存在房间或伪造票据的失败共享该预算。
+    "CODE_PROBE_LIMIT_PER_MIN": "20",
+    // 生产创建开关：若分布式 IP 限流未落实需止损，置 "false" → POST /api/rooms 返回
+    // 503 CREATE_DISABLED（正常好友 join 已有房间不受影响）。
+    "PUBLIC_CREATE_ENABLED": "true"
   }
 }

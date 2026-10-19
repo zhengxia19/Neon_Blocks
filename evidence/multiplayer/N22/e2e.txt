@@ -1,0 +1,29 @@
+[WebServer] (node:34944) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 7 tests using 7 workers
+
+(node:51068) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:39436) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:30332) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:12180) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:37148) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:23008) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:47884) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok 1 [chromium] › tests\e2e\smoke.spec.ts:9:1 › page loads and body is visible (399ms)
+  ok 6 [mobile-chrome] › tests\e2e\smoke.spec.ts:9:1 › page loads and body is visible (424ms)
+  ok 7 [chromium] › tests\e2e\desktop.spec.ts:101:1 › desktop loop: restart confirm cancel keeps state (558ms)
+  ok 3 [chromium] › tests\e2e\desktop.spec.ts:120:1 › settings sound/ghost persist across reload (692ms)
+  ok 2 [chromium] › tests\e2e\desktop.spec.ts:34:1 › desktop loop: ready → start → move/rotate → hard drop scores → pause → resume → restart (746ms)
+  ok 4 [mobile-chrome] › tests\e2e\mobile.spec.ts:81:1 › 320×640 small viewport: no horizontal overflow before and during play (811ms)
+  ok 5 [mobile-chrome] › tests\e2e\mobile.spec.ts:26:1 › mobile touch loop at 390×844: 44px targets, no overflow, all actions (1.2s)
+
+  7 passed (3.3s)
+E2E_EXIT=0

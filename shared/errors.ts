@@ -13,6 +13,7 @@ export const ERROR_CODES = [
   'TOO_LARGE',
   'BAD_ORIGIN',
   'RATE_LIMITED',
+  'CREATE_DISABLED',
   // 参数校验
   'BAD_NICKNAME',
   'BAD_ROOM_CODE',
@@ -53,6 +54,7 @@ export const ERROR_CATALOG: Record<ErrorCode, { message: string; retryable: bool
   TOO_LARGE: { message: '消息超过大小限制。', retryable: true },
   BAD_ORIGIN: { message: '请求来源不被允许。', retryable: false },
   RATE_LIMITED: { message: '操作过于频繁，请稍后再试。', retryable: true },
+  CREATE_DISABLED: { message: '房间创建暂时关闭，请稍后再试。', retryable: true },
 
   BAD_NICKNAME: { message: '昵称需为 1–16 位英文字母或数字。', retryable: false },
   BAD_ROOM_CODE: { message: '房间码需为 100000–999999 的 6 位数字。', retryable: false },

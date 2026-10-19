@@ -105,7 +105,8 @@ export type TicketResult =
   | { issued: true; ticket: string; expiresAt: number }
   | { issued: false; error: TicketFailure };
 
-export type ConsumeFailure = 'TOKEN_REPLAY' | 'TOKEN_EXPIRED' | 'GENERATION_STALE' | 'UNAUTHORIZED' | 'SEAT_TAKEN';
+// N22：SEAT_TAKEN 死支清理——N20 起消费为替换语义（旧连接 4003 关闭），不再返回该码。
+export type ConsumeFailure = 'TOKEN_REPLAY' | 'TOKEN_EXPIRED' | 'GENERATION_STALE' | 'UNAUTHORIZED';
 
 export type ConsumeResult =
   | { ok: true; playerId: string; generation: number }
@@ -1618,7 +1619,7 @@ export class RoomDO extends DurableObject<Env> {
       }
       const result = await this.attachWebSocket(ticket, server);
       if (!result.ok) {
-        return jsonError(result.error, result.error === 'SEAT_TAKEN' ? 409 : 401);
+        return jsonError(result.error, 401);
       }
       return client !== null
         ? new Response(null, { status: 101, webSocket: client } as unknown as ResponseInit)

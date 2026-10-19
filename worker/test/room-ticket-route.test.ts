@@ -101,19 +101,21 @@ describe('N13 ticket 路由', () => {
 });
 
 describe('N13 ws 握手入口路由', () => {
-  function wsRequest(query: string, upgrade = 'websocket', origin: string | null = PROD): Request {
+  function wsRequest(query: string, upgrade = 'websocket', origin: string | null = PROD, wsKey = true): Request {
     const headers: Record<string, string> = {};
     if (upgrade !== '') headers['upgrade'] = upgrade;
+    if (wsKey) headers['sec-websocket-key'] = 'k'.repeat(24); // N22：升级头完整性
     if (origin !== null) headers['origin'] = origin;
     return new Request(`https://api.example/ws/123456${query}`, { method: 'GET', headers });
   }
 
-  it('反向：缺 upgrade/缺 ticket/非法码/缺 Origin → 400/403 且 0 DO 调用', async () => {
+  it('反向：缺 upgrade/缺 ticket/非法码/缺 Origin/缺 Sec-WebSocket-Key → 400/403 且 0 DO 调用', async () => {
     const cases: Array<[Request, number, string]> = [
       [wsRequest('?ticket=aa', ''), 400, 'BAD_MESSAGE'],
       [wsRequest(''), 400, 'BAD_MESSAGE'],
       [wsRequest('?ticket='), 400, 'BAD_MESSAGE'],
       [wsRequest('?ticket=' + 'a'.repeat(200)), 400, 'BAD_MESSAGE'],
+      [wsRequest('?ticket=aa', 'websocket', PROD, false), 400, 'BAD_MESSAGE'],
     ];
     for (const [req, status, code] of cases) {
       const { ns, calls } = makeFakeNs();
@@ -128,19 +130,18 @@ describe('N13 ws 握手入口路由', () => {
     expect(noOrigin.calls.length).toBe(0);
   });
 
-  it('票据拒绝映射：REPLAY/EXPIRED/STALE/UNAUTHORIZED→401、SEAT_TAKEN→409', async () => {
+  it('票据拒绝映射：REPLAY/EXPIRED/STALE/UNAUTHORIZED→401（N22 后无 SEAT_TAKEN 死支）', async () => {
     const errors: Array<[string, number]> = [
       ['TOKEN_REPLAY', 401],
       ['TOKEN_EXPIRED', 401],
       ['GENERATION_STALE', 401],
       ['UNAUTHORIZED', 401],
-      ['SEAT_TAKEN', 409],
     ];
     for (const [err, status] of errors) {
       const { ns, calls } = makeFakeNs({
         handshake: async () =>
           new Response(JSON.stringify({ error: err }), {
-            status: err === 'SEAT_TAKEN' ? 409 : 401,
+            status: 401,
             headers: { 'content-type': 'application/json' },
           }),
       });

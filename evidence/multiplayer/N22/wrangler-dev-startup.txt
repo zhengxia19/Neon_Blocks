@@ -1,0 +1,299 @@
+
+ ⛅️ wrangler 4.151.2
+────────────────────
+Your Worker has access to the following bindings:
+Binding                                                             Resource                  Mode
+env.ROOM_DO (RoomDO)                                                Durable Object            local
+env.ALLOWED_ORIGINS ("https://zhengxia19.github.io")                Environment Variable      local
+env.CREATE_RATE_LIMIT_PER_MIN ("30")                                Environment Variable      local
+env.JOIN_RATE_LIMIT_PER_MIN ("30")                                  Environment Variable      local
+env.TICKET_RATE_LIMIT_PER_MIN ("60")                                Environment Variable      local
+env.CODE_PROBE_LIMIT_PER_MIN ("20")                                 Environment Variable      local
+env.PUBLIC_CREATE_ENABLED ("true")                                  Environment Variable      local
+
+⎔ Starting local server...
+[wrangler:info] Ready on http://127.0.0.1:8787
+[wrangler:info] GET /api/health 200 OK (20ms)
+[wrangler:info] GET /api/health 200 OK (8ms)
+[wrangler:info] POST /api/rooms 201 Created (76ms)
+[wrangler:info] POST /api/rooms/960390/join 200 OK (19ms)
+[wrangler:info] POST /api/rooms/960390/ticket 200 OK (19ms)
+[wrangler:info] GET /ws/960390 101 Switching Protocols (20ms)
+[wrangler:info] POST /api/rooms 201 Created (39ms)
+[wrangler:info] POST /api/rooms 201 Created (48ms)
+[wrangler:info] POST /api/rooms 201 Created (45ms)
+[wrangler:info] POST /api/rooms 201 Created (39ms)
+[wrangler:info] POST /api/rooms 201 Created (48ms)
+[wrangler:info] POST /api/rooms 201 Created (36ms)
+[wrangler:info] POST /api/rooms 201 Created (45ms)
+[wrangler:info] POST /api/rooms 201 Created (40ms)
+[wrangler:info] POST /api/rooms 201 Created (34ms)
+[wrangler:info] POST /api/rooms 201 Created (29ms)
+[wrangler:info] POST /api/rooms 201 Created (45ms)
+[wrangler:info] POST /api/rooms 201 Created (41ms)
+[wrangler:info] POST /api/rooms 201 Created (43ms)
+[wrangler:info] POST /api/rooms 201 Created (44ms)
+[wrangler:info] POST /api/rooms 201 Created (40ms)
+[wrangler:info] POST /api/rooms 201 Created (39ms)
+[wrangler:info] POST /api/rooms 201 Created (28ms)
+[wrangler:info] POST /api/rooms 201 Created (28ms)
+[wrangler:info] POST /api/rooms 201 Created (42ms)
+[wrangler:info] POST /api/rooms 201 Created (33ms)
+[wrangler:info] POST /api/rooms 201 Created (55ms)
+[wrangler:info] POST /api/rooms 201 Created (30ms)
+[wrangler:info] POST /api/rooms 201 Created (45ms)
+[wrangler:info] POST /api/rooms 201 Created (29ms)
+[wrangler:info] POST /api/rooms 201 Created (29ms)
+[wrangler:info] POST /api/rooms 201 Created (42ms)
+[wrangler:info] POST /api/rooms 201 Created (40ms)
+[wrangler:info] POST /api/rooms 201 Created (28ms)
+[wrangler:info] POST /api/rooms 201 Created (29ms)
+[wrangler:info] POST /api/rooms 429 Too Many Requests (4ms)
+[wrangler:info] POST /api/rooms 429 Too Many Requests (8ms)
+[wrangler:info] POST /api/rooms 429 Too Many Requests (5ms)
+[wrangler:info] POST /api/rooms 429 Too Many Requests (5ms)
+[wrangler:info] POST /api/rooms 429 Too Many Requests (5ms)
+[wrangler:warn] The Workers runtime crashed unexpectedly and is being restarted (crash #1). Any additional runtime output above may indicate the cause.
+[wrangler:warn] The Workers runtime crashed unexpectedly and is being restarted (crash #1). Any additional runtime output above may indicate the cause.
+[wrangler:info] Updated and ready on http://127.0.0.1:8787
+
+ ⛅️ wrangler 4.151.2
+────────────────────
+Your Worker has access to the following bindings:
+Binding                                                             Resource                  Mode
+env.ROOM_DO (RoomDO)                                                Durable Object            local
+env.ALLOWED_ORIGINS ("https://zhengxia19.github.io")                Environment Variable      local
+env.CREATE_RATE_LIMIT_PER_MIN ("30")                                Environment Variable      local
+env.JOIN_RATE_LIMIT_PER_MIN ("30")                                  Environment Variable      local
+env.TICKET_RATE_LIMIT_PER_MIN ("60")                                Environment Variable      local
+env.CODE_PROBE_LIMIT_PER_MIN ("20")                                 Environment Variable      local
+env.PUBLIC_CREATE_ENABLED ("true")                                  Environment Variable      local
+
+⎔ Starting local server...
+[wrangler:info] Ready on http://127.0.0.1:8787
+[wrangler:info] GET /api/health 200 OK (19ms)
+[wrangler:info] GET /api/health 200 OK (8ms)
+[wrangler:info] POST /api/rooms 201 Created (74ms)
+[wrangler:info] POST /api/rooms/529364/join 200 OK (19ms)
+[wrangler:info] POST /api/rooms/529364/ticket 200 OK (17ms)
+[wrangler:info] GET /ws/529364 101 Switching Protocols (17ms)
+[wrangler:info] POST /api/rooms 201 Created (38ms)
+[wrangler:info] POST /api/rooms 201 Created (52ms)
+[wrangler:info] POST /api/rooms 201 Created (32ms)
+[wrangler:info] POST /api/rooms 201 Created (46ms)
+[wrangler:info] POST /api/rooms 201 Created (40ms)
+[wrangler:info] POST /api/rooms 201 Created (41ms)
+[wrangler:info] POST /api/rooms 201 Created (43ms)
+[wrangler:info] POST /api/rooms 201 Created (38ms)
+[wrangler:info] POST /api/rooms 201 Created (38ms)
+[wrangler:info] POST /api/rooms 201 Created (32ms)
+[wrangler:info] POST /api/rooms 201 Created (28ms)
+[wrangler:info] POST /api/rooms 201 Created (36ms)
+[wrangler:info] POST /api/rooms 201 Created (34ms)
+[wrangler:info] POST /api/rooms 201 Created (35ms)
+[wrangler:info] POST /api/rooms 201 Created (29ms)
+[wrangler:info] POST /api/rooms 201 Created (25ms)
+[wrangler:info] POST /api/rooms 201 Created (78ms)
+[wrangler:info] POST /api/rooms 201 Created (34ms)
+[wrangler:info] POST /api/rooms 201 Created (42ms)
+[wrangler:info] POST /api/rooms 201 Created (33ms)
+[wrangler:info] POST /api/rooms 201 Created (41ms)
+[wrangler:info] POST /api/rooms 201 Created (28ms)
+[wrangler:info] POST /api/rooms 201 Created (41ms)
+[wrangler:info] POST /api/rooms 201 Created (26ms)
+[wrangler:info] POST /api/rooms 201 Created (26ms)
+[wrangler:info] POST /api/rooms 201 Created (45ms)
+[wrangler:info] POST /api/rooms 201 Created (26ms)
+[wrangler:info] POST /api/rooms 201 Created (43ms)
+[wrangler:info] POST /api/rooms 201 Created (38ms)
+[wrangler:info] POST /api/rooms 429 Too Many Requests (3ms)
+[wrangler:info] POST /api/rooms 429 Too Many Requests (8ms)
+[wrangler:info] POST /api/rooms 429 Too Many Requests (4ms)
+[wrangler:info] POST /api/rooms 429 Too Many Requests (3ms)
+[wrangler:info] POST /api/rooms 429 Too Many Requests (6ms)
+[wrangler:info] POST /api/rooms/529364/join 200 OK (35ms)
+[wrangler:info] POST /api/rooms/210000/join 404 Not Found (24ms)
+[wrangler:info] POST /api/rooms/210001/join 404 Not Found (40ms)
+[wrangler:info] POST /api/rooms/210002/join 404 Not Found (27ms)
+[wrangler:info] POST /api/rooms/210003/join 404 Not Found (38ms)
+[wrangler:info] POST /api/rooms/210004/join 404 Not Found (26ms)
+[wrangler:info] POST /api/rooms/210005/join 404 Not Found (40ms)
+[wrangler:info] POST /api/rooms/210006/join 404 Not Found (26ms)
+[wrangler:info] POST /api/rooms/210007/join 404 Not Found (39ms)
+[wrangler:info] POST /api/rooms/210008/join 404 Not Found (41ms)
+[wrangler:info] POST /api/rooms/210009/join 404 Not Found (40ms)
+[wrangler:info] POST /api/rooms/210010/join 404 Not Found (39ms)
+[wrangler:info] POST /api/rooms/210011/join 404 Not Found (27ms)
+[wrangler:info] POST /api/rooms/210012/join 404 Not Found (43ms)
+[wrangler:info] POST /api/rooms/210013/join 404 Not Found (40ms)
+[wrangler:info] POST /api/rooms/210014/join 404 Not Found (70ms)
+[wrangler:info] POST /api/rooms/210015/join 404 Not Found (35ms)
+[wrangler:info] POST /api/rooms/210016/join 404 Not Found (27ms)
+[wrangler:info] POST /api/rooms/210017/join 404 Not Found (27ms)
+[wrangler:info] POST /api/rooms/210018/join 404 Not Found (27ms)
+[wrangler:info] POST /api/rooms/210019/join 404 Not Found (41ms)
+[wrangler:info] POST /api/rooms/210020/join 429 Too Many Requests (4ms)
+[wrangler:info] POST /api/rooms/210021/join 429 Too Many Requests (5ms)
+[wrangler:info] POST /api/rooms/210022/join 429 Too Many Requests (4ms)
+[wrangler:info] POST /api/rooms/210023/join 429 Too Many Requests (3ms)
+
+ ⛅️ wrangler 4.151.2
+────────────────────
+Your Worker has access to the following bindings:
+Binding                                                             Resource                  Mode
+env.ROOM_DO (RoomDO)                                                Durable Object            local
+env.ALLOWED_ORIGINS ("https://zhengxia19.github.io")                Environment Variable      local
+env.CREATE_RATE_LIMIT_PER_MIN ("30")                                Environment Variable      local
+env.JOIN_RATE_LIMIT_PER_MIN ("30")                                  Environment Variable      local
+env.TICKET_RATE_LIMIT_PER_MIN ("60")                                Environment Variable      local
+env.CODE_PROBE_LIMIT_PER_MIN ("20")                                 Environment Variable      local
+env.PUBLIC_CREATE_ENABLED ("true")                                  Environment Variable      local
+
+⎔ Starting local server...
+[wrangler:info] Ready on http://127.0.0.1:8787
+[wrangler:info] GET /api/health 200 OK (21ms)
+[wrangler:info] GET /api/health 200 OK (7ms)
+[wrangler:info] POST /api/rooms 201 Created (72ms)
+[wrangler:info] POST /api/rooms/593491/join 200 OK (19ms)
+[wrangler:info] POST /api/rooms/593491/ticket 200 OK (20ms)
+[wrangler:info] GET /ws/593491 101 Switching Protocols (20ms)
+[wrangler:info] POST /api/rooms 201 Created (39ms)
+[wrangler:info] POST /api/rooms 201 Created (46ms)
+[wrangler:info] POST /api/rooms 201 Created (45ms)
+[wrangler:info] POST /api/rooms 201 Created (31ms)
+[wrangler:info] POST /api/rooms 201 Created (28ms)
+[wrangler:info] POST /api/rooms 201 Created (43ms)
+[wrangler:info] POST /api/rooms 201 Created (30ms)
+[wrangler:info] POST /api/rooms 201 Created (45ms)
+[wrangler:info] POST /api/rooms 201 Created (35ms)
+[wrangler:info] POST /api/rooms 201 Created (33ms)
+[wrangler:info] POST /api/rooms 201 Created (40ms)
+[wrangler:info] POST /api/rooms 201 Created (29ms)
+[wrangler:info] POST /api/rooms 201 Created (42ms)
+[wrangler:info] POST /api/rooms 201 Created (42ms)
+[wrangler:info] POST /api/rooms 201 Created (28ms)
+[wrangler:info] POST /api/rooms 201 Created (39ms)
+[wrangler:info] POST /api/rooms 201 Created (32ms)
+[wrangler:info] POST /api/rooms 201 Created (28ms)
+[wrangler:info] POST /api/rooms 201 Created (33ms)
+[wrangler:info] POST /api/rooms 201 Created (39ms)
+[wrangler:info] POST /api/rooms 201 Created (42ms)
+[wrangler:info] POST /api/rooms 201 Created (43ms)
+[wrangler:info] POST /api/rooms 201 Created (40ms)
+[wrangler:info] POST /api/rooms 201 Created (33ms)
+[wrangler:info] POST /api/rooms 201 Created (39ms)
+[wrangler:info] POST /api/rooms 201 Created (35ms)
+[wrangler:info] POST /api/rooms 201 Created (40ms)
+[wrangler:info] POST /api/rooms 201 Created (36ms)
+[wrangler:info] POST /api/rooms 201 Created (32ms)
+[wrangler:info] POST /api/rooms 429 Too Many Requests (5ms)
+[wrangler:info] POST /api/rooms 429 Too Many Requests (4ms)
+[wrangler:info] POST /api/rooms 429 Too Many Requests (7ms)
+[wrangler:info] POST /api/rooms 429 Too Many Requests (4ms)
+[wrangler:info] POST /api/rooms 429 Too Many Requests (4ms)
+[wrangler:info] POST /api/rooms/593491/join 200 OK (33ms)
+[wrangler:info] POST /api/rooms/210000/join 404 Not Found (23ms)
+[wrangler:info] POST /api/rooms/210001/join 404 Not Found (24ms)
+[wrangler:info] POST /api/rooms/210002/join 404 Not Found (26ms)
+[wrangler:info] POST /api/rooms/210003/join 404 Not Found (29ms)
+[wrangler:info] POST /api/rooms/210004/join 404 Not Found (32ms)
+[wrangler:info] POST /api/rooms/210005/join 404 Not Found (21ms)
+[wrangler:info] POST /api/rooms/210006/join 404 Not Found (29ms)
+[wrangler:info] POST /api/rooms/210007/join 404 Not Found (25ms)
+[wrangler:info] POST /api/rooms/210008/join 404 Not Found (26ms)
+[wrangler:info] POST /api/rooms/210009/join 404 Not Found (30ms)
+[wrangler:info] POST /api/rooms/210010/join 404 Not Found (30ms)
+[wrangler:info] POST /api/rooms/210011/join 404 Not Found (23ms)
+[wrangler:info] POST /api/rooms/210012/join 404 Not Found (24ms)
+[wrangler:info] POST /api/rooms/210013/join 404 Not Found (25ms)
+[wrangler:info] POST /api/rooms/210014/join 404 Not Found (23ms)
+[wrangler:info] POST /api/rooms/210015/join 404 Not Found (33ms)
+[wrangler:info] POST /api/rooms/210016/join 404 Not Found (65ms)
+[wrangler:info] POST /api/rooms/210017/join 404 Not Found (38ms)
+[wrangler:info] POST /api/rooms/210018/join 404 Not Found (25ms)
+[wrangler:info] POST /api/rooms/210019/join 404 Not Found (20ms)
+[wrangler:info] POST /api/rooms/210020/join 429 Too Many Requests (3ms)
+[wrangler:info] POST /api/rooms/210021/join 429 Too Many Requests (5ms)
+[wrangler:info] POST /api/rooms/210022/join 429 Too Many Requests (3ms)
+[wrangler:info] POST /api/rooms/210023/join 429 Too Many Requests (3ms)
+[wrangler:info] GET /ws/999999 403 Forbidden (9ms)
+
+ ⛅️ wrangler 4.151.2
+────────────────────
+Your Worker has access to the following bindings:
+Binding                                                             Resource                  Mode
+env.ROOM_DO (RoomDO)                                                Durable Object            local
+env.ALLOWED_ORIGINS ("https://zhengxia19.github.io")                Environment Variable      local
+env.CREATE_RATE_LIMIT_PER_MIN ("30")                                Environment Variable      local
+env.JOIN_RATE_LIMIT_PER_MIN ("30")                                  Environment Variable      local
+env.TICKET_RATE_LIMIT_PER_MIN ("60")                                Environment Variable      local
+env.CODE_PROBE_LIMIT_PER_MIN ("20")                                 Environment Variable      local
+env.PUBLIC_CREATE_ENABLED ("true")                                  Environment Variable      local
+
+⎔ Starting local server...
+[wrangler:info] Ready on http://127.0.0.1:8787
+[wrangler:info] GET /api/health 200 OK (19ms)
+[wrangler:info] GET /api/health 200 OK (7ms)
+[wrangler:info] POST /api/rooms 201 Created (74ms)
+[wrangler:info] POST /api/rooms/927058/join 200 OK (19ms)
+[wrangler:info] POST /api/rooms/927058/ticket 200 OK (17ms)
+[wrangler:info] GET /ws/927058 101 Switching Protocols (19ms)
+[wrangler:info] POST /api/rooms 201 Created (39ms)
+[wrangler:info] POST /api/rooms 201 Created (31ms)
+[wrangler:info] POST /api/rooms 201 Created (47ms)
+[wrangler:info] POST /api/rooms 201 Created (31ms)
+[wrangler:info] POST /api/rooms 201 Created (28ms)
+[wrangler:info] POST /api/rooms 201 Created (41ms)
+[wrangler:info] POST /api/rooms 201 Created (43ms)
+[wrangler:info] POST /api/rooms 201 Created (28ms)
+[wrangler:info] POST /api/rooms 201 Created (49ms)
+[wrangler:info] POST /api/rooms 201 Created (33ms)
+[wrangler:info] POST /api/rooms 201 Created (43ms)
+[wrangler:info] POST /api/rooms 201 Created (39ms)
+[wrangler:info] POST /api/rooms 201 Created (30ms)
+[wrangler:info] POST /api/rooms 201 Created (50ms)
+[wrangler:info] POST /api/rooms 201 Created (35ms)
+[wrangler:info] POST /api/rooms 201 Created (47ms)
+[wrangler:info] POST /api/rooms 201 Created (29ms)
+[wrangler:info] POST /api/rooms 201 Created (39ms)
+[wrangler:info] POST /api/rooms 201 Created (38ms)
+[wrangler:info] POST /api/rooms 201 Created (43ms)
+[wrangler:info] POST /api/rooms 201 Created (71ms)
+[wrangler:info] POST /api/rooms 201 Created (29ms)
+[wrangler:info] POST /api/rooms 201 Created (28ms)
+[wrangler:info] POST /api/rooms 201 Created (36ms)
+[wrangler:info] POST /api/rooms 201 Created (41ms)
+[wrangler:info] POST /api/rooms 201 Created (35ms)
+[wrangler:info] POST /api/rooms 201 Created (28ms)
+[wrangler:info] POST /api/rooms 201 Created (43ms)
+[wrangler:info] POST /api/rooms 201 Created (41ms)
+[wrangler:info] POST /api/rooms 429 Too Many Requests (5ms)
+[wrangler:info] POST /api/rooms 429 Too Many Requests (4ms)
+[wrangler:info] POST /api/rooms 429 Too Many Requests (6ms)
+[wrangler:info] POST /api/rooms 429 Too Many Requests (4ms)
+[wrangler:info] POST /api/rooms 429 Too Many Requests (5ms)
+[wrangler:info] POST /api/rooms/927058/join 200 OK (34ms)
+[wrangler:info] POST /api/rooms/210000/join 404 Not Found (29ms)
+[wrangler:info] POST /api/rooms/210001/join 404 Not Found (23ms)
+[wrangler:info] POST /api/rooms/210002/join 404 Not Found (27ms)
+[wrangler:info] POST /api/rooms/210003/join 404 Not Found (31ms)
+[wrangler:info] POST /api/rooms/210004/join 404 Not Found (24ms)
+[wrangler:info] POST /api/rooms/210005/join 404 Not Found (24ms)
+[wrangler:info] POST /api/rooms/210006/join 404 Not Found (30ms)
+[wrangler:info] POST /api/rooms/210007/join 404 Not Found (31ms)
+[wrangler:info] POST /api/rooms/210008/join 404 Not Found (23ms)
+[wrangler:info] POST /api/rooms/210009/join 404 Not Found (21ms)
+[wrangler:info] POST /api/rooms/210010/join 404 Not Found (31ms)
+[wrangler:info] POST /api/rooms/210011/join 404 Not Found (33ms)
+[wrangler:info] POST /api/rooms/210012/join 404 Not Found (31ms)
+[wrangler:info] POST /api/rooms/210013/join 404 Not Found (32ms)
+[wrangler:info] POST /api/rooms/210014/join 404 Not Found (26ms)
+[wrangler:info] POST /api/rooms/210015/join 404 Not Found (20ms)
+[wrangler:info] POST /api/rooms/210016/join 404 Not Found (24ms)
+[wrangler:info] POST /api/rooms/210017/join 404 Not Found (25ms)
+[wrangler:info] POST /api/rooms/210018/join 404 Not Found (51ms)
+[wrangler:info] POST /api/rooms/210019/join 404 Not Found (33ms)
+[wrangler:info] POST /api/rooms/210020/join 429 Too Many Requests (3ms)
+[wrangler:info] POST /api/rooms/210021/join 429 Too Many Requests (3ms)
+[wrangler:info] POST /api/rooms/210022/join 429 Too Many Requests (4ms)
+[wrangler:info] POST /api/rooms/210023/join 429 Too Many Requests (3ms)
