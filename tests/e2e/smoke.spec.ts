@@ -11,5 +11,5 @@ test('page loads and body is visible', async ({ page }) => {
   await expect(page.locator('body')).toBeAttached();
   await expect(page.locator('body')).toHaveCSS('display', 'block');
   await expect(page.locator('body')).toHaveCSS('visibility', 'visible');
-  await expect(page).toHaveTitle('Neon Blocks｜霓虹方块');
+  await expect(page).toHaveTitle('霓虹方块');
 });
