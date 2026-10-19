@@ -1,0 +1,5 @@
+
+> neon-blocks-worker@0.0.0 typecheck
+> tsc -p tsconfig.json --pretty false
+
+EXIT=0

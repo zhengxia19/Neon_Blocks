@@ -8,7 +8,15 @@
  * 席位令牌只存 SHA-256 摘要（禁止回显内部摘要）；完整状态机属 N11–N21。
  */
 import { DurableObject } from 'cloudflare:workers';
-import type { CreateRoomRequest, RoomSettings } from '../../shared/protocol';
+import {
+  CUSTOM_SEED_PATTERN,
+  MAX_PLAYERS,
+  MAX_START_LEVEL,
+  MIN_PLAYERS,
+  MIN_START_LEVEL,
+  RANDOM_MODES,
+} from '../../shared/protocol';
+import type { CreateRoomRequest, RandomMode, RoomPhase, RoomSettings } from '../../shared/protocol';
 import type { Env } from './index';
 
 type RoomMetaRow = { generation: number; occupied: number };
@@ -56,6 +64,48 @@ export type ConsumeResult =
 
 /** N13：握手票据有效期 30s（单次短期票据，席位令牌本身不进 URL）。 */
 export const TICKET_TTL_MS = 30_000;
+
+// —— N15：会话状态机（LOBBY→COUNTDOWN→RUNNING→FINISHED→LOBBY/CLOSED）与准备 ——
+
+export type ConfigPatch = {
+  capacity?: number;
+  randomMode?: RandomMode;
+  startLevel?: number;
+  /** null 表示清除自定义种子（回到系统随机）。 */
+  customSeed?: string | null;
+};
+
+export type ConfigFailure =
+  | 'ROOM_NOT_FOUND'
+  | 'UNAUTHORIZED'
+  | 'NOT_HOST'
+  | 'GAME_STARTED'
+  | 'BAD_CONFIG'
+  | 'CAPACITY_BELOW_SEATS';
+
+export type ConfigResult =
+  | { updated: true; settings: RoomSettings; readyReset: true; generation: number }
+  | { updated: false; error: ConfigFailure };
+
+export type ReadyResult =
+  | { ok: true; isReady: boolean; generation: number }
+  | { ok: false; error: 'ROOM_NOT_FOUND' | 'UNAUTHORIZED' | 'GAME_STARTED' };
+
+export type StartFailure =
+  | 'ROOM_NOT_FOUND'
+  | 'UNAUTHORIZED'
+  | 'NOT_HOST'
+  | 'GAME_STARTED'
+  | 'NOT_ENOUGH_PLAYERS'
+  | 'PLAYERS_NOT_READY';
+
+export type StartResult =
+  | { started: true; generation: number; settings: RoomSettings; roster: SeatInfo[] }
+  | { started: false; error: StartFailure };
+
+export type NextRoundResult =
+  | { ok: true; generation: number }
+  | { ok: false; error: 'ROOM_NOT_FOUND' | 'UNAUTHORIZED' | 'NOT_HOST' | 'BAD_STATE' };
 
 /** N14：Hibernation 附件——连接身份随 socket 持久化，DO 休眠/热重启后可恢复。 */
 export type WsAttachment = { playerId: string; generation: number };
@@ -139,6 +189,21 @@ export class RoomDO extends DurableObject<Env> {
          generation INTEGER NOT NULL
        );`,
     );
+    // N15：准备标志（房主改配置后整体清零）与开局冻结名单（独立于 seats，
+    // 下一局重新冻结；名单冻结后中途退出不改写已冻结的参赛名单）。
+    try {
+      sql.exec('ALTER TABLE seats ADD COLUMN is_ready INTEGER NOT NULL DEFAULT 0');
+    } catch {
+      // 列已存在（N15 前旧库）：幂等忽略。
+    }
+    sql.exec(
+      `CREATE TABLE IF NOT EXISTS match_roster (
+         player_id TEXT PRIMARY KEY,
+         nickname TEXT NOT NULL,
+         join_order INTEGER NOT NULL,
+         generation INTEGER NOT NULL
+       );`,
+    );
   }
 
   /** 确保元数据行存在（初始：generation=0、空闲）。 */
@@ -178,6 +243,7 @@ export class RoomDO extends DurableObject<Env> {
     // 占用已同步提交：清理旧代际残留，写入新配置（复用码不继承旧席位）。
     this.#sql.exec('DELETE FROM seats');
     this.#sql.exec('DELETE FROM seat_conns');
+    this.#sql.exec('DELETE FROM match_roster');
     this.#sql.exec(
       `INSERT OR REPLACE INTO room_config
          (id, capacity, random_mode, start_level, custom_seed, generation)
@@ -266,7 +332,11 @@ export class RoomDO extends DurableObject<Env> {
     if (clash.length > 0) {
       return { joined: false, error: 'NAME_TAKEN' };
     }
-    const joinOrder = count + 1;
+    // N12 复审 O2 修复：加入序号取 MAX+1（中途退出后 COUNT+1 会撞号）。
+    const maxRow = this.#sql
+      .exec<{ m: number | null }>('SELECT MAX(join_order) AS m FROM seats')
+      .one();
+    const joinOrder = (maxRow.m === null ? 0 : Number(maxRow.m)) + 1;
     this.#sql.exec(
       `INSERT INTO seats (player_id, nickname, token_hash, is_host, join_order, generation)
        VALUES (?, ?, ?, 0, ?, ?)`,
@@ -299,6 +369,242 @@ export class RoomDO extends DurableObject<Env> {
       isHost: Number(row.is_host) === 1,
       joinOrder: Number(row.join_order),
     }));
+  }
+
+  /**
+   * N15：权威房间态快照（状态+配置+席位含准备标志），供 N16 大厅广播复用。
+   * 未占用/配置代际不符返回 null。
+   */
+  getLobbyState(): {
+    state: RoomPhase;
+    settings: RoomSettings;
+    seats: (SeatInfo & { isReady: boolean })[];
+    generation: number;
+  } | null {
+    this.#ensureSchema();
+    this.#ensureRow();
+    const meta = this.#sql
+      .exec<RoomMetaRow>('SELECT generation, occupied FROM room_meta WHERE id = 1')
+      .one();
+    if (meta.occupied !== 1) return null;
+    const config = this.#readConfig();
+    if (config === null || config.generation !== Number(meta.generation)) return null;
+    const settings: RoomSettings = {
+      capacity: config.capacity,
+      randomMode: config.randomMode,
+      startLevel: config.startLevel,
+    };
+    if (config.customSeed !== undefined) settings.customSeed = config.customSeed;
+    const seats = [
+      ...this.#sql.exec<{
+        player_id: string;
+        nickname: string;
+        is_host: number;
+        join_order: number;
+        is_ready: number;
+      }>(
+        'SELECT player_id, nickname, is_host, join_order, is_ready FROM seats ORDER BY join_order ASC',
+      ),
+    ].map((row) => ({
+      playerId: row.player_id,
+      nickname: row.nickname,
+      isHost: Number(row.is_host) === 1,
+      joinOrder: Number(row.join_order),
+      isReady: Number(row.is_ready) === 1,
+    }));
+    return {
+      state: config.state as RoomPhase,
+      settings,
+      seats,
+      generation: Number(meta.generation),
+    };
+  }
+
+  /**
+   * N15：房主更新配置（仅 LOBBY 可改，开赛后锁定）。任一字段更新后**全部准备
+   * 标志清零**（含房主自身），要求重新准备（清单 N15 验收）。字段边界与创建
+   * 入口同源（shared/protocol 常量）；容量不得低于当前在场席位数。
+   * 全程无 await：校验→UPDATE 配置→清准备构成原子段。
+   */
+  updateConfig(playerId: string, patch: ConfigPatch): ConfigResult {
+    this.#ensureSchema();
+    this.#ensureRow();
+    const meta = this.#sql
+      .exec<RoomMetaRow>('SELECT generation, occupied FROM room_meta WHERE id = 1')
+      .one();
+    if (meta.occupied !== 1) return { updated: false, error: 'ROOM_NOT_FOUND' };
+    const config = this.#readConfig();
+    if (config === null || config.generation !== Number(meta.generation)) {
+      return { updated: false, error: 'ROOM_NOT_FOUND' };
+    }
+    if (config.state !== 'LOBBY') return { updated: false, error: 'GAME_STARTED' };
+    const seat = [
+      ...this.#sql.exec<{ is_host: number }>('SELECT is_host FROM seats WHERE player_id = ?', playerId),
+    ][0];
+    if (seat === undefined) return { updated: false, error: 'UNAUTHORIZED' };
+    if (Number(seat.is_host) !== 1) return { updated: false, error: 'NOT_HOST' };
+    const capacity = patch.capacity ?? config.capacity;
+    const randomMode = patch.randomMode ?? config.randomMode;
+    const startLevel = patch.startLevel ?? config.startLevel;
+    const customSeed = patch.customSeed === undefined ? config.customSeed ?? null : patch.customSeed;
+    if (
+      !Number.isInteger(capacity) ||
+      capacity < MIN_PLAYERS ||
+      capacity > MAX_PLAYERS ||
+      !RANDOM_MODES.includes(randomMode) ||
+      !Number.isInteger(startLevel) ||
+      startLevel < MIN_START_LEVEL ||
+      startLevel > MAX_START_LEVEL ||
+      (customSeed !== null && !CUSTOM_SEED_PATTERN.test(customSeed))
+    ) {
+      return { updated: false, error: 'BAD_CONFIG' };
+    }
+    const seatCount = Number(
+      this.#sql.exec<{ c: number }>('SELECT COUNT(*) AS c FROM seats').one().c,
+    );
+    if (capacity < seatCount) return { updated: false, error: 'CAPACITY_BELOW_SEATS' };
+    this.#sql.exec(
+      'UPDATE room_config SET capacity = ?, random_mode = ?, start_level = ?, custom_seed = ? WHERE id = 1',
+      capacity,
+      randomMode,
+      startLevel,
+      customSeed,
+    );
+    this.#sql.exec('UPDATE seats SET is_ready = 0 WHERE generation = ?', Number(meta.generation));
+    const settings: RoomSettings = { capacity, randomMode, startLevel };
+    if (customSeed !== null) settings.customSeed = customSeed;
+    return { updated: true, settings, readyReset: true, generation: Number(meta.generation) };
+  }
+
+  /** N15：玩家准备/取消准备（仅 LOBBY；开赛后拒绝）。 */
+  setReady(playerId: string, ready: boolean): ReadyResult {
+    this.#ensureSchema();
+    this.#ensureRow();
+    const meta = this.#sql
+      .exec<RoomMetaRow>('SELECT generation, occupied FROM room_meta WHERE id = 1')
+      .one();
+    if (meta.occupied !== 1) return { ok: false, error: 'ROOM_NOT_FOUND' };
+    const config = this.#readConfig();
+    if (config === null || config.generation !== Number(meta.generation)) {
+      return { ok: false, error: 'ROOM_NOT_FOUND' };
+    }
+    if (config.state !== 'LOBBY') return { ok: false, error: 'GAME_STARTED' };
+    const seat = [
+      ...this.#sql.exec<{ n: number }>('SELECT 1 AS n FROM seats WHERE player_id = ?', playerId),
+    ];
+    if (seat.length === 0) return { ok: false, error: 'UNAUTHORIZED' };
+    this.#sql.exec('UPDATE seats SET is_ready = ? WHERE player_id = ?', ready ? 1 : 0, playerId);
+    return { ok: true, isReady: ready, generation: Number(meta.generation) };
+  }
+
+  /**
+   * N15：房主开局。开始条件（方案 §3.4）：在场席位不少于 MIN_PLAYERS、全部席位
+   * （含房主）完成准备、不超过容量（加入门槛保证）；成功后 LOBBY→COUNTDOWN，
+   * 冻结参赛名单（match_roster）与比赛参数（配置行由 state 锁定，updateConfig
+   * 与 joinRoom 均拒绝）。全程无 await：校验→置状态→冻结名单构成原子段，
+   * 不存在「已开赛但名单未冻结」窗口。
+   */
+  startGame(playerId: string): StartResult {
+    this.#ensureSchema();
+    this.#ensureRow();
+    const meta = this.#sql
+      .exec<RoomMetaRow>('SELECT generation, occupied FROM room_meta WHERE id = 1')
+      .one();
+    if (meta.occupied !== 1) return { started: false, error: 'ROOM_NOT_FOUND' };
+    const config = this.#readConfig();
+    if (config === null || config.generation !== Number(meta.generation)) {
+      return { started: false, error: 'ROOM_NOT_FOUND' };
+    }
+    if (config.state !== 'LOBBY') return { started: false, error: 'GAME_STARTED' };
+    const seat = [
+      ...this.#sql.exec<{ is_host: number }>('SELECT is_host FROM seats WHERE player_id = ?', playerId),
+    ][0];
+    if (seat === undefined) return { started: false, error: 'UNAUTHORIZED' };
+    if (Number(seat.is_host) !== 1) return { started: false, error: 'NOT_HOST' };
+    const seatRows = [
+      ...this.#sql.exec<{
+        player_id: string;
+        nickname: string;
+        join_order: number;
+        is_ready: number;
+      }>('SELECT player_id, nickname, join_order, is_ready FROM seats ORDER BY join_order ASC'),
+    ];
+    if (seatRows.length < MIN_PLAYERS) return { started: false, error: 'NOT_ENOUGH_PLAYERS' };
+    if (seatRows.some((r) => Number(r.is_ready) !== 1)) {
+      return { started: false, error: 'PLAYERS_NOT_READY' };
+    }
+    this.#sql.exec("UPDATE room_config SET state = 'COUNTDOWN' WHERE id = 1");
+    this.#sql.exec('DELETE FROM match_roster');
+    for (const r of seatRows) {
+      this.#sql.exec(
+        'INSERT INTO match_roster (player_id, nickname, join_order, generation) VALUES (?, ?, ?, ?)',
+        r.player_id,
+        r.nickname,
+        Number(r.join_order),
+        Number(meta.generation),
+      );
+    }
+    const settings: RoomSettings = {
+      capacity: config.capacity,
+      randomMode: config.randomMode,
+      startLevel: config.startLevel,
+    };
+    if (config.customSeed !== undefined) settings.customSeed = config.customSeed;
+    return {
+      started: true,
+      generation: Number(meta.generation),
+      settings,
+      roster: seatRows.map((r) => ({
+        playerId: r.player_id,
+        nickname: r.nickname,
+        isHost: r.player_id === playerId,
+        joinOrder: Number(r.join_order),
+      })),
+    };
+  }
+
+  /** N15：RUNNING→FINISHED 权威转换（N17 到期/N18 淘汰裁决触发；此处提供转移与幂等拒绝）。 */
+  finishGame(): { finished: true } | { finished: false; error: 'BAD_STATE' | 'ROOM_NOT_FOUND' } {
+    this.#ensureSchema();
+    this.#ensureRow();
+    const meta = this.#sql
+      .exec<RoomMetaRow>('SELECT generation, occupied FROM room_meta WHERE id = 1')
+      .one();
+    if (meta.occupied !== 1) return { finished: false, error: 'ROOM_NOT_FOUND' };
+    const config = this.#readConfig();
+    if (config === null || config.generation !== Number(meta.generation)) {
+      return { finished: false, error: 'ROOM_NOT_FOUND' };
+    }
+    if (config.state !== 'RUNNING') return { finished: false, error: 'BAD_STATE' };
+    this.#sql.exec("UPDATE room_config SET state = 'FINISHED' WHERE id = 1");
+    return { finished: true };
+  }
+
+  /**
+   * N15：房主发起下一局（FINISHED→LOBBY）：席位保留、准备全部清零、冻结名单
+   * 清空、配置重新可改（下一局可重选模式/种子，开始时重新确定——方案 §2）。
+   */
+  nextRound(playerId: string): NextRoundResult {
+    this.#ensureSchema();
+    this.#ensureRow();
+    const meta = this.#sql
+      .exec<RoomMetaRow>('SELECT generation, occupied FROM room_meta WHERE id = 1')
+      .one();
+    if (meta.occupied !== 1) return { ok: false, error: 'ROOM_NOT_FOUND' };
+    const config = this.#readConfig();
+    if (config === null || config.generation !== Number(meta.generation)) {
+      return { ok: false, error: 'ROOM_NOT_FOUND' };
+    }
+    if (config.state !== 'FINISHED') return { ok: false, error: 'BAD_STATE' };
+    const seat = [
+      ...this.#sql.exec<{ is_host: number }>('SELECT is_host FROM seats WHERE player_id = ?', playerId),
+    ][0];
+    if (seat === undefined) return { ok: false, error: 'UNAUTHORIZED' };
+    if (Number(seat.is_host) !== 1) return { ok: false, error: 'NOT_HOST' };
+    this.#sql.exec("UPDATE room_config SET state = 'LOBBY' WHERE id = 1");
+    this.#sql.exec('UPDATE seats SET is_ready = 0 WHERE generation = ?', Number(meta.generation));
+    this.#sql.exec('DELETE FROM match_roster');
+    return { ok: true, generation: Number(meta.generation) };
   }
 
   /**

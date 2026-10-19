@@ -209,3 +209,16 @@
 - **命令与退出码**：`npm --prefix worker run typecheck` → 0；`npm --prefix worker test` → 0；deploy.yml 未动（前端零改动）。
 - **复审结论**：独立复审 PASS——范围合规（deploy.yml 前缀 `5A08B009` 一致、src/ 与 shared/ 零 diff、仅 3 逻辑文件+测试+证据）；Hibernation 不与 accept 混用、附件仅存席位身份（令牌/票据不进附件）、close/error 双通道释放、重建核验 fail-closed；复跑 64 例全绿、E2E 六项与日志吻合；日志 ≤25 行。非阻塞观察：O1 dev 回退路径与生产路径分支以 `request.webSocket` 存在性判定，生产恒走前者；O2 `webSocketMessage` 对 >4KB 消息未设限（N25 防滥用）；O3 附件缺失连接不查 seat_conns 即关闭（无声明可泄）；O4 断线宽限（30s）属 N20，当前 close 即释放。
 - **未解决事项**：断线 30s 宽限与淘汰联动属 N20；协议消息（join/state/input）属 N16；`GENERATION_STALE` 的 E2E 触发路径待 N15/N16 关闭面。
+
+---
+
+## N15 — 服务器会话状态机与准备 ✅ PASS
+
+- **基线 HEAD**：`3a679ef`（N14 之后）
+- **改动文件（1 个逻辑文件 + 1 测试）**：`worker/src/room.ts`（schema：`seats.is_ready`（幂等补列）+ `match_roster`（开局冻结名单，独立于 seats）；`getLobbyState` 权威快照（state+配置+席位含准备标志，供 N16 广播复用）；`updateConfig` 房主改配置——仅 LOBBY、字段边界与创建入口同源（shared/protocol 常量白名单）、容量不得低于在场席位、**任一更新后全部准备标志清零（含房主）**；`setReady` 仅 LOBBY；`startGame` 房主开局——在场 ≥`MIN_PLAYERS`、全部席位（含房主）已准备、成功即 LOBBY→COUNTDOWN 且无 await 原子段内冻结名单与参数；`finishGame` 仅 RUNNING→FINISHED（N17/N18 触发面，重复调用 BAD_STATE 幂等）；`nextRound` 房主 FINISHED→LOBBY：席位保留、准备清零、名单清空、配置重新可改；`joinRoom` 序号 COUNT+1→**MAX+1**（修 N12 O2 撞号）；`createRoom` 复用清 `match_roster`）。清单 N15 范围仅 `room.ts`+测试，无 HTTP 面（协议消息属 N16）。
+- **单测**：`npm --prefix worker test` → 0（**11 文件 / 74 例**：新增 `room-state.test.ts` 10 例——改配置回显+持久化+customSeed 清除；改配置后准备全失效且重备前开局 PLAYERS_NOT_READY、重备后成功；非房主/未知席位改配置 NOT_HOST/UNAUTHORIZED 且配置与准备不变；9 类非法字段 BAD_CONFIG、容量低于在场席位 CAPACITY_BELOW_SEATS；准备/取消正向+未知席位/未占用拒绝；全员准备开局成功（roster 冻结快照断言）+开赛后加入/改参/准备/再开局全拒绝 GAME_STARTED；人数不足 NOT_ENOUGH_PLAYERS、非房主 NOT_HOST、未知 UNAUTHORIZED 且状态保持 LOBBY；finishGame 仅 RUNNING、重复 BAD_STATE；nextRound 房主成功→LOBBY+准备清零+roster 清空+配置可再改+席位可再入，非房主 NOT_HOST、LOBBY/COUNTDOWN BAD_STATE；开赛后中途退出不改写已冻结名单；序号 MAX+1：房主退出后新加入者=4 不复用 3）。
+- **本地模拟（wrangler dev 冒烟回归）**：新 schema 下既有面不受影响——health 200、create 201、join 200、ticket 200、WS **101 Open**+`ping`→`{"type":"pong"}`（N14 语义回归）；反向：错误 seatToken 换票→401 UNAUTHORIZED、`POST /api/rooms/<码>/start`→404（状态机无 HTTP 面，符合清单边界）、首段错误 Origin→403。证据 `evidence/multiplayer/N15/{smoke-local,wrangler-dev-startup,worker-test,worker-typecheck}.txt` + 脚本 `n15-smoke.ps1`。
+- **实测排障**：冒烟脚本首版 Origin 用本地地址被白名单拒绝（403）→ 改用正式白名单 `https://zhengxia19.github.io`；`SendAsync` 需 `ArraySegment[byte]`+`GetAwaiter().GetResult()`（N14 脚本既有写法）。
+- **命令与退出码**：`npm --prefix worker run typecheck` → 0；`npm --prefix worker test` → 0；deploy.yml 未动（前端零改动）。
+- **复审结论**：独立复审 PASS——范围合规（deploy.yml 前缀 `5A08B009` 一致、src/ 与 shared/ 零 diff、仅 room.ts+测试+证据）；全部新方法无 await 原子段、开局「置状态→冻结名单」同段无半开赛窗口；验收三条（人数不足/未准备/非房主开局失败、改配置准备重置、开赛后加入与改参失败）均有直接断言；序号修复佐证。非阻塞观察：O1 房主也须 ready 方可开局（方案「所有玩家重新准备」从严解释，N16 广播文案对齐）；O2 leaveRoom 未联动 match_roster（名单冻结语义，淘汰接线属 N18）；O3 COUNTDOWN→RUNNING 转换属 N16（startAt 确认），finishGame 暂由测试经 SQL 置态触发；O4 updateConfig 无 HTTP/WS 面（N16 settings_update 消息承载）。
+- **未解决事项**：`startAt/deadlineAt/种子派生`属 N16；RUNNING 态权威进入待 N16 倒计时确认；淘汰对名单的影响属 N18。
