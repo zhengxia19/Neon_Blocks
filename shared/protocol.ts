@@ -90,6 +90,72 @@ export const RANDOM_MODES: readonly RandomMode[] = ['S1', 'S2', 'S3'];
 /** PRNG 算法版本，随开局下发以保证跨端可复现。 */
 export type RngAlgo = 'xorshift32-bag7-v1';
 
+/** 算法版本常量：实现与金样本测试在 N16 锁定（xorshift32 + 7-bag Fisher–Yates）。 */
+export const RNG_ALGO: RngAlgo = 'xorshift32-bag7-v1';
+
+/** 开局统一倒计时时长（服务器一次性下发 startAt，不逐秒广播）。 */
+export const COUNTDOWN_MS = 3000 as const;
+
+/**
+ * FNV-1a 32 位固定哈希（纯整数运算，跨 JS 环境可复现；输入限定 ASCII：
+ * S3 种子为 1–32 位字母数字，席位 ID 为 hex）。
+ */
+export function fnv1a32(text: string, seed = 0x811c9dc5): number {
+  let h = seed >>> 0;
+  for (let i = 0; i < text.length; i += 1) {
+    h = (h ^ (text.charCodeAt(i) & 0xff)) >>> 0;
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h >>> 0;
+}
+
+/** xorshift32 状态不可为 0：零值映射为固定非零常数。 */
+function nonZero32(h: number): number {
+  return h === 0 ? 0x9e3779b9 : h >>> 0;
+}
+
+/** S3：房主指定种子（大小写敏感）归一化为 32 位比赛主种子（可复盘）。 */
+export function normalizeSeed32(customSeed: string): number {
+  return nonZero32(fnv1a32(customSeed));
+}
+
+/** S2：按主种子+稳定席位 ID 派生独立种子（都可重现，但牌序不同）。 */
+export function deriveSeatSeed(masterSeed: number, playerId: string): number {
+  return nonZero32(fnv1a32(playerId, masterSeed >>> 0));
+}
+
+/** xorshift32（32 位，周期 2^32−1）：返回 uint32 伪随机数发生器。 */
+export function xorshift32(seed: number): () => number {
+  let x = nonZero32(seed);
+  return () => {
+    x = (x ^ (x << 13)) >>> 0;
+    x = (x ^ (x >>> 17)) >>> 0;
+    x = (x ^ (x << 5)) >>> 0;
+    return x >>> 0;
+  };
+}
+
+/**
+ * 7-bag 取牌序列（v1 算法）：每袋 7 枚全排列（Fisher–Yates，j = rng() % (i+1)），
+ * 相同种子+相同取牌次数产生同一序列（N16 验收核心不变量）。
+ * 块序号 0–6 对应 I、J、L、O、S、T、Z。
+ */
+export function bag7Sequence(seed: number, count: number): number[] {
+  const rng = xorshift32(seed);
+  const out: number[] = [];
+  while (out.length < count) {
+    const bag = [0, 1, 2, 3, 4, 5, 6];
+    for (let i = 6; i > 0; i -= 1) {
+      const j = rng() % (i + 1);
+      const t = bag[i];
+      bag[i] = bag[j];
+      bag[j] = t;
+    }
+    out.push(...bag);
+  }
+  return out.slice(0, count);
+}
+
 /** 快照中的运行状态（联网禁用个人暂停，故无 paused）。 */
 export type SnapshotStatus = 'running' | 'gameover';
 

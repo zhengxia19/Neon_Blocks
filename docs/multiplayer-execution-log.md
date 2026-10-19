@@ -222,3 +222,16 @@
 - **命令与退出码**：`npm --prefix worker run typecheck` → 0；`npm --prefix worker test` → 0；deploy.yml 未动（前端零改动）。
 - **复审结论**：独立复审 PASS——范围合规（deploy.yml 前缀 `5A08B009` 一致、src/ 与 shared/ 零 diff、仅 room.ts+测试+证据）；全部新方法无 await 原子段、开局「置状态→冻结名单」同段无半开赛窗口；验收三条（人数不足/未准备/非房主开局失败、改配置准备重置、开赛后加入与改参失败）均有直接断言；序号修复佐证。非阻塞观察：O1 房主也须 ready 方可开局（方案「所有玩家重新准备」从严解释，N16 广播文案对齐）；O2 leaveRoom 未联动 match_roster（名单冻结语义，淘汰接线属 N18）；O3 COUNTDOWN→RUNNING 转换属 N16（startAt 确认），finishGame 暂由测试经 SQL 置态触发；O4 updateConfig 无 HTTP/WS 面（N16 settings_update 消息承载）。
 - **未解决事项**：`startAt/deadlineAt/种子派生`属 N16；RUNNING 态权威进入待 N16 倒计时确认；淘汰对名单的影响属 N18。
+
+---
+
+## N16 — 统一倒计时与开局种子派生 ✅ PASS
+
+- **基线 HEAD**：`57ec770`（N15 之后）
+- **改动文件（2 个逻辑文件 + 2 测试）**：`shared/protocol.ts`（`RNG_ALGO` 常量锁定 `xorshift32-bag7-v1`；`COUNTDOWN_MS=3000`；纯函数 `fnv1a32`（FNV-1a，Math.imul，跨环境确定）、`normalizeSeed32`（S3 固定哈希归一化，大小写敏感，零值映射非零）、`deriveSeatSeed`（S2 按主种子+稳定席位 ID 派生）、`xorshift32`（32 位，状态非零）、`bag7Sequence`（每袋 7 枚 Fisher–Yates 全排列，相同种子+相同取牌次数=同一序列））；`worker/src/room.ts`（新表 `match_state`（match_id/generation/master_seed/rng_algo/start_at/deadline_at/running_at，单行整体替换）；`startGame` 扩展——S3 归一化房主种子、S1/S2 用 `crypto.getRandomValues` 主种子，`startAt=now+3000`、`deadlineAt=startAt+600000`，无 await 原子段入库并返回 `match` 载荷（matchId/时间/rngAlgo/逐席位 seatSeeds），向每存量连接广播**一条** `countdown`（不逐秒）；`getMatchInfo` 与 match_start 载荷同源（席位+代际核验）；`advanceToRunning(now)` COUNTDOWN→RUNNING 权威确认——`now<startAt`→TOO_EARLY 且状态不变、`now===startAt` 临界允许、重复 BAD_STATE 幂等，成功逐席位广播 `match_start`（seatSeed/seatIndex/startLevel）；`#broadcast` 载荷类型 `CountdownMsg|MatchStartMsg`（复审 O2）；`nextRound` 清 `match_state`（复审 O1）；`createRoom` 复用清理含 `match_state`）。
+- **单测**：`npm --prefix worker test` → 0（**13 文件 / 88 例**：新增 `seed-derivation.test.ts` 7 例——金样本 xs(1)=[270369,67634689,2647435461]、bag(1,14)=[4,0,2,3,5,6,1,2,1,3,5,4,6,0]、seed42→1672157454 与 Seed42→2868627374 大小写敏感、席位派生金样本、每袋 7 枚全排列、零种子非零映射、不同种子不同序列；新增 `room-countdown.test.ts` 7 例——S1 全员同种子=库内主种子且跨客户端 bag7 序列一致、getMatchInfo 同源（seatIndex/startLevel）、S2 逐席位派生与共享函数一致且序列互异、S3 金样本归一化+跨房间可复盘、开局前无信息/未知席位 null、TOO_EARLY（startAt-1 状态不变）+临界 startAt 允许+幂等 BAD_STATE、一次性广播每连接恰 1 条 countdown 与 match_start 逐字段、nextRound 清陈旧信息+新局新 matchId）。
+- **本地模拟（wrangler dev 冒烟回归）**：新表与广播代码下既有面不受影响——health 200、create 201、join 200、ticket 200、WS 101 Open+ping→pong；反向：错误 seatToken→401、`POST /api/rooms/<码>/start`→404（无 HTTP 面）。证据 `evidence/multiplayer/N16/{smoke-local,wrangler-dev-startup,worker-test,worker-typecheck,root-test}.txt` + 脚本 `n16-smoke.ps1`。
+- **实测排障**：无新阻塞（沿用 N15 脚本 Origin/WS URI 约定）；冒烟日志 WS 关闭握手异常为 miniflare 耦合已知表象。
+- **命令与退出码**：`npm --prefix worker run typecheck`→0；`npm --prefix worker test`→0；根 `npm run test`→0（15 文件/278 例，协议改动无前端回归）；deploy.yml 未动（前缀 5A08B009）。
+- **复审结论**：独立复审 PASS——范围合规（仅 2 逻辑文件、src/ 零 diff、deploy.yml 前缀一致）；金样本经 node 独立复算吻合；三模式语义与 §3.1 一致；无 await 原子段+代际核验；验收三条（三模式约定牌序、临界与提前拒绝、服务器权威一致时间不逐秒）直接断言。非阻塞观察 O1（陈旧 match 信息）与 O2（广播载荷未用协议类型）**已在本任务内修复**并补测试；O3 revision 硬编码 1（revision 语义属 N26）；O4 fnv1a32 仅取低字节（输入受 pattern/hex 约束，注释已声明）；O5 取模 bias（确定性由金样本锁定）；O9 离席连接 seatIndex 兜底 0（N18/N20 边界）。
+- **未解决事项**：startAt 到期自动调用 `advanceToRunning` 的 DO Alarm 属 N17；`ready/start/settings_update` 入站 HTTP/WS 面属 N22/N25；revision 计数器属 N26。

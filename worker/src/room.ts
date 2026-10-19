@@ -9,14 +9,29 @@
  */
 import { DurableObject } from 'cloudflare:workers';
 import {
+  COUNTDOWN_MS,
   CUSTOM_SEED_PATTERN,
+  MATCH_DURATION_MS,
   MAX_PLAYERS,
   MAX_START_LEVEL,
   MIN_PLAYERS,
   MIN_START_LEVEL,
+  PROTOCOL_VERSION,
   RANDOM_MODES,
+  RNG_ALGO,
+  deriveSeatSeed,
+  normalizeSeed32,
 } from '../../shared/protocol';
-import type { CreateRoomRequest, RandomMode, RoomPhase, RoomSettings } from '../../shared/protocol';
+import type {
+  CountdownMsg,
+  CreateRoomRequest,
+  MatchId,
+  MatchStartMsg,
+  RandomMode,
+  RngAlgo,
+  RoomPhase,
+  RoomSettings,
+} from '../../shared/protocol';
 import type { Env } from './index';
 
 type RoomMetaRow = { generation: number; occupied: number };
@@ -100,12 +115,42 @@ export type StartFailure =
   | 'PLAYERS_NOT_READY';
 
 export type StartResult =
-  | { started: true; generation: number; settings: RoomSettings; roster: SeatInfo[] }
+  | {
+      started: true;
+      generation: number;
+      settings: RoomSettings;
+      roster: SeatInfo[];
+      /** N16：服务器权威开局信息（一次性下发，不逐秒广播）。 */
+      match: {
+        matchId: MatchId;
+        startAt: number;
+        deadlineAt: number;
+        rngAlgo: RngAlgo;
+        /** 各席位实际出块种子（S1/S3 全员相同，S2 按席位派生）。 */
+        seatSeeds: Record<string, number>;
+      };
+    }
   | { started: false; error: StartFailure };
 
 export type NextRoundResult =
   | { ok: true; generation: number }
   | { ok: false; error: 'ROOM_NOT_FOUND' | 'UNAUTHORIZED' | 'NOT_HOST' | 'BAD_STATE' };
+
+// —— N16：统一倒计时与开局种子派生 ——
+
+export type MatchInfo = {
+  matchId: MatchId;
+  startAt: number;
+  deadlineAt: number;
+  rngAlgo: RngAlgo;
+  seatSeed: number;
+  seatIndex: number;
+  startLevel: number;
+};
+
+export type RunningResult =
+  | { started: true; matchId: MatchId; startAt: number; deadlineAt: number }
+  | { started: false; error: 'ROOM_NOT_FOUND' | 'BAD_STATE' | 'TOO_EARLY' };
 
 /** N14：Hibernation 附件——连接身份随 socket 持久化，DO 休眠/热重启后可恢复。 */
 export type WsAttachment = { playerId: string; generation: number };
@@ -115,6 +160,13 @@ function randomHex(byteLength: number): string {
   const bytes = new Uint8Array(byteLength);
   crypto.getRandomValues(bytes);
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** 强随机 32 位主种子（0 映射为固定非零值，xorshift32 状态非零要求）。 */
+function randomUint32(): number {
+  const buf = new Uint32Array(1);
+  crypto.getRandomValues(buf);
+  return buf[0] === 0 ? 0x9e3779b9 : buf[0];
 }
 
 async function sha256Hex(text: string): Promise<string> {
@@ -204,6 +256,19 @@ export class RoomDO extends DurableObject<Env> {
          generation INTEGER NOT NULL
        );`,
     );
+    // N16：当前局权威时间/种子（单行；startGame 整体替换，代际核验）。
+    sql.exec(
+      `CREATE TABLE IF NOT EXISTS match_state (
+         id INTEGER PRIMARY KEY CHECK (id = 1),
+         match_id TEXT NOT NULL,
+         generation INTEGER NOT NULL,
+         master_seed INTEGER NOT NULL,
+         rng_algo TEXT NOT NULL,
+         start_at INTEGER NOT NULL,
+         deadline_at INTEGER NOT NULL,
+         running_at INTEGER
+       );`,
+    );
   }
 
   /** 确保元数据行存在（初始：generation=0、空闲）。 */
@@ -244,6 +309,7 @@ export class RoomDO extends DurableObject<Env> {
     this.#sql.exec('DELETE FROM seats');
     this.#sql.exec('DELETE FROM seat_conns');
     this.#sql.exec('DELETE FROM match_roster');
+    this.#sql.exec('DELETE FROM match_state');
     this.#sql.exec(
       `INSERT OR REPLACE INTO room_config
          (id, capacity, random_mode, start_level, custom_seed, generation)
@@ -544,6 +610,36 @@ export class RoomDO extends DurableObject<Env> {
         Number(meta.generation),
       );
     }
+    // N16：服务器决定主种子/算法版本/统一开始与截止时间（同一原子段内入库）。
+    // S3 用固定哈希归一化房主种子（可复盘）；S1/S2 用安全随机 32 位主种子。
+    const masterSeed =
+      config.randomMode === 'S3' && config.customSeed !== undefined
+        ? normalizeSeed32(config.customSeed)
+        : randomUint32();
+    const matchId = `m_${randomHex(8)}`;
+    const startAt = Date.now() + COUNTDOWN_MS;
+    const deadlineAt = startAt + MATCH_DURATION_MS;
+    this.#sql.exec(
+      `INSERT OR REPLACE INTO match_state
+         (id, match_id, generation, master_seed, rng_algo, start_at, deadline_at, running_at)
+       VALUES (1, ?, ?, ?, ?, ?, ?, NULL)`,
+      matchId,
+      Number(meta.generation),
+      masterSeed,
+      RNG_ALGO,
+      startAt,
+      deadlineAt,
+    );
+    const seatSeeds: Record<string, number> = {};
+    for (const r of seatRows) {
+      seatSeeds[r.player_id] =
+        config.randomMode === 'S2' ? deriveSeatSeed(masterSeed, r.player_id) : masterSeed;
+    }
+    // 一次性下发倒计时（各客户端本地显示 3、2、1；不逐秒广播）。
+    this.#broadcast((playerId) => {
+      void playerId;
+      return { v: PROTOCOL_VERSION, type: 'countdown', revision: 1, matchId, startAt, deadlineAt };
+    });
     const settings: RoomSettings = {
       capacity: config.capacity,
       randomMode: config.randomMode,
@@ -560,7 +656,125 @@ export class RoomDO extends DurableObject<Env> {
         isHost: r.player_id === playerId,
         joinOrder: Number(r.join_order),
       })),
+      match: { matchId, startAt, deadlineAt, rngAlgo: RNG_ALGO, seatSeeds },
     };
+  }
+
+  /**
+   * N16：席位查询当前局信息（match_start 载荷同源）：席位存在且当代、match_state
+   * 代际一致才返回；seatSeed 按模式派生（S1/S3 全员同种子，S2 按席位独立）。
+   */
+  getMatchInfo(playerId: string): MatchInfo | null {
+    this.#ensureSchema();
+    this.#ensureRow();
+    const meta = this.#sql
+      .exec<RoomMetaRow>('SELECT generation, occupied FROM room_meta WHERE id = 1')
+      .one();
+    if (meta.occupied !== 1) return null;
+    const config = this.#readConfig();
+    if (config === null || config.generation !== Number(meta.generation)) return null;
+    const seat = [
+      ...this.#sql.exec<{ join_order: number }>(
+        'SELECT join_order FROM seats WHERE player_id = ? AND generation = ?',
+        playerId,
+        Number(meta.generation),
+      ),
+    ][0];
+    if (seat === undefined) return null;
+    const row = [
+      ...this.#sql.exec<{
+        match_id: string;
+        master_seed: number;
+        rng_algo: string;
+        start_at: number;
+        deadline_at: number;
+      }>(
+        'SELECT match_id, master_seed, rng_algo, start_at, deadline_at FROM match_state WHERE id = 1 AND generation = ?',
+        Number(meta.generation),
+      ),
+    ][0];
+    if (row === undefined) return null;
+    return {
+      matchId: row.match_id,
+      startAt: Number(row.start_at),
+      deadlineAt: Number(row.deadline_at),
+      rngAlgo: row.rng_algo as RngAlgo,
+      seatSeed:
+        config.randomMode === 'S2'
+          ? deriveSeatSeed(Number(row.master_seed), playerId)
+          : Number(row.master_seed),
+      seatIndex: Number(seat.join_order),
+      startLevel: config.startLevel,
+    };
+  }
+
+  /**
+   * N16：COUNTDOWN→RUNNING 权威确认（N17 闹钟在 startAt 到期调用）。**提前开始
+   * 拒绝**：now < startAt 一律 TOO_EARLY；临界时刻 now === startAt 允许（清单验收）。
+   * 成功后逐席位广播 match_start（含该席位 seatSeed/seatIndex/startLevel，全员
+   * startAt/deadlineAt 一致）。无 await 原子段。
+   */
+  advanceToRunning(now: number = Date.now()): RunningResult {
+    this.#ensureSchema();
+    this.#ensureRow();
+    const meta = this.#sql
+      .exec<RoomMetaRow>('SELECT generation, occupied FROM room_meta WHERE id = 1')
+      .one();
+    if (meta.occupied !== 1) return { started: false, error: 'ROOM_NOT_FOUND' };
+    const config = this.#readConfig();
+    if (config === null || config.generation !== Number(meta.generation)) {
+      return { started: false, error: 'ROOM_NOT_FOUND' };
+    }
+    if (config.state !== 'COUNTDOWN') return { started: false, error: 'BAD_STATE' };
+    const row = [
+      ...this.#sql.exec<{
+        match_id: string;
+        master_seed: number;
+        rng_algo: string;
+        start_at: number;
+        deadline_at: number;
+      }>(
+        'SELECT match_id, master_seed, rng_algo, start_at, deadline_at FROM match_state WHERE id = 1 AND generation = ?',
+        Number(meta.generation),
+      ),
+    ][0];
+    if (row === undefined) return { started: false, error: 'BAD_STATE' };
+    const startAt = Number(row.start_at);
+    if (now < startAt) return { started: false, error: 'TOO_EARLY' };
+    this.#sql.exec("UPDATE room_config SET state = 'RUNNING' WHERE id = 1");
+    this.#sql.exec('UPDATE match_state SET running_at = ? WHERE id = 1', now);
+    const seatIndex = new Map<string, number>();
+    for (const s of this.#sql.exec<{ player_id: string; join_order: number }>(
+      'SELECT player_id, join_order FROM seats',
+    )) {
+      seatIndex.set(s.player_id, Number(s.join_order));
+    }
+    const masterSeed = Number(row.master_seed);
+    this.#broadcast((playerId) => ({
+      v: PROTOCOL_VERSION,
+      type: 'match_start',
+      revision: 1,
+      matchId: row.match_id,
+      startAt,
+      deadlineAt: Number(row.deadline_at),
+      rngAlgo: row.rng_algo as RngAlgo,
+      seatSeed: config.randomMode === 'S2' ? deriveSeatSeed(masterSeed, playerId) : masterSeed,
+      seatIndex: seatIndex.get(playerId) ?? 0,
+      startLevel: config.startLevel,
+    }));
+    return { started: true, matchId: row.match_id, startAt, deadlineAt: Number(row.deadline_at) };
+  }
+
+  /** 向全部 Hibernation 存量连接按席位身份发送一条服务端消息（附件缺失跳过）。 */
+  #broadcast(build: (playerId: string) => CountdownMsg | MatchStartMsg): number {
+    let sent = 0;
+    for (const ws of this.ctx.getWebSockets()) {
+      const att = this.#attachmentOf(ws);
+      if (att === null) continue;
+      ws.send(JSON.stringify(build(att.playerId)));
+      sent += 1;
+    }
+    return sent;
   }
 
   /** N15：RUNNING→FINISHED 权威转换（N17 到期/N18 淘汰裁决触发；此处提供转移与幂等拒绝）。 */
@@ -604,6 +818,8 @@ export class RoomDO extends DurableObject<Env> {
     this.#sql.exec("UPDATE room_config SET state = 'LOBBY' WHERE id = 1");
     this.#sql.exec('UPDATE seats SET is_ready = 0 WHERE generation = ?', Number(meta.generation));
     this.#sql.exec('DELETE FROM match_roster');
+    // N16 复审 O1：下一局重新开局前不得残留上局 match 信息（getMatchInfo 陈旧）。
+    this.#sql.exec('DELETE FROM match_state');
     return { ok: true, generation: Number(meta.generation) };
   }
 
