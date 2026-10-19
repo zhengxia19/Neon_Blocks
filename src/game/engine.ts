@@ -1,6 +1,6 @@
-// T022–T029：GameEngine 类——私有状态、初始 ready 状态、NEXT 队列补充与出生活动块、
+// T022–T030：GameEngine 类——私有状态、初始 ready 状态、NEXT 队列补充与出生活动块、
 // 水平移动、顺逆旋转、单次软降、硬降立即锁块、基于 dt 的自然重力、
-// 落地锁定延迟与限次重置（规格 S03.1–S03.5）。
+// 落地锁定延迟与限次重置、Hold 单块一次（规格 S03.1–S03.5）。
 // 纯逻辑模块：不访问 DOM/Canvas/localStorage；UI 仅经 getState() 只读视图读取状态。
 // 动作 API（move/rotate/softDrop/…）由 T024+ 逐个补齐。
 import { canPlace, clearFullRows, cloneBoard, createEmptyBoard, getGhostY, mergePiece } from './board';
@@ -103,6 +103,15 @@ export class GameEngine {
       throw new Error('spawnNext: 补充后 NEXT 仍为空（不应发生）');
     }
     this.#refillQueue();
+    this.#spawnType(type);
+  }
+
+  /**
+   * 在出生位置放置指定类型（S03.2）：x=3/y=2/r0；入场碰撞（与锁定格重叠）→
+   * active=null、status=gameover。成功则开始新块：holdUsedThisPiece 复位、
+   * 重力/锁定计时复位（S03.3 计时基准）。#spawnNext 与 Hold 交换共用本路径。
+   */
+  #spawnType(type: PieceType): void {
     const piece: ActivePiece = {
       type,
       rotation: SPAWN_ROTATION,
@@ -119,6 +128,33 @@ export class GameEngine {
     this.#state.gravityElapsedMs = 0;
     this.#state.lockElapsedMs = 0;
     this.#state.lockResetCount = 0;
+  }
+
+  /**
+   * Hold 单块一次（S03.2）：仅 running 且存在活动块时处理；本块已用过
+   * （`holdUsedThisPiece`，锁定前）再次调用无效。槽空时：active.type 存入槽、
+   * 从 NEXT 队首生成新块；槽已有方块时：与槽内容互换，换入块恢复 r0/x=3/y=2
+   * （复用 `#spawnType`，入场碰撞 → gameover）。生成新块即复位 hold 限制
+   * （成功锁定/换入后下一块可用），本任务测试覆盖锁定后路径。Hold 不随机偷换、
+   * 不跳队列（shift 队首后立即补满至 5）。无事件、不加分。
+   */
+  hold(): void {
+    if (this.#state.status !== 'running' || this.#state.active === null) {
+      return;
+    }
+    if (this.#state.holdUsedThisPiece) {
+      return; // 锁定前每块仅一次（S03.2）
+    }
+    const currentType = this.#state.active.type;
+    if (this.#state.heldType === null) {
+      this.#state.heldType = currentType;
+      this.#spawnNext(); // 从队列生成（shift 队首→补队列）
+    } else {
+      const swapType = this.#state.heldType;
+      this.#state.heldType = currentType;
+      this.#spawnType(swapType); // 槽内容换入出生位置
+    }
+    this.#state.holdUsedThisPiece = true; // #spawn* 已复位为 false，本块重新上锁
   }
 
   /**

@@ -309,7 +309,7 @@
 - **验证命令/动作**：`npx vitest run tests/unit/engine.test.ts`。
 - **通过条件**：不允许无限重置锁定延迟；硬降仍立即锁。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T030｜实现 Hold 单块一次
+#### - [x] T030｜实现 Hold 单块一次
 - **依赖**：T023, T027。**允许修改文件**：`src/game/engine.ts、tests/unit/engine.test.ts`。**规格**：S03.2。
 - **明确步骤**：
   1. 首次 hold 将 active.type 存入槽并从队列产生新块；再次 hold 在锁定前无效。

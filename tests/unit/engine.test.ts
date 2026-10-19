@@ -1,4 +1,4 @@
-// T022–T028：GameEngine 初始 ready 状态、NEXT 队列与出生、水平移动、顺逆旋转、软降、硬降锁块、自然重力测试（规格 S03.1–S03.5）。
+// T022–T030：GameEngine 初始 ready、NEXT 队列与出生、移动、旋转、软降、硬降锁块、自然重力、锁定延迟、Hold 测试（规格 S03.1–S03.5）。
 import { describe, expect, it } from 'vitest';
 import { canPlace, createEmptyBoard } from '../../src/game/board';
 import { BOARD_HEIGHT, BOARD_WIDTH } from '../../src/game/constants';
@@ -828,5 +828,100 @@ describe('GameEngine 锁定延迟（T029，S03.3）', () => {
     expect(s.lastEvent).toEqual({ id: 1, kind: 'lock', count: 1 });
     expect(s.score).toBe(20); // 仅软降分，未提前计清行分
     expect(s.lines).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T030：Hold 单块一次（S03.2）
+// ---------------------------------------------------------------------------
+describe('GameEngine Hold（T030，S03.2）', () => {
+  // rng=()=>0：出生 I，队列 ['L','J','Z','S','T']、袋 ['O']。
+  const newRunning = (board?: Board): GameEngine => {
+    const engine = new GameEngine(() => 0, board);
+    engine.start();
+    return engine;
+  };
+
+  it('首次 Hold（槽空）：I 入槽、队首 L 按出生位生成、队列补回 5 且不跳队列、本块标记已用', () => {
+    const engine = newRunning();
+    engine.hold();
+    const s = engine.getState();
+    expect(s.heldType).toBe('I');
+    expect(s.active).toEqual({ type: 'L', rotation: 0, x: 3, y: 2 }); // 换入恢复 r0/x3/y2
+    expect([...s.nextQueue]).toEqual(['J', 'Z', 'S', 'T', 'O']); // shift 恰一个并补袋尾
+    expect(s.nextQueue).toHaveLength(5);
+    expect(s.holdUsedThisPiece).toBe(true);
+    expect(s.score).toBe(0); // Hold 不加分
+    expect(s.lastEvent).toBeNull(); // Hold 不发事件
+  });
+
+  it('锁定前第二次 Hold 无效：槽/活动块/队列完全不变', () => {
+    const engine = newRunning();
+    engine.hold();
+    const before = snapshot(engine);
+    engine.hold();
+    engine.hold();
+    expect(snapshot(engine)).toEqual(before);
+    const s = engine.getState();
+    expect(s.heldType).toBe('I');
+    expect(s.active?.type).toBe('L'); // 未偷换队列或重复取块
+  });
+
+  it('成功锁定后限制复位：硬降 L 锁定 → J 可再次 Hold，与槽内 I 互换', () => {
+    const engine = newRunning();
+    engine.hold(); // 槽 I，活动 L
+    engine.hardDrop(); // L 锁定 → J 出生（新块，holdUsed 复位 false）
+    expect(engine.getState().holdUsedThisPiece).toBe(false);
+    engine.hold(); // 交换：J 入槽、I 换入出生位
+    const s = engine.getState();
+    expect(s.heldType).toBe('J');
+    expect(s.active).toEqual({ type: 'I', rotation: 0, x: 3, y: 2 });
+    expect(s.holdUsedThisPiece).toBe(true);
+    expect([...s.nextQueue]).toEqual(['Z', 'S', 'T', 'O', 'I']); // 换入来自槽不消费队列；hardDrop 补位的 I 在队尾
+    // 计时基准随换入新块复位
+    expect(s.gravityElapsedMs).toBe(0);
+    expect(s.lockElapsedMs).toBe(0);
+    expect(s.lockResetCount).toBe(0);
+  });
+
+  it('连续 Hold-锁定交替不卡死：第三块仍可用 Hold（队列顺序保持 J→Z…）', () => {
+    const engine = newRunning();
+    engine.hold(); // 槽 I，L 出
+    engine.hardDrop(); // L 锁，J 出
+    engine.hold(); // 槽 J，I 出
+    engine.hardDrop(); // I 锁第 23 行 x=3..6，Z 出
+    const s = engine.getState();
+    expect(s.active?.type).toBe('Z');
+    expect(s.holdUsedThisPiece).toBe(false);
+    engine.hold(); // Z 入槽、槽内 J 换入出生位
+    const s2 = engine.getState();
+    expect(s2.heldType).toBe('Z');
+    expect(s2.active?.type).toBe('J');
+  });
+
+  it('Hold 换入不合法 → gameover：预填 (2,5) 不挡 I 出生但挡住队首 L 出生实体格', () => {
+    // L r0 矩阵 ['001','111','000'] 于 x=3/y=2：出生实体格 (2,5),(3,3),(3,4),(3,5)
+    const src = createEmptyBoard();
+    src[2][5] = 'O';
+    const engine = newRunning(src);
+    expect(engine.getState().status).toBe('running'); // I（实体仅第 3 行 x=3..6）出生成功
+    engine.hold();
+    const s = engine.getState();
+    expect(s.status).toBe('gameover');
+    const before = snapshot(engine);
+    expect(s.active).toBeNull();
+    expect(s.heldType).toBe('I'); // 已入槽
+    expect(s.board[2][5]).toBe('O'); // 棋盘未被改动
+    // 结束后 Hold 不再生效
+    engine.hold();
+    expect(snapshot(engine)).toEqual(before);
+  });
+
+  it('ready 状态 Hold 无效：快照完全不变（paused 测试在 T031 补齐）', () => {
+    const engine = new GameEngine(() => 0);
+    const before = snapshot(engine);
+    engine.hold();
+    expect(snapshot(engine)).toEqual(before);
+    expect(engine.getState().heldType).toBeNull();
   });
 });
