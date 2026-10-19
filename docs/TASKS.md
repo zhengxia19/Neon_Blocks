@@ -457,7 +457,7 @@
 
 ### P4 设置与输入
 
-#### - [ ] T046｜实现设置读取/校验/写入
+#### - [x] T046｜实现设置读取/校验/写入
 - **依赖**：T001。**允许修改文件**：`src/storage/settings.ts、tests/unit/settings.test.ts`。**规格**：S07。
 - **明确步骤**：
   1. 按 S07 实现 `loadSettings()`/`saveSettings()`，默认静音、Ghost 开、减少动画关。
