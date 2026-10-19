@@ -87,6 +87,28 @@ function boot(rootElement: HTMLElement): AppHandle {
     typeof ResizeObserver !== 'undefined' ? new ResizeObserver(onResize) : null;
   resizeObserver?.observe(refs.boardCanvas);
 
+  // ── 失焦 / 切后台自动暂停（S03.3/S06，T054）──────────────────────────────
+  // running 时立即暂停并释放全部长按；恢复可见仅重置帧时间戳（防止巨大 dt 被
+  // 折算进重力/长按），绝不自动恢复运行——由用户显式继续。
+  const suspendGame = (): void => {
+    if (engine.getState().status === 'running') {
+      engine.togglePause();
+    }
+    keyboard.releaseAll();
+    touchRepeat.releaseAll();
+    touch.releaseAll();
+  };
+  const onBlur = (): void => suspendGame();
+  const onVisibilityChange = (): void => {
+    if (document.hidden) {
+      suspendGame();
+    } else {
+      lastFrameMs = performance.now(); // 只重置时间戳，不自动恢复
+    }
+  };
+  window.addEventListener('blur', onBlur);
+  document.addEventListener('visibilitychange', onVisibilityChange);
+
   // ── 单 rAF 主循环（S05）：渲染每帧、HUD/预览仅变化时更新 ─────────────────
   let rafId = 0;
   let lastFrameMs = performance.now();
@@ -159,6 +181,8 @@ function boot(rootElement: HTMLElement): AppHandle {
     tornDown = true;
     cancelAnimationFrame(rafId);
     window.removeEventListener('resize', onResize);
+    window.removeEventListener('blur', onBlur);
+    document.removeEventListener('visibilitychange', onVisibilityChange);
     resizeObserver?.disconnect();
     keyboard.dispose();
     touch.dispose();

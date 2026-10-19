@@ -531,7 +531,7 @@
 - **验证命令/动作**：`npm run typecheck && npm run test && npm run build`，浏览器试玩。
 - **通过条件**：页面出现实时棋盘；按键会使 active 移动；页面无重复 RAF/控制台错误。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T054｜处理窗口失焦和隐藏自动暂停
+#### - [x] T054｜处理窗口失焦和隐藏自动暂停
 - **依赖**：T053。**允许修改文件**：`src/main.ts、src/input/keyboard.ts、src/input/touch.ts`。**规格**：S03.3,S06。
 - **明确步骤**：
   1. 监听 `window.blur` 与 `document.visibilitychange`，running 时自动 togglePause。

@@ -129,6 +129,10 @@ export function createTouchControls(container: HTMLElement, options: TouchContro
 
   return {
     buttons,
+    /** 释放全部处于按下态的虚拟键（失焦/切后台时由装配层调用，T054）。 */
+    releaseAll(): void {
+      globalUp();
+    },
     dispose(): void {
       globalUp(); // 释放全部长按
       for (const off of disposers) {
