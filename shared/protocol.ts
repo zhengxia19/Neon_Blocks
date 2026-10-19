@@ -48,6 +48,17 @@ export const EMPTY_ROOM_TTL_MS = 1_800_000 as const;
 export const BOARD_WIDTH = 10 as const;
 export const BOARD_HEIGHT = 24 as const;
 
+/**
+ * 单条快照本体的 UTF-8 字节硬上限（N23，解码侧门槛）。合法形状最坏编码
+ * 约 0.5 KiB，远低于 `MAX_MESSAGE_BYTES`（4096）：信封（type/seq/席位等）
+ * 开销由该余量覆盖。N24 组装快照消息时仍须以 `MAX_MESSAGE_BYTES` 对
+ * 整帧复核，本值不替代帧上限。
+ */
+export const SNAPSHOT_MAX_BYTES = 4096 as const;
+
+/** 快照棋盘格合法字符：`.` 空位 + 七种方块类型首字母（N23 解码严格校验）。 */
+export const BOARD_CELL_CHARS = ['.', 'I', 'O', 'T', 'S', 'Z', 'J', 'L'] as const;
+
 /** 版本兼容判定：仅接受精确匹配的协议版本。 */
 export function isVersionSupported(v: unknown): v is typeof PROTOCOL_VERSION {
   return v === PROTOCOL_VERSION;

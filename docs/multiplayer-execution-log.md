@@ -325,3 +325,16 @@
 - **命令与退出码**：worker `npx vitest run`→0（19/147）；worker `npx tsc --noEmit`→0；根 `npx vitest run`→0（15/278）；根 tsc→0；`npm run build`→0；`npx playwright test`→0（7 passed）；deploy.yml 未动（前缀 5A08B009）。
 - **复审结论**：独立只读复审 PASS（无 P0/P1）——prune/限额/retryAfter 正确、有界性证明（4096×限额封顶）、门槛顺序与首请求放行、SEAT_TAKEN 清理彻底（目录保留为超集可接受）、测试正反覆盖与证据链逐项吻合。非阻塞观察：O1 坏码恒 400 不 429（无 DO 放大，边缘兜底）；O2 probe 冷却 Retry-After 固定 60s（保守上界）；O3 冷却期重试同耗端点桶（无害）；O4 淘汰 FIFO 非 LRU；O5 **N44 部署时若停留 workers.dev 预览域须置 `PUBLIC_CREATE_ENABLED="false"`**；O6 join/ticket 桶打满缺直测（后续补例）；O7 positiveInt 无上限封顶。
 - **未解决事项**：O5 属 N44 部署阶段执行项；O6 补例随后续任务顺带；WS 消息级限频（5Hz/2Hz）属 N23。
+
+---
+
+## N23 — 棋盘快照紧凑编码 ✅ PASS
+
+- **基线 HEAD**：`377d166`（N22 之后）
+- **改动文件**：`src/net/snapshot.ts`（新增：`validateSnapshot` 严格白名单校验——精确键集（缺/多字段 BAD_SHAPE）、24 行×10 字符、格值 ∈`.IOTSZJL`、active 类型/旋转 0–3/坐标宽松超集域、seq/score/lines/level 非负安全整数、status ∈running|gameover；`encodeSnapshot` 固定键序紧凑 JSON（手工拼接、无空白，禁 PNG）+ 编码后字节硬门槛；`decodeSnapshot` 先按 UTF-8 字节 >4096 拒绝（先于 JSON.parse）再解析校验，永不抛异常；`SnapshotError`/错误码枚举）；`shared/protocol.ts`（+`SNAPSHOT_MAX_BYTES=4096`、`BOARD_CELL_CHARS`；P1 修正注释语义：合法本体最坏 ~0.5 KiB，信封开销由余量覆盖，N24 整帧仍须按 `MAX_MESSAGE_BYTES` 复核）；`src/net/index.ts`（re-export 编解码与新常量）。
+- **单测**：根 `npx vitest run`→0（**16 文件 / 289 例**：新增 `tests/unit/snapshot.test.ts` 11 例——空/满棋盘/active=null 往返一致且为 JSON 文本；最坏合法编码 <600B ≤4KiB；出界坐标不静默改值；23/25 行→BAD_BOARD_ROWS；9/11 列宽、X/小写/空格/CJK/代理对→BAD_BOARD_ROW；active 7 种非法→BAD_ACTIVE；标量负数/小数/NaN/status 未知各归其码；缺/多字段/数组/null→BAD_SHAPE；BAD_JSON、恰 4096B 过闸、>4KiB TOO_LARGE、x=13 收/x=14 拒边界探针；encode 非法输入抛 SnapshotError。）
+- **本地模拟**：无服务端改动（纯前端编解码）；复审独立探针确认 `__proto__` 键→BAD_SHAPE 不污染原型、重复键 last-wins（标准 JSON 语义）、最坏合法编码 479B。
+- **实测排障**：`erasableSyntaxOnly` 禁构造参数属性（TS1294）→显式字段赋值；`Record<string,unknown>` 直转具名接口 TS2352→校验通过后经白名单局部分流收窄构造。
+- **命令与退出码**：根 vitest→0（16/289）；根 tsc→0；`npm run build`→0；worker vitest→0（19/147）；worker tsc→0；`npx playwright test`→0（7 passed）；deploy.yml 未动（前缀 5A08B009）。
+- **复审结论**：独立只读复审 PASS（无 P0；P1×1=SNAPSHOT_MAX_BYTES 注释语义→已修；O4 注释措辞→已修；O5 测试缺口→已补 1 例三断言）。非阻塞观察：O2 `-0` 编码退化为 `0`（JSON 语义固有）；O3 重复键 last-wins；O6 encode 重复校验开销可忽略（N24 热路径留观）。
+- **未解决事项**：无阻塞；N24 将消费本编解码器并做 250ms/5Hz 节流与整帧 `MAX_MESSAGE_BYTES` 复核。
