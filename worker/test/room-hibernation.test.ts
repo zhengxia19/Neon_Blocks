@@ -42,9 +42,13 @@ describe('N14 acceptWebSocket 接管', () => {
   it('正向：票据有效 → 附件携带席位身份，连接声明入库', async () => {
     const { store, accepted, state, playerId } = await makeAttached();
     expect(accepted.length).toBe(1);
-    expect(state.attachment).toEqual({ playerId, generation: 1 });
-    const rows = store.db.prepare('SELECT player_id, generation FROM seat_conns').all();
-    expect(rows).toEqual([{ player_id: playerId, generation: 1 }]);
+    expect(state.attachment).toEqual(expect.objectContaining({ playerId, generation: 1 }));
+    // N20：附件与声明均携带连接身份 connId（close 事件核验用）。
+    expect((state.attachment as { connId: string }).connId).toMatch(/^[0-9a-f]{16}$/);
+    const rows = store.db.prepare('SELECT player_id, generation, conn_id FROM seat_conns').all();
+    expect(rows).toEqual([
+      { player_id: playerId, generation: 1, conn_id: (state.attachment as { connId: string }).connId },
+    ]);
   });
 
   it('反向：票据无效 → 不接管（accepted 为空），席位不变', async () => {
@@ -85,7 +89,7 @@ describe('N14 acceptWebSocket 接管', () => {
     }
     expect(status).toBe(101);
     expect(accepted.length).toBe(1);
-    expect(fake.state.attachment).toEqual({ playerId: created.playerId, generation: 1 });
+    expect(fake.state.attachment).toEqual(expect.objectContaining({ playerId: created.playerId, generation: 1 }));
     const req2 = {
       method: 'GET',
       url: 'https://api.example/ws/123456?ticket=' + 'c'.repeat(32),
@@ -134,7 +138,7 @@ describe('N14 acceptWebSocket 接管', () => {
     // server 端被 Hibernation 接管且携带席位附件；client 端不被接管（随响应回传）。
     expect(accepted.length).toBe(1);
     expect(accepted[0]).toBe(serverFake.ws as unknown as (typeof accepted)[number]);
-    expect(serverFake.state.attachment).toEqual({ playerId: created.playerId, generation: 1 });
+    expect(serverFake.state.attachment).toEqual(expect.objectContaining({ playerId: created.playerId, generation: 1 }));
     expect(clientFake.state.attachment).toBeNull();
     const rows = store.db.prepare('SELECT player_id, generation FROM seat_conns').all();
     expect(rows).toEqual([{ player_id: created.playerId, generation: 1 }]);
@@ -195,7 +199,7 @@ describe('N14 休眠/热重启重建', () => {
     expect(state.closed).toBeNull(); // 连接未被误关
     expect(accepted.length).toBe(1);
     // 连接身份可恢复：附件仍指向原席位；房间配置从 SQLite 恢复。
-    expect(state.attachment).toEqual({ playerId, generation: 1 });
+    expect(state.attachment).toEqual(expect.objectContaining({ playerId, generation: 1 }));
     expect(revived.getSeats()).toEqual([
       { playerId, nickname: 'host1', isHost: true, joinOrder: 1 },
     ]);

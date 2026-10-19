@@ -73,14 +73,17 @@ describe('N13 票据消费反向', () => {
     expect(await room.consumeTicket(issued.ticket)).toEqual({ ok: false, error: 'GENERATION_STALE' });
   });
 
-  it('每席位仅一条活动连接声明：再签票据消费 → SEAT_TAKEN', async () => {
+  it('每席位仅一条活动连接声明：再签票据消费 → 替换旧声明（N20 重连语义）', async () => {
     const { room, playerId, seatToken } = await makeSeat();
     const t1 = await room.issueTicket(playerId, seatToken);
     if (!t1.issued) throw new Error('issue failed');
     expect((await room.consumeTicket(t1.ticket)).ok).toBe(true);
     const t2 = await room.issueTicket(playerId, seatToken);
     if (!t2.issued) throw new Error('issue failed');
-    expect(await room.consumeTicket(t2.ticket)).toEqual({ ok: false, error: 'SEAT_TAKEN' });
+    // N20：断线重连替换——旧声明（含无活 socket 的陈旧声明）被关闭/清除后重新声明。
+    const res = await room.consumeTicket(t2.ticket);
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.playerId).toBe(playerId);
   });
 
   it('席位已退出后票据 → UNAUTHORIZED', async () => {

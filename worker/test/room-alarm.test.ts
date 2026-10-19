@@ -86,7 +86,8 @@ describe('N17 闹钟调度与 600 秒边界', () => {
     vi.setSystemTime(res.match.startAt - 1);
     await room.alarm();
     expect(room.getLobbyState()?.state).toBe('COUNTDOWN');
-    expect(alarmCalls).toEqual([res.match.startAt, res.match.startAt]);
+    // N20 起闹钟面协调（handleDeadline + ensureGraceAlarm）各重排一次同一最近时刻
+    expect(alarmCalls).toEqual([res.match.startAt, res.match.startAt, res.match.startAt]);
     vi.useRealTimers();
   });
 

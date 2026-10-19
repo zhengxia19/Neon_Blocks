@@ -274,3 +274,16 @@
 - **命令与退出码**：`npm --prefix worker run typecheck`→0；`npm --prefix worker test`→0；根 `npm run test`→0（15/278）；deploy.yml 未动（前缀 5A08B009）。
 - **复审结论**：独立复审 PASS——§1.6/§1.7/§1.8 逐条对照正确、并列等价类相邻性成立、与排行榜零复用、复跑 119 例全绿。非阻塞观察：O1 joinOrder 重复时显示序退化输入序（实际唯一，N25 接线可加 playerId 末位显示键，禁入 sameRankKey）；O2 winners 数组为显示序（接线方勿依赖其顺序）；O3 standings 字段透传靠类型兜底（N25 接线测试补逐字段）；O4 smoke WS_ERR 为已知收尾现象。
 - **未解决事项**：成绩（score/lines）服务端存储与 match_end standings 接线属 N25/N27；N18-O5「最后席位退出者并列胜」语义在 N25 接线时于 UI 明示。
+
+---
+
+## N20 — 断线宽限与单席位重连 ✅ PASS
+
+- **基线 HEAD**：`4644f7a`（N19 之后）
+- **改动文件（1 个逻辑文件 + 3 测试改 + 1 测试新增）**：`worker/src/room.ts`（seats 增列 `disconnected_at`、seat_conns 增列 `conn_id`（幂等 ALTER）；`WsAttachment` 增 `connId`，attachWebSocket 生成 `randomHex(8)` 写入声明与附件；`consumeTicket` 声明冲突由 SEAT_TAKEN 改**替换语义**：关闭该席位存量 socket(4003 replaced)→删旧声明→重新声明（刷新重连不新增玩家）；`#releaseSeatConn` 按 `conn_id` 核验释放——替换后旧 socket 迟到 close `changes()=0` 不误伤新声明，成功释放记服务端断线时刻并重排闹钟；`alarm()` 三段：`#handleDeadline`→`#handleGraceExpiry`（RUNNING 局 `disconnected_at+30000<=now` 的未淘汰参赛者经 `#applyEliminations(reason=grace_expired)` 淘汰——判定式即 29.999s 可恢复/30s 整淘汰）→`#ensureGraceAlarm`（**弃用 getAlarm**（workers-types 返回 Promise），由 SQL 直算 deadline/倒计时与宽限候选取最近者排单槽闹钟）；`#restoreAlarms` 构造期同三段（驱逐期超宽限即刻淘汰，闹钟丢失也权威）；`getLobbyState` 席位带 `disconnectedAt`（N25 UI「连接中断」态）。**LOBBY/非参赛者断线不排闹钟不淘汰**，席位存续至到期/离开——与 30 分钟清理（N21）互不混同；断线不改 deadline（不停表）。测试：新增 `room-grace.test.ts` 10 例；`room-ticket.test.ts` SEAT_TAKEN→替换断言；`room-hibernation.test.ts` 附件含 connId 格式与列核对；`room-alarm.test.ts` 重排次数 +1（协调面同值重排）。）
+- **单测**：`npm --prefix worker test` → 0（**17 文件 / 129 例**：新增 10——RUNNING 断线记时刻+闹钟提前到宽限；29.999s 无淘汰、重连清标记后 30s 整不淘汰；30s 整淘汰入账=闹钟服务端时刻+逐席位 `grace_expired` 广播+席位/占用存续；双闹钟幂等；旧 socket 4003 替换+迟到 close 不互伤；刷新席位数与身份不变；LOBBY 零闹钟零淘汰席位存续；不停表（deadline 不被覆盖、超时存活含未超宽限断线者）；COUNTDOWN 断线链 startAt 先开赛再宽限裁决；驱逐重建构造期即刻淘汰）。
+- **本地模拟（wrangler dev 冒烟）**：host 首连 101+pong→主动断线→**原令牌换票重连 101+pong**→guest 席位不受影响仍 101+pong；反向错误 seatToken/陌生 playerId 401。证据 `evidence/multiplayer/N20/{smoke-local,wrangler-dev-startup,worker-test,worker-typecheck,root-test}.txt` + `n20-smoke.ps1`。
+- **实测排障**：`#pendingGraceAt` 误对展开数组调 `.one()`（16 例连锁失败）→改 cursor `.one()`；`ctx.storage.getAlarm()` 为 Promise→弃用改 SQL 直算候选；冒烟误走 PS5.1（无 `-SkipHttpErrorCheck`）→pwsh 执行；miniflare 关闭握手不回包为已知表象→try/catch 记录。
+- **命令与退出码**：`npx vitest run`→0；`npx tsc --noEmit`→0；根 `npm run test`→0（15/278）；deploy.yml 未动（前缀 5A08B009）。
+- **复审结论**：独立复审 PASS（无 P0/P1）——边界判定式、conn_id 互伤防护、范围隔离（LOBBY 零闹钟、淘汰不删席位）、原子段（consumeTicket 唯一 await 在 sha256）、闹钟三段同序与幂等、协议零改动、旧测试改动净增强、复跑 129/278 全绿。非阻塞观察：O1 淘汰时刻=闹钟触发时刻（服务端权威自洽）；O2 LOBBY 断线者若冻结进 roster 宽限从断线起算（开赛即裁，N21/文档补语义）；O3 跨部署存量附件无 connId 按 4001 关闭（未上生产可接受）；O4 alarm 测试绑定 setAlarm 次数（注释已明意图）；O5 假 ctx 淘汰者 socket 仍收广播（真实 Hibernation 会移除）；O6 替换路径 conn_id 短暂 NULL 可自愈。
+- **未解决事项**：全员离开/全员断线空房释放与 `deleteAlarm`（含 N18-O1 提前终局残留闹钟）属 N21；「连接中断/已淘汰」UI 态与 gameover 服务端接收时刻接线属 N25；SEAT_TAKEN 成类型兼容死支（N22 入站面清理）。

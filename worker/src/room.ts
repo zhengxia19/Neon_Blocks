@@ -11,6 +11,7 @@ import { DurableObject } from 'cloudflare:workers';
 import {
   COUNTDOWN_MS,
   CUSTOM_SEED_PATTERN,
+  DISCONNECT_GRACE_MS,
   MATCH_DURATION_MS,
   MAX_PLAYERS,
   MAX_START_LEVEL,
@@ -185,7 +186,7 @@ export type RunningResult =
   | { started: false; error: 'ROOM_NOT_FOUND' | 'BAD_STATE' | 'TOO_EARLY' };
 
 /** N14：Hibernation 附件——连接身份随 socket 持久化，DO 休眠/热重启后可恢复。 */
-export type WsAttachment = { playerId: string; generation: number };
+export type WsAttachment = { playerId: string; generation: number; connId: string };
 
 /** 强随机十六进制串（crypto.getRandomValues）。 */
 function randomHex(byteLength: number): string {
@@ -270,9 +271,22 @@ export class RoomDO extends DurableObject<Env> {
     sql.exec(
       `CREATE TABLE IF NOT EXISTS seat_conns (
          player_id TEXT PRIMARY KEY,
-         generation INTEGER NOT NULL
+         generation INTEGER NOT NULL,
+         conn_id TEXT
        );`,
     );
+    try {
+      sql.exec('ALTER TABLE seat_conns ADD COLUMN conn_id TEXT');
+    } catch {
+      // 列已存在（N20 前旧库）：幂等忽略。
+    }
+    // N20：断线标记（服务端断线时刻；NULL=有活动连接）。席位数据存续至
+    // 房间到期/主动离开，与 30 分钟房间清理（N21）互不混同。
+    try {
+      sql.exec('ALTER TABLE seats ADD COLUMN disconnected_at INTEGER');
+    } catch {
+      // 列已存在（N20 前旧库）：幂等忽略。
+    }
     // N15：准备标志（房主改配置后整体清零）与开局冻结名单（独立于 seats，
     // 下一局重新冻结；名单冻结后中途退出不改写已冻结的参赛名单）。
     try {
@@ -487,7 +501,7 @@ export class RoomDO extends DurableObject<Env> {
   getLobbyState(): {
     state: RoomPhase;
     settings: RoomSettings;
-    seats: (SeatInfo & { isReady: boolean })[];
+    seats: (SeatInfo & { isReady: boolean; disconnectedAt: number | null })[];
     generation: number;
   } | null {
     this.#ensureSchema();
@@ -511,8 +525,9 @@ export class RoomDO extends DurableObject<Env> {
         is_host: number;
         join_order: number;
         is_ready: number;
+        disconnected_at: number | null;
       }>(
-        'SELECT player_id, nickname, is_host, join_order, is_ready FROM seats ORDER BY join_order ASC',
+        'SELECT player_id, nickname, is_host, join_order, is_ready, disconnected_at FROM seats ORDER BY join_order ASC',
       ),
     ].map((row) => ({
       playerId: row.player_id,
@@ -520,6 +535,8 @@ export class RoomDO extends DurableObject<Env> {
       isHost: Number(row.is_host) === 1,
       joinOrder: Number(row.join_order),
       isReady: Number(row.is_ready) === 1,
+      // N20：断线时刻（服务端时钟）；重连即清空。席位存续与 30 分钟清理独立。
+      disconnectedAt: row.disconnected_at === null ? null : Number(row.disconnected_at),
     }));
     return {
       state: config.state as RoomPhase,
@@ -815,10 +832,16 @@ export class RoomDO extends DurableObject<Env> {
 
   /**
    * N17：DO Alarm 回调——超时/倒计时到点的**唯一权威触发源**（服务器时间，
-   * 独立于客户端消息与心跳；不在每心跳上轮询）。到期语义见 #handleDeadline。
+   * 独立于客户端消息与心跳；不在每心跳上轮询）。到期语义见 #handleDeadline；
+   * N20 起同一回调面先处理 deadline 再处理断线宽限到期（顺序保证 startAt 到点
+   * 先 RUNNING 再裁决宽限过期，deadline 到点先终局、宽限不再淘汰），最后把
+   * 最近宽限闹钟与 deadline 取更早者重排（联网比赛不停表）。
    */
   async alarm(): Promise<void> {
-    this.#handleDeadline(Date.now());
+    const now = Date.now();
+    this.#handleDeadline(now);
+    this.#handleGraceExpiry(now);
+    this.#ensureGraceAlarm(now);
   }
 
   /**
@@ -846,6 +869,104 @@ export class RoomDO extends DurableObject<Env> {
     }
     if (now >= Number(row.deadline_at)) this.#endAtDeadline(Number(meta.generation), row.match_id);
     else this.ctx.storage.setAlarm(Number(row.deadline_at));
+  }
+
+  /**
+   * N20：断线宽限到期裁决——RUNNING 局中，断线满 DISCONNECT_GRACE_MS（30 秒）
+   * 仍未重连的**该局参赛者**按服务端当前时刻淘汰（`grace_expired`）；非参赛者
+   * 不淘汰，席位数据存续。判定式 `disconnected_at + 30000 <= now`：29.999 秒
+   * 可恢复、30 秒整超限淘汰。经 #applyEliminations 幂等门（重复触发安全）。
+   */
+  #handleGraceExpiry(now: number): void {
+    this.#ensureSchema();
+    this.#ensureRow();
+    const meta = this.#sql
+      .exec<RoomMetaRow>('SELECT generation, occupied FROM room_meta WHERE id = 1')
+      .one();
+    if (meta.occupied !== 1) return;
+    const config = this.#readConfig();
+    if (config === null || config.generation !== Number(meta.generation)) return;
+    if (config.state !== 'RUNNING') return; // 淘汰只在 RUNNING 有效（N18 语义）
+    const row = this.#readMatchState(Number(meta.generation));
+    if (row === undefined) return;
+    const ids = [
+      ...this.#sql.exec<{ player_id: string }>(
+        `SELECT s.player_id
+           FROM seats s
+           JOIN match_roster r ON r.player_id = s.player_id AND r.generation = ?
+          WHERE s.disconnected_at IS NOT NULL AND s.disconnected_at + ? <= ?
+            AND s.player_id NOT IN
+              (SELECT player_id FROM eliminations WHERE generation = ? AND match_id = ?)`,
+        Number(meta.generation),
+        DISCONNECT_GRACE_MS,
+        now,
+        Number(meta.generation),
+        row.match_id,
+      ),
+    ].map((r) => String(r.player_id));
+    if (ids.length > 0) {
+      this.#applyEliminations(ids, Number(meta.generation), row.match_id, now, 'grace_expired');
+    }
+  }
+
+  /** N20：断线者是否仍为当前 RUNNING/COUNTDOWN 局未淘汰参赛者（宽限闹钟只对参赛者有意义）。 */
+  #pendingGraceAt(): number | undefined {
+    const meta = this.#sql
+      .exec<RoomMetaRow>('SELECT generation, occupied FROM room_meta WHERE id = 1')
+      .one();
+    if (meta.occupied !== 1) return undefined;
+    const config = this.#readConfig();
+    if (config === null || config.generation !== Number(meta.generation)) return undefined;
+    if (config.state !== 'RUNNING' && config.state !== 'COUNTDOWN') return undefined;
+    const row = this.#readMatchState(Number(meta.generation));
+    if (row === undefined) return undefined;
+    const r = this.#sql.exec<{ m: number | null }>(
+      `SELECT MIN(s.disconnected_at) AS m
+         FROM seats s
+         JOIN match_roster r ON r.player_id = s.player_id AND r.generation = ?
+        WHERE s.disconnected_at IS NOT NULL
+          AND s.player_id NOT IN
+            (SELECT player_id FROM eliminations WHERE generation = ? AND match_id = ?)`,
+      Number(meta.generation),
+      Number(meta.generation),
+      row.match_id,
+    ).one();
+    return r.m === null ? undefined : Number(r.m) + DISCONNECT_GRACE_MS;
+  }
+
+  /** N20：当前局闹钟时刻（COUNTDOWN→start_at，RUNNING→deadline_at）；其余状态 undefined。 */
+  #matchAlarmAt(generation: number): number | undefined {
+    const config = this.#readConfig();
+    if (config === null || config.generation !== generation) return undefined;
+    if (config.state !== 'RUNNING' && config.state !== 'COUNTDOWN') return undefined;
+    const row = this.#readMatchState(generation);
+    if (row === undefined) return undefined;
+    return config.state === 'COUNTDOWN' ? Number(row.start_at) : Number(row.deadline_at);
+  }
+
+  /**
+   * N20：单槽闹钟协调——始终排定**最近待触发时刻**（比赛 deadline/倒计时与
+   * 宽限到期取更早者）。不读 getAlarm（workers-types 返回 Promise），直接由
+   * SQL 计算候选，保证 deadline 闹钟不被更晚的宽限闹钟覆盖、宽限闹钟也不丢。
+   */
+  #ensureGraceAlarm(now: number): void {
+    const candidates: number[] = [];
+    const graceAt = this.#pendingGraceAt();
+    if (graceAt !== undefined && graceAt > now) candidates.push(graceAt);
+    const meta = this.#sql
+      .exec<RoomMetaRow>('SELECT generation, occupied FROM room_meta WHERE id = 1')
+      .one();
+    if (meta.occupied === 1) {
+      const matchAt = this.#matchAlarmAt(Number(meta.generation));
+      if (matchAt !== undefined && matchAt > now) candidates.push(matchAt);
+    }
+    if (candidates.length === 0) return;
+    this.ctx.storage.setAlarm(Math.min(...candidates));
+  }
+
+  /** N20：断线即刻重排闹钟（#pendingGraceAt 已含刚标记的断线者；非参赛者无候选）。 */
+  #maybeScheduleGraceAlarm(now: number): void {
+    this.#ensureGraceAlarm(now);
   }
 
   /**
@@ -891,7 +1012,11 @@ export class RoomDO extends DurableObject<Env> {
    */
   #restoreAlarms(): void {
     try {
-      this.#handleDeadline(Date.now());
+      const now = Date.now();
+      this.#handleDeadline(now);
+      // N20：驱逐期断线超宽限即刻淘汰（闹钟可能随驱逐丢失，裁决与排钟同源）。
+      this.#handleGraceExpiry(now);
+      this.#ensureGraceAlarm(now);
     } catch {
       // 构造期存储面异常：不阻断实例化。
     }
@@ -987,6 +1112,7 @@ export class RoomDO extends DurableObject<Env> {
     generation: number,
     matchId: string,
     now: number,
+    reason: 'eliminated' | 'grace_expired' = 'eliminated',
   ): Extract<BatchEliminationResult, { ok: true }> {
     const accepted: string[] = [];
     const already: string[] = [];
@@ -1029,7 +1155,7 @@ export class RoomDO extends DurableObject<Env> {
             type: 'player_left',
             revision: 1,
             playerId,
-            reason: 'eliminated',
+            reason,
           }) as PlayerLeftMsg,
       );
       accepted.push(playerId);
@@ -1296,7 +1422,29 @@ export class RoomDO extends DurableObject<Env> {
       this.#sql.exec<{ c: number }>('SELECT changes() AS c').one().c,
     );
     if (claimed !== 1) {
-      return { ok: false, error: 'SEAT_TAKEN' };
+      // N20：单席位重连——新连接**替换**旧连接：关闭该席位存量 socket（含
+      // 无活 socket 的陈旧声明），随后重新声明。旧 socket 的 close 事件经
+      // conn_id 核验不会误伤新声明（#releaseSeatConn）。
+      for (const ws of this.ctx.getWebSockets()) {
+        const att = this.#attachmentOf(ws);
+        if (
+          att !== null &&
+          att.playerId === row.player_id &&
+          att.generation === Number(meta.generation)
+        ) {
+          try {
+            ws.close(4003, 'replaced');
+          } catch {
+            // 已关闭：忽略。
+          }
+        }
+      }
+      this.#sql.exec('DELETE FROM seat_conns WHERE player_id = ?', row.player_id);
+      this.#sql.exec(
+        'INSERT INTO seat_conns (player_id, generation) VALUES (?, ?)',
+        row.player_id,
+        Number(meta.generation),
+      );
     }
     return { ok: true, playerId: row.player_id, generation: Number(meta.generation) };
   }
@@ -1321,12 +1469,24 @@ export class RoomDO extends DurableObject<Env> {
     if (!result.ok) {
       return result;
     }
+    // N20：连接身份 connId（close 事件核验，替换后的旧 socket 关闭不误伤新
+    // 声明）；重连成功即清空断线标记。consumeTicket 之后到附件序列化之间
+    // 无 await，声明写入与标记清空构成同步段。
+    const connId = randomHex(8);
+    this.#sql.exec(
+      'UPDATE seat_conns SET conn_id = ? WHERE player_id = ? AND generation = ?',
+      connId,
+      result.playerId,
+      result.generation,
+    );
+    this.#sql.exec('UPDATE seats SET disconnected_at = NULL WHERE player_id = ?', result.playerId);
     // workers-types：acceptWebSocket 第二参为 tags；附件经 serializeAttachment 随
     // socket 持久化，休眠/重建后 deserializeAttachment 恢复席位身份。
     this.ctx.acceptWebSocket(ws);
     ws.serializeAttachment({
       playerId: result.playerId,
       generation: result.generation,
+      connId,
     } satisfies WsAttachment);
     return result;
   }
@@ -1400,23 +1560,36 @@ export class RoomDO extends DurableObject<Env> {
     if (
       typeof raw !== 'object' || raw === null ||
       typeof (raw as WsAttachment).playerId !== 'string' ||
-      !Number.isInteger((raw as WsAttachment).generation)
+      !Number.isInteger((raw as WsAttachment).generation) ||
+      typeof (raw as WsAttachment).connId !== 'string'
     ) {
       return null;
     }
     return raw as WsAttachment;
   }
 
-  /** 断线即释放该席位的连接声明（重连换发新票据即可再占；宽限/淘汰属 N20）。 */
+  /**
+   * N20：断线处理——按 conn_id 核验释放本连接自己的声明（替换后的旧 socket
+   * 关闭事件 changes()=0，不误伤新声明）；成功释放则记录服务端断线时刻。
+   * 该局参赛者的宽限到期淘汰经闹钟触发（#handleGraceExpiry）；非参赛者席位
+   * 数据存续至房间到期/主动离开——与 30 分钟房间清理（N21）互不混同。
+   */
   #releaseSeatConn(ws: WebSocket): void {
     const att = this.#attachmentOf(ws);
     if (att === null) return;
     this.#ensureSchema();
     this.#sql.exec(
-      'DELETE FROM seat_conns WHERE player_id = ? AND generation = ?',
+      'DELETE FROM seat_conns WHERE player_id = ? AND conn_id = ?',
       att.playerId,
-      att.generation,
+      att.connId,
     );
+    const released = Number(
+      this.#sql.exec<{ c: number }>('SELECT changes() AS c').one().c,
+    );
+    if (released !== 1) return; // 已被替换的陈旧 close：不清标记、不排闹钟
+    const now = Date.now();
+    this.#sql.exec('UPDATE seats SET disconnected_at = ? WHERE player_id = ?', now, att.playerId);
+    this.#maybeScheduleGraceAlarm(now);
   }
 
   /** 热重启重建：遍历 Hibernation 存量连接，附件缺失或席位/代际/占用态失效即关闭。 */
