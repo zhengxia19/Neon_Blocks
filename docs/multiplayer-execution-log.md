@@ -338,3 +338,16 @@
 - **命令与退出码**：根 vitest→0（16/289）；根 tsc→0；`npm run build`→0；worker vitest→0（19/147）；worker tsc→0；`npx playwright test`→0（7 passed）；deploy.yml 未动（前缀 5A08B009）。
 - **复审结论**：独立只读复审 PASS（无 P0；P1×1=SNAPSHOT_MAX_BYTES 注释语义→已修；O4 注释措辞→已修；O5 测试缺口→已补 1 例三断言）。非阻塞观察：O2 `-0` 编码退化为 `0`（JSON 语义固有）；O3 重复键 last-wins；O6 encode 重复校验开销可忽略（N24 热路径留观）。
 - **未解决事项**：无阻塞；N24 将消费本编解码器并做 250ms/5Hz 节流与整帧 `MAX_MESSAGE_BYTES` 复核。
+
+---
+
+## N24 — 客户端快照限频与去重 ✅ PASS
+
+- **基线 HEAD**：`cdc5c9c`（N23 之后）
+- **改动文件**：`src/net/publisher.ts`（新增 `SnapshotPublisher`：默认 250ms、下限 200ms=5Hz 钳制且 `Number.isFinite` 封闭（NaN/Infinity 回落默认，P1 修复）；去重按 N23 固定键序编码串比较、基线仅在 send 成功后更新、invalid 输入不污染基线；`setActive`（单机不发）/`setConnected`（断线丢弃 pending+定时器，重连把 pending 挂回节流窗口 delay=max(0,due-now)）；trailing 定时器单挂不变式（timer===null 守卫+回调先清+dropPending 配对），慢网 pending 覆盖只留最新帧；`send=false` 回滚 pending 并返回独立 reason `transport_down`（O1）；直发成功清除陈旧 pending 防定时器晚发旧帧（O5）；`stop()` 清理）；`src/net/index.ts`（re-export）。
+- **单测**：根 `npx vitest run`→0（**17 文件 / 300 例**：新增 `publisher.test.ts` 11 例——首帧即发+去重 unchanged；窗口内 throttled、到期只发最新帧（seq=3 吞 2）；60FPS×10 分钟 36000 帧→≤2400 且 ≥2350（双向界，结构性限频）；intervalMs=50 钳 200→10s ≤51 且 >40；NaN/Infinity 回落 250→10s ≤41；断线零上报+重连恢复；单机不发；invalid 不污染基线；transport_down 回滚+重连自动重发同帧；stop 清定时器；trailing 等值跳过。）
+- **本地模拟**：无服务端改动；复审独立复跑 publisher 10/10（修复前）并确认 10 分钟恰为 2400（发送时刻 0,250,…,599750，末帧定时器 600000 未触发）。
+- **实测排障**：`SnapshotPayload` 从 `./snapshot` 导入报 TS2459（snapshot 未 re-export 类型）→改从 `shared/protocol` 导入；60FPS 测试窗口取满 600000ms 会含首帧 2401→窗口改 36000×16.666ms=599976ms 严格 <600s。
+- **命令与退出码**：根 vitest→0（17/300）；根 tsc→0；build→0；worker vitest→0（19/147）；worker tsc→0；playwright→0（7 passed）；deploy.yml 未动（5A08B009）。
+- **复审结论**：独立只读复审 PASS（无 P0；P1×1=NaN/Infinity 钳制不封闭致 5Hz 静默击穿→已修+补 2 用例；O1 transport_down 独立标签→已修；O5 直发清 pending→已修；O6 60FPS 下界断言→已补）。非阻塞观察：O2 deliver 失败回滚帧在真实 false→true 断线流程会被 dropPending 丢弃（快照语义下靠下一帧覆盖，可接受）；O4 `now` 注入须与 setTimeout 同源（N31 装配注意）；O7 stop() 非终态。
+- **未解决事项**：无阻塞；N25 起 WS 接线时消费 publisher（装配时 setConnected 生命周期）；接收端 seq 单调丢弃兜底属 N25/N26。

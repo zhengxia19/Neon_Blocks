@@ -31,6 +31,12 @@ export {
   validateSnapshot,
 } from './snapshot';
 export type { SnapshotDecodeResult, SnapshotErrorCode } from './snapshot';
+export {
+  SNAPSHOT_INTERVAL_MS,
+  SNAPSHOT_MIN_INTERVAL_MS,
+  SnapshotPublisher,
+} from './publisher';
+export type { PublishReject, PublishResult, PublisherOptions } from './publisher';
 export type {
   ActivePieceSnapshot,
   ClientMessage,
