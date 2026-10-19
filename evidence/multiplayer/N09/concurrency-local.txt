@@ -1,0 +1,12 @@
+P1 create => STATUS=200 BODY={"code":"430911","id":"557bfccbd7d33fc1b059f9bb11b5e8df503de5aa65bedee723f6f75d404f4d98","generation":1}
+P2 concurrent-50 => COUNT=50 UNIQUE=50 NON200=0
+P3 concurrent-100 => COUNT=100 UNIQUE=100 ALL150_UNIQUE=150 NON200=0
+P4a release-430911 => STATUS=200 BODY={"code":"430911","claimed":false,"generation":1}
+P4b reclaim-430911 => STATUS=200 BODY={"code":"430911","claimed":true,"generation":2}
+P4c verify-old-gen1-430911 => STATUS=200 BODY={"code":"430911","requested":1,"valid":false,"generation":2}
+P4d verify-new-gen2-430911 => STATUS=200 BODY={"code":"430911","requested":2,"valid":true,"generation":2}
+N1 claim-099999 => STATUS=400 BODY={"error":"BAD_ROOM_CODE","message":"房间码非法。"}
+N2 create-evil-origin => STATUS=403 BODY={"error":"BAD_ORIGIN","message":"来源不被允许。"}
+N3 double-claim-430911 => STATUS=200 BODY={"code":"430911","claimed":false,"generation":2}
+N4 get-create => STATUS=404 BODY={"error":"NOT_FOUND","message":"接口不存在。"}
+---

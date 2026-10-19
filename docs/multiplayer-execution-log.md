@@ -131,3 +131,16 @@
 - **命令与退出码**：`npm --prefix worker run typecheck` → 0；`npm --prefix worker test` → 0（**2 文件 / 9 例**）；deploy.yml SHA256 前缀 `5A08B009` 与 N01 基线一致（未动）。
 - **复审结论**：独立复审 PASS——范围无越界（deploy.yml 全哈希与 N01 基线一致、前端未动）；契约要素齐备（显式兼容日期、new_sqlite_classes、workers_dev、CORS 精确匹配无前缀混淆、探针二次校验）；证据与复跑完全一致、正反断言齐备。非阻塞观察留后续：DEV_ORIGINS 无条件并入允许集（N10 用 vars 开关 gate）、探针路由 N10 必须移除、预检含 POST 属前瞻。
 - **未解决事项**：探针路由 `/api/__probe` 为验收临时件，N10 正式创建/加入 API 后移除。
+
+---
+
+## N09 — 房间码冲突与代际隔离 ✅ PASS
+
+- **基线 HEAD**：`9fd8b68`（N08 之后）
+- **改动文件（3 个逻辑文件 + 1 测试）**：新增 `worker/src/room-store.ts`（`randomRoomCode` 拒绝采样均匀取码 100000–999999；`allocateRoomCode` 至多 `MAX_CLAIM_ATTEMPTS=8` 次重试，耗尽返回可控错误 `ROOM_CODE_EXHAUSTED`；服务端裁决、禁止客户端先检查再提交）、`worker/test/room-allocate.test.ts`（5 例）；重写 `worker/src/room.ts`（`room_meta` 增 `occupied` 列（N08 旧库幂等补列）；`tryClaim` DO 内原子占用（方法内无 await，DO 单线程串行）+ `changes()` 判定本次占用；`release` 释放保留代际；`verifyGeneration` 仅当代际相等且占用态有效）；`worker/src/index.ts` 临时验收路由 `POST /api/__create|__claim|__release|__verify`（替换并移除 N08 `__probe`，N10 正式 API 时全部移除）。
+- **单测**：`npm --prefix worker test` → 0（**3 文件 / 14 例**：随机码 2000 次全落区间且碰撞极少；分配首试/第 4 试命中；全冲突→尝试=8 且 `ROOM_CODE_EXHAUSTED`；fake DO 下 1000 次分配无重复有效码）。
+- **本地模拟（wrangler dev，全新存储）**：P1 创建 gen=1；P2 并发 50 → 50 唯一码 0 失败；P3 并发 100 → 100 唯一，**合并 150 全唯一**（无重复同时有效码）；P4 释放 430911（gen 保持 1）→ 重占 gen=2 → 旧凭据 `verify gen=1 → valid:false`、新凭据 `gen=2 → valid:true`；N1 `099999`→400；N2 evil Origin→403；N3 已占用重复 claim→`claimed:false` 代际不变；N4 GET `__create`→404。证据 `evidence/multiplayer/N09/{concurrency-local,wrangler-dev-startup,worker-test,worker-typecheck}.txt` + 脚本 `n09-e2e.ps1`。
+- **实测缺陷与修复**：首版 `tryClaim` 以 `occupied===1` 判 `claimed`，已占用码误报占用成功（N3 暴露）；改 `SELECT changes()` 判定 UPDATE 生效与否后 N3 正确。
+- **命令与退出码**：`npm --prefix worker run typecheck` → 0；`npm --prefix worker test` → 0；deploy.yml 未动（前端零改动）。
+- **复审结论**：独立复审 PASS——范围合规（index.ts 属验收临时接线，N10 移除）；拒绝采样均匀性（limit=4772×900000 整周期）、`changes()` 原子判定、DO 内无 await 串行原子、复用代际语义均经代码与证据双重核验；150 并发唯一码、旧凭据失效、N3 claimed=false 与复跑完全一致。非阻塞观察留 N10+：`__*` 路由必须如期移除、重试不去重（概率≈3.5e-5 可忽略）、`release` 返回语义收敛、临时路由限流属 N22。
+- **未解决事项**：`__*` 临时路由与 `verifyGeneration` 语义将在 N10 正式创建/加入 API 中收敛；码空间耗尽仅单测覆盖（E2E 需 90 万 DO，不现实）。

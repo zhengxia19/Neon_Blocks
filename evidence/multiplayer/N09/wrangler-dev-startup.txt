@@ -1,0 +1,21 @@
+⛅️ wrangler 4.151.2
+────────────────────
+Your Worker has access to the following bindings:
+Binding                                                   Resource                  Mode
+env.ROOM_DO (RoomDO)                                      Durable Object            local
+env.ALLOWED_ORIGINS ("https://zhengxia19.github.io")      Environment Variables     local
+
+⎔ Starting local server...
+[wrangler:info] Ready on http://127.0.0.1:8787
+# —— 完整请求日志（151 条）——
+# POST /api/__create ×151：全部 200 OK（P1×1 + P2 并发50 + P3 并发100；耗时 17–220ms）
+# POST /api/__release/430911 200 OK (11ms)
+# POST /api/__claim/430911 200 OK (9ms)
+# POST /api/__verify/430911/1 200 OK (11ms)
+# POST /api/__verify/430911/2 200 OK (12ms)
+# POST /api/__claim/099999 400 Bad Request (5ms)
+# POST /api/__create 403 Forbidden (3ms)   ← evil Origin
+# POST /api/__claim/430911 200 OK (6ms)    ← double-claim claimed=false
+# GET  /api/__create 404 Not Found (3ms)
+# 注：本地模拟以 TEMP=D:\tcodes\Neon_Blocks\worker\.tmp 启动（见 N08 环境注记），
+# 存储为全新状态（worker/.tmp 已清空后重启）。
