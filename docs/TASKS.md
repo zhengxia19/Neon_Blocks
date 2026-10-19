@@ -466,7 +466,7 @@
 - **验证命令/动作**：`npx vitest run tests/unit/settings.test.ts`。
 - **通过条件**：设置安全降级，无未捕获 DOMException。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T047｜保存和读取历史最高分
+#### - [x] T047｜保存和读取历史最高分
 - **依赖**：T046。**允许修改文件**：`src/storage/settings.ts、tests/unit/settings.test.ts`。**规格**：S03.5,S07。
 - **明确步骤**：
   1. 实现 `readBestScore()`/`writeBestScore(value)`，键值精确匹配 S07。

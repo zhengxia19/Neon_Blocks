@@ -1,6 +1,6 @@
-// Neon Blocks — 设置持久化（规格 S07，任务 T046；最高分读写由 T047 续写）。
+// Neon Blocks — 设置持久化（规格 S07/S03.5，任务 T046/T047）。
 // 全部存储键在 settings.ts 统一管理（S02 模块边界）。所有 localStorage 访问
-// 都在 try/catch 内：私密模式 / 禁用存储 / 损坏 JSON 时安全回退默认值，
+// 都在 try/catch 内：私密模式 / 禁用存储 / 损坏数据时安全回退，
 // 游戏依然可玩（S07）。
 
 /** 可注入的最小存储接口（与 window.localStorage 兼容，便于单测 stub）。 */
@@ -89,4 +89,48 @@ export function saveSettings(settings: GameSettings, storage: StorageLike | null
   } catch {
     // 写入失败静默处理：游戏继续使用内存中的设置。
   }
+}
+
+// ---------------------------------------------------------------------------
+// T047：历史最高分（S03.5/S07）——非负安全整数文本，异常一律降级为 0
+// ---------------------------------------------------------------------------
+
+/** 只接受非负十进制整数文本（±号、小数、科学计数、空白都视为不合法）。 */
+const BEST_SCORE_PATTERN = /^(0|[1-9][0-9]*)$/;
+
+/**
+ * 读取历史最高分：键缺失 / 存储异常 / 文本不合法（非整数、负数、超出安全
+ * 整数范围）→ 0（T047 步骤 2；S07「解析失败→0」）。
+ */
+export function readBestScore(storage: StorageLike | null = defaultStorage()): number {
+  let raw: string | null = null;
+  try {
+    raw = storage === null ? null : storage.getItem(BEST_SCORE_KEY);
+  } catch {
+    return 0;
+  }
+  if (raw === null || !BEST_SCORE_PATTERN.test(raw)) {
+    return 0;
+  }
+  const value = Number(raw);
+  return Number.isSafeInteger(value) ? value : 0; // 超出 2^53-1 → 0
+}
+
+/**
+ * 写入最高分（S03.5）：仅当本局分数高于已存最高分才更新；存储出错不抛。
+ * 输入非有限 / 负数 / 超安全整数按 0 参与比较。返回写入后生效的最高分。
+ */
+export function writeBestScore(value: number, storage: StorageLike | null = defaultStorage()): number {
+  const safe = Number.isFinite(value) && value > 0 ? Math.trunc(value) : 0;
+  const current = readBestScore(storage);
+  const next = Math.max(current, safe);
+  if (next === current) {
+    return current; // 无新高：不产生多余写入
+  }
+  try {
+    storage?.setItem(BEST_SCORE_KEY, String(next));
+  } catch {
+    // 写入失败不阻塞游戏：内存中的会话分数仍然有效。
+  }
+  return next;
 }

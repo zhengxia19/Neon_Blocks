@@ -3,10 +3,13 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  BEST_SCORE_KEY,
   DEFAULT_SETTINGS,
   SETTINGS_KEY,
   loadSettings,
+  readBestScore,
   saveSettings,
+  writeBestScore,
   type StorageLike,
 } from '../../src/storage/settings';
 
@@ -120,5 +123,60 @@ describe('settings（S07 设置持久化）', () => {
     first.ghostEnabled = false;
     expect(DEFAULT_SETTINGS.ghostEnabled).toBe(true);
     expect(loadSettings(null).ghostEnabled).toBe(true);
+  });
+});
+
+describe('best-score（T047 历史最高分）', () => {
+  it('存储键精确匹配 neon-blocks:v1:best-score', () => {
+    expect(BEST_SCORE_KEY).toBe('neon-blocks:v1:best-score');
+  });
+
+  it('无数据 / 存储不可用 → 0', () => {
+    expect(readBestScore(null)).toBe(0);
+    expect(readBestScore(new MemoryStorage())).toBe(0);
+    expect(readBestScore(new ThrowingStorage())).toBe(0);
+  });
+
+  it('新高分写入并可重读（刷新后准确）', () => {
+    const storage = new MemoryStorage();
+    expect(writeBestScore(1234, storage)).toBe(1234);
+    expect(readBestScore(storage)).toBe(1234);
+    expect(writeBestScore(9999, storage)).toBe(9999); // 更高 → 刷新纪录
+    expect(readBestScore(storage)).toBe(9999);
+    // 存储内容是纯十进制整数文本（S07「非负安全整数文本」）
+    expect(storage.map.get(BEST_SCORE_KEY)).toBe('9999');
+  });
+
+  it('非新高不更新也不写入（无变化）', () => {
+    const storage = new MemoryStorage();
+    writeBestScore(1234, storage);
+    const before = storage.map.get(BEST_SCORE_KEY);
+    expect(writeBestScore(500, storage)).toBe(1234);
+    expect(writeBestScore(1234, storage)).toBe(1234); // 相等也不重写
+    expect(storage.map.get(BEST_SCORE_KEY)).toBe(before);
+    expect(readBestScore(storage)).toBe(1234);
+  });
+
+  it('损坏文本：负数/小数/科学计数/超安全整数/乱码 → 0', () => {
+    for (const raw of ['-5', '12.5', '1e9', '9007199254740993', 'abc', '', 'null', ' 42', '+7', '0x1F']) {
+      const storage = new MemoryStorage();
+      storage.setItem(BEST_SCORE_KEY, raw);
+      expect(readBestScore(storage), `raw=${JSON.stringify(raw)}`).toBe(0);
+    }
+    const zero = new MemoryStorage();
+    zero.setItem(BEST_SCORE_KEY, '0');
+    expect(readBestScore(zero)).toBe(0); // 合法的 0
+  });
+
+  it('非法输入值按 0 参与比较；写入抛异常不阻塞（禁用存储）', () => {
+    const storage = new MemoryStorage();
+    expect(writeBestScore(-100, storage)).toBe(0);
+    expect(writeBestScore(Number.NaN, storage)).toBe(0);
+    expect(writeBestScore(Number.POSITIVE_INFINITY, storage)).toBe(0);
+    expect(storage.map.size).toBe(0); // 0 分不构成新高 → 无写入
+    const blocked = new WriteBlockedStorage();
+    expect(() => writeBestScore(500, blocked)).not.toThrow();
+    expect(readBestScore(blocked)).toBe(0); // 写入失败仍安全读 0
+    expect(() => writeBestScore(500, new ThrowingStorage())).not.toThrow();
   });
 });
