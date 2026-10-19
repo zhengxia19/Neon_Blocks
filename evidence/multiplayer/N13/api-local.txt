@@ -1,0 +1,12 @@
+HEALTH=200
+CREATE=201 code=761580
+JOIN=200 pid2=p_dd3296a4705e
+TICKET1=200 ticketLen=32
+WS1=[{},{"state":"Open","ok":true}]
+WS2_REPLAY={"err":"The server returned status code '401' when status code '101' was expected.","ok":false}
+WS3_SEATTAKEN={"err":"The server returned status code '409' when status code '101' was expected.","ok":false}
+WS4_GUEST=[{},{"state":"Open","ok":true}]
+WS5_UNKNOWN={"err":"The server returned status code '401' when status code '101' was expected.","ok":false}
+WS6_NOORIGIN={"err":"The server returned status code '403' when status code '101' was expected.","ok":false}
+TICKET_BADTOKEN=401 err=UNAUTHORIZED
+TICKET_NOTFOUND=404 err=ROOM_NOT_FOUND

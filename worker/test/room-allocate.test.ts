@@ -49,6 +49,12 @@ function fakeNamespace(script: (code: string, attempt: number) => CreateClaim): 
       joinRoom: async () => {
         throw new Error('unused in allocate tests');
       },
+      issueTicket: async () => {
+        throw new Error('unused in allocate tests');
+      },
+      consumeTicket: async () => {
+        throw new Error('unused in allocate tests');
+      },
     }),
   };
   return { ns, attempts: () => attempt, claimedCodes: () => claimedCodes };

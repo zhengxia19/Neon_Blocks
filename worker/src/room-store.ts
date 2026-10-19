@@ -6,7 +6,7 @@
  */
 import type { CreateRoomRequest } from '../../shared/protocol';
 import type { Env } from './index';
-import type { CreateClaim, JoinResult } from './room';
+import type { ConsumeResult, CreateClaim, JoinResult, TicketResult } from './room';
 
 export const ROOM_CODE_MIN = 100000;
 export const ROOM_CODE_MAX = 999999;
@@ -32,6 +32,8 @@ export interface RoomNamespaceLike {
   get(id: unknown): {
     createRoom(req: CreateRoomRequest): Promise<CreateClaim>;
     joinRoom(nickname: string): Promise<JoinResult>;
+    issueTicket(playerId: string, seatToken: string): Promise<TicketResult>;
+    consumeTicket(ticket: string): Promise<ConsumeResult>;
   };
 }
 

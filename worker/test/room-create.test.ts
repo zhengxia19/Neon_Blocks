@@ -22,6 +22,12 @@ function makeFakeNs(onCreate: (code: string, req: CreateRoomRequest) => CreateCl
       joinRoom: async () => {
         throw new Error('unused in create tests');
       },
+      issueTicket: async () => {
+        throw new Error('unused in create tests');
+      },
+      consumeTicket: async () => {
+        throw new Error('unused in create tests');
+      },
     }),
   };
   return { ns, calls };

@@ -42,6 +42,21 @@ export type LeaveResult =
   | { left: true; newHostPlayerId: string | null; roomClosed: boolean; generation: number }
   | { left: false; error: 'ROOM_NOT_FOUND' | 'UNAUTHORIZED' };
 
+export type TicketFailure = 'ROOM_NOT_FOUND' | 'UNAUTHORIZED';
+
+export type TicketResult =
+  | { issued: true; ticket: string; expiresAt: number }
+  | { issued: false; error: TicketFailure };
+
+export type ConsumeFailure = 'TOKEN_REPLAY' | 'TOKEN_EXPIRED' | 'GENERATION_STALE' | 'UNAUTHORIZED' | 'SEAT_TAKEN';
+
+export type ConsumeResult =
+  | { ok: true; playerId: string; generation: number }
+  | { ok: false; error: ConsumeFailure };
+
+/** N13：握手票据有效期 30s（单次短期票据，席位令牌本身不进 URL）。 */
+export const TICKET_TTL_MS = 30_000;
+
 /** 强随机十六进制串（crypto.getRandomValues）。 */
 function randomHex(byteLength: number): string {
   const bytes = new Uint8Array(byteLength);
@@ -106,6 +121,21 @@ export class RoomDO extends DurableObject<Env> {
          generation INTEGER NOT NULL
        );`,
     );
+    // N13：单次短期握手票据（只存摘要）与席位活动连接声明。
+    sql.exec(
+      `CREATE TABLE IF NOT EXISTS ws_tickets (
+         ticket_hash TEXT PRIMARY KEY,
+         player_id TEXT NOT NULL,
+         generation INTEGER NOT NULL,
+         expires_at INTEGER NOT NULL
+       );`,
+    );
+    sql.exec(
+      `CREATE TABLE IF NOT EXISTS seat_conns (
+         player_id TEXT PRIMARY KEY,
+         generation INTEGER NOT NULL
+       );`,
+    );
   }
 
   /** 确保元数据行存在（初始：generation=0、空闲）。 */
@@ -144,6 +174,7 @@ export class RoomDO extends DurableObject<Env> {
     }
     // 占用已同步提交：清理旧代际残留，写入新配置（复用码不继承旧席位）。
     this.#sql.exec('DELETE FROM seats');
+    this.#sql.exec('DELETE FROM seat_conns');
     this.#sql.exec(
       `INSERT OR REPLACE INTO room_config
          (id, capacity, random_mode, start_level, custom_seed, generation)
@@ -308,6 +339,108 @@ export class RoomDO extends DurableObject<Env> {
       roomClosed: false,
       generation: Number(meta.generation),
     };
+  }
+
+  /**
+   * N13：签发单次短期握手票据。席位令牌（seatToken）经 HTTPS 校验后只换发
+   * 30s 单次票据进 WS URL，令牌本身不落 URL/日志。校验：占用态→席位存在→
+   * 令牌摘要匹配→当代代际；await（哈希）全部在写入同步段之前。
+   */
+  async issueTicket(playerId: string, seatToken: string): Promise<TicketResult> {
+    this.#ensureSchema();
+    this.#ensureRow();
+    const meta = this.#sql
+      .exec<RoomMetaRow>('SELECT generation, occupied FROM room_meta WHERE id = 1')
+      .one();
+    if (meta.occupied !== 1) {
+      return { issued: false, error: 'ROOM_NOT_FOUND' };
+    }
+    const seat = [
+      ...this.#sql.exec<{ token_hash: string; generation: number }>(
+        'SELECT token_hash, generation FROM seats WHERE player_id = ?',
+        playerId,
+      ),
+    ][0];
+    if (seat === undefined) {
+      return { issued: false, error: 'UNAUTHORIZED' };
+    }
+    const providedHash = await sha256Hex(seatToken);
+    if (providedHash !== seat.token_hash || Number(seat.generation) !== Number(meta.generation)) {
+      return { issued: false, error: 'UNAUTHORIZED' };
+    }
+    const ticket = randomHex(16);
+    const ticketHash = await sha256Hex(ticket);
+    const expiresAt = Date.now() + TICKET_TTL_MS;
+    this.#sql.exec(
+      'DELETE FROM ws_tickets WHERE expires_at <= ? OR player_id = ?',
+      Date.now(),
+      playerId,
+    );
+    this.#sql.exec(
+      'INSERT INTO ws_tickets (ticket_hash, player_id, generation, expires_at) VALUES (?, ?, ?, ?)',
+      ticketHash,
+      playerId,
+      Number(meta.generation),
+      expiresAt,
+    );
+    return { issued: true, ticket, expiresAt };
+  }
+
+  /**
+   * N13：消费票据（WS 握手入口调用）。票据哈希 await 前置，其后
+   * 查找→DELETE changes() 单次判定→代际→席位存在→连接声明
+   * （seat_conns 主键 INSERT OR IGNORE + changes()，保证每席位至多一条
+   * 活动连接声明）构成无 await 同步段，DO 串行原子：并发重放同一票据
+   * 只有一个 DELETE changes()=1。
+   */
+  async consumeTicket(ticket: string): Promise<ConsumeResult> {
+    this.#ensureSchema();
+    this.#ensureRow();
+    const ticketHash = await sha256Hex(ticket);
+    const now = Date.now();
+    const row = [
+      ...this.#sql.exec<{ player_id: string; generation: number; expires_at: number }>(
+        'SELECT player_id, generation, expires_at FROM ws_tickets WHERE ticket_hash = ?',
+        ticketHash,
+      ),
+    ][0];
+    if (row === undefined) {
+      return { ok: false, error: 'TOKEN_REPLAY' };
+    }
+    this.#sql.exec('DELETE FROM ws_tickets WHERE ticket_hash = ?', ticketHash);
+    const deleted = Number(
+      this.#sql.exec<{ c: number }>('SELECT changes() AS c').one().c,
+    );
+    if (deleted !== 1) {
+      return { ok: false, error: 'TOKEN_REPLAY' };
+    }
+    if (row.expires_at <= now) {
+      return { ok: false, error: 'TOKEN_EXPIRED' };
+    }
+    const meta = this.#sql
+      .exec<RoomMetaRow>('SELECT generation, occupied FROM room_meta WHERE id = 1')
+      .one();
+    if (meta.occupied !== 1 || Number(row.generation) !== Number(meta.generation)) {
+      return { ok: false, error: 'GENERATION_STALE' };
+    }
+    const seat = [
+      ...this.#sql.exec<{ n: number }>('SELECT 1 AS n FROM seats WHERE player_id = ?', row.player_id),
+    ];
+    if (seat.length === 0) {
+      return { ok: false, error: 'UNAUTHORIZED' };
+    }
+    this.#sql.exec(
+      'INSERT OR IGNORE INTO seat_conns (player_id, generation) VALUES (?, ?)',
+      row.player_id,
+      Number(meta.generation),
+    );
+    const claimed = Number(
+      this.#sql.exec<{ c: number }>('SELECT changes() AS c').one().c,
+    );
+    if (claimed !== 1) {
+      return { ok: false, error: 'SEAT_TAKEN' };
+    }
+    return { ok: true, playerId: row.player_id, generation: Number(meta.generation) };
   }
 
   /** 释放：occupied=0；代际保留，下次占用 +1（旧凭据失效依据）。 */

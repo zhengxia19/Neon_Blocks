@@ -19,6 +19,12 @@ function makeFakeNs(joinImpl: (code: string, nickname: string) => Promise<JoinRe
         calls.push({ code, nickname });
         return joinImpl(code, nickname);
       },
+      issueTicket: async () => {
+        throw new Error('unused in join tests');
+      },
+      consumeTicket: async () => {
+        throw new Error('unused in join tests');
+      },
     }),
   };
   return { ns, calls };

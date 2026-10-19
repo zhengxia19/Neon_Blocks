@@ -14,7 +14,7 @@ import {
   validateRoomCode,
 } from '../../shared/validate';
 import { corsHeaders, isOriginAllowed } from './cors';
-import type { JoinResult } from './room';
+import type { ConsumeResult, JoinResult, TicketResult } from './room';
 import { allocateRoomCode, type RoomNamespaceLike } from './room-store';
 
 // Wrangler 要求 DO 类从入口模块导出（N08 绑定校验）。
@@ -52,6 +52,9 @@ function errorResponse(
   const message = messageOverride ?? describeError(code).message;
   return jsonResponse({ error: code, message }, status, origin);
 }
+
+// N13：席位令牌格式（与 N10 签发 randomHex(32) 对应；票据本身短小单次不进 URL）。
+const SEAT_TOKEN_RE = /^[A-Za-z0-9_-]{32,128}$/;
 
 // —— 请求体字节限制：先查 content-length，再按实际 UTF-8 字节复核（清单 N10/N11）。 ——
 async function readJsonBody(
@@ -208,6 +211,81 @@ export default {
         200,
         origin,
       );
+    }
+
+    // N13：POST /api/rooms/<码>/ticket 换发单次短期握手票据（席位令牌经 HTTPS 提交，
+    // 不进 WS URL）。认证在 DO 内完成：席位存在 + 令牌摘要匹配 + 当代代际。
+    const ticketMatch = /^\/api\/rooms\/([^/]+)\/ticket$/.exec(url.pathname);
+    if (ticketMatch !== null && request.method === 'POST') {
+      if (origin === null) {
+        return errorResponse('BAD_ORIGIN', 403, null);
+      }
+      const code = validateRoomCode(ticketMatch[1]);
+      if (!code.ok) {
+        return errorResponse(code.code, 400, origin);
+      }
+      const limitRaw = Number(env.CREATE_RATE_LIMIT_PER_MIN ?? '30');
+      const limit = Number.isInteger(limitRaw) && limitRaw > 0 ? limitRaw : 30;
+      const ip = (request.cf as { ip?: string } | undefined)?.ip ?? 'no-cf';
+      if (isRateLimited(`ticket|${ip}`, limit, Date.now())) {
+        return errorResponse('RATE_LIMITED', 429, origin);
+      }
+      const body = await readJsonBody(request, origin);
+      if (body.response !== null) return body.response;
+      const parsed = body.value;
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        return errorResponse('BAD_MESSAGE', 400, origin);
+      }
+      const record = parsed as { playerId?: unknown; seatToken?: unknown };
+      const playerId = record.playerId;
+      const seatToken = record.seatToken;
+      if (typeof playerId !== 'string' || !/^p_[A-Za-z0-9]{6,32}$/.test(playerId) ||
+          typeof seatToken !== 'string' || !SEAT_TOKEN_RE.test(seatToken)) {
+        return errorResponse('BAD_MESSAGE', 400, origin);
+      }
+      const id = env.ROOM_DO.idFromName(code.value);
+      const result: TicketResult = await (
+        env.ROOM_DO.get(id) as unknown as {
+          issueTicket(p: string, t: string): Promise<TicketResult>;
+        }
+      ).issueTicket(playerId, seatToken);
+      if (!result.issued) {
+        const status = result.error === 'ROOM_NOT_FOUND' ? 404 : 401;
+        return errorResponse(result.error, status, origin);
+      }
+      return jsonResponse({ code: code.value, ticket: result.ticket, expiresAt: result.expiresAt }, 200, origin);
+    }
+
+    // N13：GET /ws/<码>?ticket=<单次票据> WS 握手入口。Origin 必检（全局白名单已先行）；
+    // 票据单次/过期/代际/席位连接唯一性由 DO 原子消费。N14 将改 Hibernation 接线。
+    const wsMatch = /^\/ws\/([^/]+)$/.exec(url.pathname);
+    if (wsMatch !== null && request.method === 'GET') {
+      if (origin === null) {
+        return errorResponse('BAD_ORIGIN', 403, null);
+      }
+      if ((request.headers.get('upgrade') ?? '').toLowerCase() !== 'websocket') {
+        return errorResponse('BAD_MESSAGE', 400, origin);
+      }
+      const code = validateRoomCode(wsMatch[1]);
+      if (!code.ok) {
+        return errorResponse(code.code, 400, origin);
+      }
+      const ticket = url.searchParams.get('ticket');
+      if (ticket === null || ticket.length === 0 || ticket.length > 128) {
+        return errorResponse('BAD_MESSAGE', 400, origin);
+      }
+      const id = env.ROOM_DO.idFromName(code.value);
+      const result: ConsumeResult = await (
+        env.ROOM_DO.get(id) as unknown as { consumeTicket(t: string): Promise<ConsumeResult> }
+      ).consumeTicket(ticket);
+      if (!result.ok) {
+        const status = result.error === 'SEAT_TAKEN' ? 409 : 401;
+        return errorResponse(result.error, status, origin);
+      }
+      const pair = new WebSocketPair();
+      const [client, server] = Object.values(pair);
+      server.accept();
+      return new Response(null, { status: 101, webSocket: client, headers: corsHeaders(origin, 'GET') });
     }
 
     return errorResponse('NOT_FOUND', 404, origin, '接口不存在。');
