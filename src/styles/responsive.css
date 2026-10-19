@@ -1,0 +1,119 @@
+/* Neon Blocks — 移动端布局断点（规格 S04.3，任务 T037）。
+   仅含 <768px 媒体规则；桌面基准样式在 app.css。允许纵向滚动，禁止横向溢出。 */
+
+@media (max-width: 767.98px) {
+  /* 更小的外侧边距，保证 320px 视口可容纳 60–74px 侧栏 + 间隙 */
+  #app {
+    padding: var(--space-1) 12px;
+    gap: var(--space-1);
+  }
+
+  /* ── 顶栏压缩：NEON BLOCKS + 简短分数/等级；暂停按钮保持顶部可见 ────────── */
+  .site-header {
+    gap: 6px;
+  }
+
+  .brand {
+    font-size: 16px;
+    letter-spacing: 0.10em;
+    gap: 6px;
+  }
+
+  .brand-cn {
+    display: none; /* 标题压缩：中文副名让位给棋盘宽度 */
+  }
+
+  .mode-caption {
+    display: none;
+  }
+
+  .mini-status {
+    display: flex;
+    order: 2;
+    flex: 1 1 auto;
+    justify-content: flex-end;
+    gap: 10px;
+    font-size: 14px; /* 触屏关键数值 ≥14px（S04.2） */
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+  }
+
+  .header-actions {
+    order: 3;
+    flex: 1 1 100%;
+    justify-content: flex-end;
+  }
+
+  .icon-button {
+    width: 36px;
+    height: 36px;
+  }
+
+  /* ── 同屏三列：左窄 HOLD / 中间棋盘 / 右窄 NEXT（面板 60–74px，间隙 6–8px） ─ */
+  .playfield {
+    grid-template-columns: 62px minmax(0, 1fr) 62px;
+    gap: 6px 8px;
+  }
+
+  .panel {
+    padding: 6px;
+    gap: 6px;
+    border-radius: 12px;
+  }
+
+  .panel-title {
+    font-size: 12px; /* 正文不低于 12px（S04.2） */
+    letter-spacing: 0.08em;
+  }
+
+  .stat-value {
+    font-size: 14px; /* 触屏关键数值 ≥14px */
+  }
+
+  .preview-box {
+    width: 100%;
+    height: 44px;
+    border-radius: 8px;
+  }
+
+  /* NEXT 移动端至少显示前 2 枚；62px 窄栏容不下第三枚（逻辑仍预存 5 块） */
+  .next-slot:nth-child(3) {
+    display: none;
+  }
+
+  /* 棋盘按可用宽同比缩放：300:600 定比，不拉伸、不裁切、不挤出主栏 */
+  .panel-board {
+    padding: 6px;
+    justify-self: stretch;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .board-canvas {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 300 / 600;
+    max-height: calc(100vh - 230px); /* 预留顶栏/虚拟键区域，低矮屏整体纵向滚动而非裁切 */
+    max-width: calc((100vh - 230px) / 2); /* 与 max-height 同比（1:2），保持等比 */
+    margin-inline: auto;
+    border-radius: 8px;
+  }
+
+  .overlay-root {
+    inset: 6px;
+  }
+
+  /* 键盘说明让位给触屏虚拟按键（虚拟键由 touch.ts 渲染，T047） */
+  .key-guide {
+    display: none;
+  }
+
+  /* 虚拟按键容器显示为两行网格（按键本体由 T047 渲染并样式化） */
+  .touch-controls {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(44px, 1fr));
+    gap: 6px;
+    justify-items: center;
+  }
+}
