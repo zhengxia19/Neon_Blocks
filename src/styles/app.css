@@ -180,6 +180,7 @@ body {
   font-size: 24px;
   font-weight: 700;
   color: var(--text);
+  font-variant-numeric: tabular-nums; /* S04.2：数值等宽（与 mini 读数一致） */
 }
 
 /* ── 预览容器：HOLD 一枚、NEXT 三枚（内部小格由 T042 生成） ───────────────── */
