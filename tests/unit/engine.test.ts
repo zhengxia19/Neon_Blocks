@@ -1,8 +1,9 @@
-// T022：GameEngine 初始 ready 状态测试（规格 S03.2,S03.3）。
+// T022/T023：GameEngine 初始 ready 状态、NEXT 队列补充与出生活动块测试（规格 S03.1,S03.2,S03.3）。
 import { describe, expect, it } from 'vitest';
-import { createEmptyBoard } from '../../src/game/board';
+import { canPlace, createEmptyBoard } from '../../src/game/board';
 import { BOARD_HEIGHT, BOARD_WIDTH } from '../../src/game/constants';
 import { GameEngine } from '../../src/game/engine';
+import { BAG_TYPES } from '../../src/game/random';
 
 describe('GameEngine 初始状态（T022，S03.2/S03.3）', () => {
   it('默认构造：status=ready、active=null、队列/袋/Hold 空、分数 0、等级 1、计时器 0、无事件', () => {
@@ -88,5 +89,96 @@ describe('GameEngine 初始状态（T022，S03.2/S03.3）', () => {
     s.nextQueue.push('T');
     // @ts-expect-error bag 为 readonly 数组
     s.bag.push('I');
+  });
+});
+
+describe('GameEngine NEXT 队列与出生活动块（T023，S03.1/S03.2/S03.3）', () => {
+  const VALID_TYPES = new Set<string>(BAG_TYPES);
+
+  it('start()：ready→running，第一块在 x=3/y=2/r0 且与棋盘无碰撞', () => {
+    const engine = new GameEngine();
+    engine.start();
+    const s = engine.getState();
+    expect(s.status).toBe('running');
+    expect(s.active).not.toBeNull();
+    expect(s.active?.x).toBe(3);
+    expect(s.active?.y).toBe(2);
+    expect(s.active?.rotation).toBe(0);
+    expect(VALID_TYPES.has(s.active?.type ?? '')).toBe(true);
+    expect(canPlace(s.board as never, s.active ?? undefined as never)).toBe(true);
+    // 活动块未锁入棋盘：除出生外棋盘保持空
+    expect(s.board[23].every((c) => c === null)).toBe(true);
+  });
+
+  it('start() 后 nextQueue 始终为 5 且全部为合法方块类型', () => {
+    const engine = new GameEngine();
+    engine.start();
+    const s = engine.getState();
+    expect(s.nextQueue).toHaveLength(5);
+    for (const t of s.nextQueue) {
+      expect(VALID_TYPES.has(t)).toBe(true);
+    }
+    // 重复 start()（已 running）不改变队列长度
+    engine.start();
+    expect(engine.getState().nextQueue).toHaveLength(5);
+  });
+
+  it('首块确定性：注入 rng=()=>0 时首块/队列/袋与 Fisher–Yates 手工推演完全一致', () => {
+    // shuffle(['I','O','T','S','Z','J','L'], ()=>0)：每次 j=0 交换 → ['O','T','S','Z','J','L','I']，
+    // 从尾部弹出：I,L,J,Z,S → 队列 ['I','L','J','Z','S']；spawnNext shift I 后补 T → ['L','J','Z','S','T']，袋 ['O']。
+    const engine = new GameEngine(() => 0);
+    engine.start();
+    const s = engine.getState();
+    expect(s.active?.type).toBe('I');
+    expect([...s.nextQueue]).toEqual(['L', 'J', 'Z', 'S', 'T']);
+    expect([...s.bag]).toEqual(['O']);
+  });
+
+  it('首块确定性：同 rng 的两引擎首块与队列完全一致；rng=()=>0.5 推演值匹配', () => {
+    const a = new GameEngine(() => 0.5);
+    const b = new GameEngine(() => 0.5);
+    a.start();
+    b.start();
+    expect(a.getState().active).toEqual(b.getState().active);
+    expect([...a.getState().nextQueue]).toEqual([...b.getState().nextQueue]);
+    // rng=()=>0.5：shuffle 推演袋 ['I','J','O','Z','T','L','S']，弹出 S,L,T,Z,O → 队列补 J → ['L','T','Z','O','J']，袋 ['I']
+    expect(a.getState().active?.type).toBe('S');
+    expect([...a.getState().nextQueue]).toEqual(['L', 'T', 'Z', 'O', 'J']);
+    expect([...a.getState().bag]).toEqual(['I']);
+  });
+
+  it('start() 幂等：running 后再次 start() 不重新出生、不改变任何状态字段', () => {
+    const engine = new GameEngine(() => 0);
+    engine.start();
+    const before = JSON.parse(JSON.stringify(engine.getState()));
+    engine.start();
+    expect(JSON.parse(JSON.stringify(engine.getState()))).toEqual(before);
+  });
+
+  it('出生碰撞：initialBoard 挡住出生格时 status=gameover、active=null', () => {
+    // rng=()=>0 首块 I（r0 实体格为第 3 行 x=3..6）；在 board[3][4] 放锁定格制造入场碰撞
+    const src = createEmptyBoard();
+    src[3][4] = 'T';
+    const engine = new GameEngine(() => 0, src);
+    engine.start();
+    const s = engine.getState();
+    expect(s.status).toBe('gameover');
+    expect(s.active).toBeNull();
+    expect(s.board[3][4]).toBe('T'); // 棋盘未被改动
+  });
+
+  it('start() 不改变分数/行数/等级/Hold/事件，且 holdUsedThisPiece 为 false', () => {
+    const engine = new GameEngine();
+    engine.start();
+    const s = engine.getState();
+    expect(s.score).toBe(0);
+    expect(s.lines).toBe(0);
+    expect(s.level).toBe(1);
+    expect(s.heldType).toBeNull();
+    expect(s.holdUsedThisPiece).toBe(false);
+    expect(s.lastEvent).toBeNull();
+    expect(s.gravityElapsedMs).toBe(0);
+    expect(s.lockElapsedMs).toBe(0);
+    expect(s.lockResetCount).toBe(0);
   });
 });
