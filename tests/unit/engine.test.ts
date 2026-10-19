@@ -1,4 +1,4 @@
-// T022–T032：GameEngine 初始 ready、NEXT 与出生、移动、旋转、软降、硬降、重力、锁定延迟、Hold、重开/暂停、top-out 测试（规格 S03.1–S03.5）。
+// T022–T033：GameEngine 初始 ready、NEXT 与出生、移动、旋转、软降、硬降、重力、锁定延迟、Hold、重开/暂停、top-out、清行结算测试（规格 S03.1–S03.5）。
 import { describe, expect, it } from 'vitest';
 import { canPlace, createEmptyBoard } from '../../src/game/board';
 import { BOARD_HEIGHT, BOARD_WIDTH } from '../../src/game/constants';
@@ -545,7 +545,7 @@ describe('GameEngine 硬降与锁块（T027，S03.3/S03.5）', () => {
     expect(s.active?.type).toBe('L');
   });
 
-  it('硬降清行：第 23 行两侧预填 6 格 + I 补 4 格 → 该行整体清除、棋盘恢复全空、清行分未提前计入', () => {
+  it('硬降清行：第 23 行两侧预填 6 格 + I 补 4 格 → 该行整体清除、棋盘恢复全空、清行即时结算（T033）', () => {
     const src = createEmptyBoard();
     for (const x of [0, 1, 2, 7, 8, 9]) src[23][x] = 'O';
     const engine = newRunning(src);
@@ -553,9 +553,12 @@ describe('GameEngine 硬降与锁块（T027，S03.3/S03.5）', () => {
     const s = engine.getState();
     // 第 23 行满 10 格被一次性清除，顶部补 null → 与空盘深相等
     expect(s.board).toEqual(createEmptyBoard());
-    expect(s.score).toBe(40); // 仅硬降落差分；清行 100×level 在 T033 补齐
-    expect(s.lines).toBe(0);
-    expect(s.lastEvent).toEqual({ id: 1, kind: 'hardDrop', count: 20 });
+    // T033 结算：40 落差分 + 100×level(1) 清行分，一次且仅一次
+    expect(s.score).toBe(140);
+    expect(s.lines).toBe(1);
+    expect(s.level).toBe(1);
+    // 消行视觉事件 clear 优先覆盖 hardDrop（S03.3）：hardDrop id=1 → clear id=2
+    expect(s.lastEvent).toEqual({ id: 2, kind: 'clear', count: 1 });
     expect(s.active?.type).toBe('L');
     expect(s.status).toBe('running');
   });
@@ -817,7 +820,7 @@ describe('GameEngine 锁定延迟（T029，S03.3）', () => {
     expect(s.active?.type).toBe('L'); // 新块已生成
   });
 
-  it('自然锁定带清行：lock 事件 count=消行数 1，清行分/lines 留 T033 结算', () => {
+  it('自然锁定带清行：lock 事件 count=1 后即时结算（T033），clear 事件覆盖 lock', () => {
     const src = createEmptyBoard();
     for (const x of [0, 1, 2, 7, 8, 9]) src[23][x] = 'O'; // 第 23 行留 x=3..6 缺口
     const engine = newRunning(src);
@@ -825,9 +828,11 @@ describe('GameEngine 锁定延迟（T029，S03.3）', () => {
     for (let i = 0; i < 5; i += 1) engine.step(100); // 恰 500ms 锁定并清行
     const s = engine.getState();
     expect(s.board).toEqual(createEmptyBoard()); // 整行已清除
-    expect(s.lastEvent).toEqual({ id: 1, kind: 'lock', count: 1 });
-    expect(s.score).toBe(20); // 仅软降分，未提前计清行分
-    expect(s.lines).toBe(0);
+    // lock id=1（count=1）→ 结算 clear id=2（count=1），事件链完整且不重复加分
+    expect(s.lastEvent).toEqual({ id: 2, kind: 'clear', count: 1 });
+    expect(s.score).toBe(120); // 20 软降分 + 100×level(1) 清行分（自然重力 0 分）
+    expect(s.lines).toBe(1);
+    expect(s.level).toBe(1);
   });
 });
 
@@ -1152,5 +1157,107 @@ describe('GameEngine top-out 结束（T032，S03.1/S03.3）', () => {
       for (let i = 0; i < 10; i += 1) engine.step(100);
       expect(snapshot(engine)).toEqual(before);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T033：清行积分、累计行数和等级结算（S03.5）
+// ---------------------------------------------------------------------------
+describe('GameEngine 清行结算（T033，S03.5）', () => {
+  const newRunning = (board?: Board): GameEngine => {
+    const engine = new GameEngine(() => 0, board);
+    engine.start();
+    return engine;
+  };
+
+  /** 第 20..23 行各预填 9/10 格（第 5 列缺口）；其余行全空。 */
+  const gapRows = (fromRow: number, count: number): Board => {
+    const src = createEmptyBoard();
+    for (let y = fromRow; y < fromRow + count; y += 1) {
+      for (let x = 0; x < BOARD_WIDTH; x += 1) {
+        if (x !== 5) src[y][x] = 'O';
+      }
+    }
+    return src;
+  };
+
+  it('一次清 4 行 = 800×清行前等级：落差 36 + 800×1 = 836，clear 事件 count=4', () => {
+    const engine = newRunning(gapRows(20, 4));
+    engine.rotate(1); // I r1：实体单列 x+2=5，正对四行缺口
+    engine.hardDrop(); // 落差 ghost(20)−y(2)=18 → 36 分；补齐第 5 列清 4 行
+    const s = engine.getState();
+    expect(s.score).toBe(836); // 36（硬降落差）+ lineClearPoints(4, level=1)=800
+    expect(s.lines).toBe(4);
+    expect(s.level).toBe(1);
+    expect(s.lastEvent).toEqual({ id: 2, kind: 'clear', count: 4 }); // clear 覆盖 hardDrop id=1
+    expect(s.board).toEqual(createEmptyBoard());
+    // 结算一次且仅一次：新块自由下落 3000ms 不再触碰分数/行数/等级
+    for (let i = 0; i < 30; i += 1) engine.step(100);
+    const t = engine.getState();
+    expect(t.score).toBe(836);
+    expect(t.lines).toBe(4);
+    expect(t.level).toBe(1);
+  });
+
+  it('清行加分与落块加分独立累计：次块硬降仅新增落差分，不重复计清行分', () => {
+    const engine = newRunning(gapRows(20, 4));
+    engine.rotate(1);
+    engine.hardDrop(); // 836 = 36 + 800×1
+    // 次块 L（r0 矩阵 ['001','111','000'] 实体最低行 y+1）空盘硬降：落差 22−2=20 → +40
+    engine.hardDrop();
+    const s = engine.getState();
+    expect(s.score).toBe(876); // 836 + 2×20，无清行（L 不补任何满行）
+    expect(s.lines).toBe(4); // 行数不再增加
+    expect(s.level).toBe(1);
+    expect(s.lastEvent).toEqual({ id: 3, kind: 'hardDrop', count: 20 }); // 无 clear 事件
+  });
+
+  it('等级边界与清行前结算顺序：9→10 行跨界的第三次 4 连清按旧等级 ×1 结算并升至 2 级', () => {
+    // 第 8..23 行 16 行缺口预填（清行后上方缺口行下移自动补位）；rng=()=>0
+    // 的 7-bag 使第 1/8/15 块均为 I（两袋重洗序列相同）；块间垃圾按左右交替
+    // 投放避开第 5 列通道（推演见执行日志），垃圾段不产生任何消行。
+    const engine = newRunning(gapRows(8, 16));
+    const dirs = [-1, 1, -1, 1, -1, 1]; // L左 J右 Z左 S右 T左 O右
+    const moves = [3, 3, 3, 3, 3, 2]; // O 实体列 x+1,x+2：右移 2 格到 6,7
+    const iDrop = (): { delta: number; lines: number; level: number; evId: number; evKind: string; evCount: number | undefined; status: string } => {
+      const before = engine.getState().score;
+      engine.rotate(1);
+      engine.hardDrop();
+      const t = engine.getState();
+      return { delta: t.score - before, lines: t.lines, level: t.level, evId: t.lastEvent?.id ?? 0, evKind: t.lastEvent?.kind ?? '', evCount: t.lastEvent?.count, status: t.status };
+    };
+    // 第一轮 I（第 1 块）：清 4 行，lines 0→4，等级 1
+    let r = iDrop();
+    expect(r.delta).toBe(836); // 36 + 800×1（清行前 level=1）
+    expect(r.lines).toBe(4);
+    expect(r.level).toBe(1);
+    expect([r.evId, r.evKind, r.evCount]).toEqual([2, 'clear', 4]);
+    // 垃圾 6 块（L,J,Z,S,T,O）：左右交替，不产生消行
+    for (let k = 0; k < 6; k += 1) {
+      for (let m = 0; m < moves[k]; m += 1) engine.move(dirs[k]);
+      engine.hardDrop();
+      const t = engine.getState();
+      expect(t.status).toBe('running');
+      expect(t.lines).toBe(4); // 垃圾投放不误清行
+      expect(t.level).toBe(1);
+    }
+    // 第二轮 I（第 8 块）：lines 4→8，仍 1 级
+    r = iDrop();
+    expect(r.delta).toBe(836);
+    expect(r.lines).toBe(8);
+    expect(r.level).toBe(1);
+    expect([r.evId, r.evKind, r.evCount]).toEqual([10, 'clear', 4]);
+    for (let k = 0; k < 6; k += 1) {
+      for (let m = 0; m < moves[k]; m += 1) engine.move(dirs[k]);
+      engine.hardDrop();
+      expect(engine.getState().lines).toBe(8);
+    }
+    // 第三轮 I（第 15 块）：lines 8→12 跨越 10 行边界 → 升 2 级；
+    // 本次加分仍按清行前 level=1（800×1 而非 ×2）——结算顺序的决定性证据
+    r = iDrop();
+    expect(r.delta).toBe(836); // 36 + 800×1（旧等级）；若误用新等级将为 1636
+    expect(r.lines).toBe(12); // 9→10 行边界在本次结算内跨越
+    expect(r.level).toBe(2); // 结算后由 levelForLines(12) 提升
+    expect([r.evId, r.evKind, r.evCount]).toEqual([18, 'clear', 4]);
   });
 });

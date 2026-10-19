@@ -1,13 +1,13 @@
-// T022–T032：GameEngine 类——私有状态、初始 ready 状态、NEXT 队列补充与出生活动块、
+// T022–T033：GameEngine 类——私有状态、初始 ready 状态、NEXT 队列补充与出生活动块、
 // 水平移动、顺逆旋转、单次软降、硬降立即锁块、基于 dt 的自然重力、
 // 落地锁定延迟与限次重置、Hold 单块一次、重开与暂停状态转换、
-// block-out/lock-out 结束（规格 S03.1–S03.5）。
+// block-out/lock-out 结束、清行积分/行数/等级结算（规格 S03.1–S03.5）。
 // 纯逻辑模块：不访问 DOM/Canvas/localStorage；UI 仅经 getState() 只读视图读取状态。
 // 动作 API（move/rotate/softDrop/…）由 T024+ 逐个补齐。
 import { canPlace, clearFullRows, cloneBoard, createEmptyBoard, getGhostY, mergePiece } from './board';
 import { HIDDEN_ROWS, LOCK_DELAY_MS, LOCK_RESET_LIMIT } from './constants';
 import { drawFromBag } from './random';
-import { dropPoints, gravityIntervalMs } from './scoring';
+import { dropPoints, gravityIntervalMs, levelForLines, lineClearPoints } from './scoring';
 import { tryRotate } from './srs';
 import type { ActivePiece, Board, Cell, GameState, PieceType, Rotation } from './types';
 
@@ -186,11 +186,29 @@ export class GameEngine {
   }
 
   /**
+   * 清行结算（S03.5/T033，两条锁定路径共用）：`cleared`>0 时按清行发生**之前**
+   * 的等级 `lineClearPoints` 加分、累计 `lines` 并经 `levelForLines` 重算等级，
+   * 最后发出 `clear` 事件（count=行数，供渲染特效；同帧覆盖 hardDrop/lock 事件，
+   * 与 S03.3 “消行视觉事件 clear 优先”一致）。加分一次且仅一次：本方法仅在
+   * 锁定后清行处调用，不与其他加分路径重叠。
+   */
+  #settleClear(cleared: number): void {
+    if (cleared <= 0) {
+      return;
+    }
+    this.#state.score += lineClearPoints(cleared, this.#state.level); // 等级取清行前
+    this.#state.lines += cleared;
+    this.#state.level = levelForLines(this.#state.lines);
+    this.#eventSeq += 1;
+    this.#state.lastEvent = { id: this.#eventSeq, kind: 'clear', count: cleared };
+  }
+
+  /**
    * 锁定当前活动块（S03.3，自然锁定路径；hardDrop 的立即锁定在 T027 内联）：
    * `mergePiece` 锁入 → `clearFullRows` 一次性清行 → 发出 `lock` 事件
-   * （count=消行数，id 单调递增）→ lock-out 检查（T032：清行后隐藏行 0..3
-   * 仍被占用 → `#endGame` 且不再生成新块）→ 否则生成下一块。
-   * 清行得分/lines/等级统一在 T033 结算。
+   * （count=消行数，id 单调递增）→ 清行结算（T033：得分/lines/等级+`clear`
+   * 事件）→ lock-out 检查（T032：清行后隐藏行 0..3 仍被占用 → `#endGame`
+   * 且不再生成新块）→ 否则生成下一块。
    */
   #lockPiece(): void {
     const active = this.#state.active;
@@ -202,6 +220,7 @@ export class GameEngine {
     this.#state.board = clear.board;
     this.#eventSeq += 1;
     this.#state.lastEvent = { id: this.#eventSeq, kind: 'lock', count: clear.cleared };
+    this.#settleClear(clear.cleared);
     if (this.#hasHiddenOccupancy()) {
       this.#endGame(); // lock-out（S03.1/S03.3）：不再生成下一块
       return;
@@ -357,7 +376,9 @@ export class GameEngine {
     this.#state.board = mergePiece(this.#state.board, landed);
     const clear = clearFullRows(this.#state.board);
     this.#state.board = clear.board;
-    // clear.cleared（0..4）的得分/行数/等级结算在 T033 接入锁定路径统一处理。
+    // 清行结算（T033）：得分/lines/等级 + clear 事件（消行时覆盖 hardDrop 事件，
+    // 视觉 clear 优先，S03.3）。
+    this.#settleClear(clear.cleared);
     if (this.#hasHiddenOccupancy()) {
       this.#endGame(); // lock-out（T032）：硬降锁入隐藏行 → 结束，不生成新块
       return;

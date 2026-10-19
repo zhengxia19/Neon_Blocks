@@ -336,7 +336,7 @@
 - **验证命令/动作**：`npx vitest run tests/unit/engine.test.ts`。
 - **通过条件**：两类 top-out 不会崩溃；游戏结束后输入不再生效。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T033｜结算清行积分、累计行数和等级
+#### - [x] T033｜结算清行积分、累计行数和等级
 - **依赖**：T016, T020, T021, T027。**允许修改文件**：`src/game/engine.ts、tests/unit/engine.test.ts`。**规格**：S03.5。
 - **明确步骤**：
   1. 在锁定路径取得 cleared，按锁前 level 调 lineClearPoints 增加分数。
