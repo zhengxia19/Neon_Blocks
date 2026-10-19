@@ -1261,3 +1261,101 @@ describe('GameEngine 清行结算（T033，S03.5）', () => {
     expect([r.evId, r.evKind, r.evCount]).toEqual([18, 'clear', 4]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// T034：端到端流程回归（S03/S08）——固定 RNG、显式 dt，全程无 sleep/定时器
+// ---------------------------------------------------------------------------
+describe('GameEngine 端到端流程回归（T034，S03/S08）', () => {
+  it('开始→右移→软降→旋转→硬降锁定→Hold→重力→硬降→重开：全链路按规格推进', () => {
+    const engine = new GameEngine(() => 0);
+    // ① 开始：I 出生于 (3,2) r0，进入 running
+    engine.start();
+    let s = engine.getState();
+    expect(s.status).toBe('running');
+    expect(s.active).toEqual({ type: 'I', x: 3, y: 2, rotation: 0 });
+    // ② 右移一格
+    engine.move(1);
+    expect(engine.getState().active?.x).toBe(4);
+    // ③ 软降两次：+1/格
+    engine.softDrop();
+    engine.softDrop();
+    s = engine.getState();
+    expect(s.active?.y).toBe(4);
+    expect(s.score).toBe(2);
+    // ④ 顺旋：I r1 实体单列 x+2=6 行 4..7 无障碍，成功
+    engine.rotate(1);
+    s = engine.getState();
+    expect(s.active).toEqual({ type: 'I', x: 4, y: 4, rotation: 1 });
+    // ⑤ 硬降锁定：r1 幽灵 y=20，自 y=4 落差 16 → +32；第 6 列 20..23 锁为 I，无消行
+    engine.hardDrop();
+    s = engine.getState();
+    expect(s.score).toBe(34); // 2 软降 + 32 硬降
+    expect(s.lines).toBe(0);
+    expect(s.level).toBe(1);
+    expect(s.lastEvent).toEqual({ id: 1, kind: 'hardDrop', count: 16 });
+    for (let y = 20; y < 24; y += 1) {
+      for (let x = 0; x < BOARD_WIDTH; x += 1) {
+        expect(s.board[y][x]).toBe(x === 6 ? 'I' : null);
+      }
+    }
+    for (let y = 0; y < 20; y += 1) {
+      expect(s.board[y].every((c) => c === null)).toBe(true);
+    }
+    expect(s.active).toEqual({ type: 'L', x: 3, y: 2, rotation: 0 }); // 队列头 L 顶上
+    // ⑥ Hold：L 存入槽位，J 顶上；同块第二次 Hold 无效
+    engine.hold();
+    s = engine.getState();
+    expect(s.heldType).toBe('L');
+    expect(s.active).toEqual({ type: 'J', x: 3, y: 2, rotation: 0 });
+    expect(s.holdUsedThisPiece).toBe(true);
+    const before = snapshot(engine);
+    engine.hold(); // 本块配额已用尽：完全 no-op
+    expect(snapshot(engine)).toEqual(before);
+    // ⑦ 自然重力 9×100ms=900ms（等级 1 间隔恰 900ms）：下落一行、零加分
+    for (let i = 0; i < 9; i += 1) engine.step(100);
+    s = engine.getState();
+    expect(s.active?.y).toBe(3);
+    expect(s.score).toBe(34); // 重力不加自然下落分（S03.5）
+    // ⑧ 硬降 J：r0 实体最低行 y+1 → 幽灵 y=22，落差 19 → +38；不成行
+    engine.hardDrop();
+    s = engine.getState();
+    expect(s.score).toBe(72);
+    expect(s.lines).toBe(0);
+    expect(s.lastEvent).toEqual({ id: 2, kind: 'hardDrop', count: 19 });
+    expect(s.board[22][3]).toBe('J');
+    expect(s.board[23][3]).toBe('J');
+    expect(s.board[23][4]).toBe('J');
+    expect(s.board[23][5]).toBe('J');
+    expect(s.active?.type).toBe('Z'); // 队列继续推进
+    // ⑨ 重开：进度全清、槽位清空、事件清空、活动块复位；事件 id 跨重开续接
+    engine.restart();
+    s = engine.getState();
+    expect(s.status).toBe('running');
+    expect(s.board).toEqual(createEmptyBoard());
+    expect([s.score, s.lines, s.level]).toEqual([0, 0, 1]);
+    expect(s.heldType).toBeNull();
+    expect(s.holdUsedThisPiece).toBe(false);
+    expect(s.lastEvent).toBeNull();
+    expect(s.active).toEqual({ type: 'I', x: 3, y: 2, rotation: 0 });
+    engine.hardDrop(); // 空盘 I 落差 20 → +40，事件 id 续接为 3（渲染去重依赖）
+    s = engine.getState();
+    expect(s.score).toBe(40);
+    expect(s.lastEvent).toEqual({ id: 3, kind: 'hardDrop', count: 20 });
+  });
+
+  it('单元套件内无 skip/todo/only 掩盖失败（T034 通过条件）', async () => {
+    const fs = await import('node:fs');
+    const files = fs
+      .readdirSync('tests/unit', { recursive: true })
+      .filter((f): f is string => typeof f === 'string' && f.endsWith('.test.ts'));
+    expect(files.length).toBeGreaterThanOrEqual(7);
+    const offenders: string[] = [];
+    for (const f of files) {
+      const text = fs.readFileSync(`tests/unit/${f}`, 'utf8');
+      if (/\b(it|test|describe)\.(skip|todo|only|skipIf|onlyIf)\s*\(/.test(text)) {
+        offenders.push(f);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+});

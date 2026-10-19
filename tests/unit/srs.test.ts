@@ -1,4 +1,4 @@
-// Neon Blocks — SRS 墙踢静态表单元测试（规格 S03.4，任务 T017）。
+// Neon Blocks — SRS 墙踢静态表单元测试（规格 S03.4，任务 T017；T034 增补 I 逐偏移命中）。
 // 逐项对照规格 S03.4 表格（屏幕坐标，y 向下为正），锁定 16 组偏移的长度与顺序。
 import { describe, expect, it } from 'vitest';
 import { canPlace, createEmptyBoard } from '../../src/game/board';
@@ -265,3 +265,69 @@ describe('tryRotate 不修改入参（board/piece 均不可变）', () => {
     expect(piece).toEqual(pieceSnapshot);
   });
 });
+
+// ---------------------------------------------------------------------------
+// T034 增补：I 块踢墙按 I_KICKS 表序逐偏移命中（S03.4 顺序语义回归）
+// 场景：I r0 位于 (3,2)，0→1 顺旋；r1 实体为单列 x+2、行 y..y+3。
+// 五组偏移落点：(0,0)→列5行2-5；(-2,0)→列3行2-5；(1,0)→列6行2-5；
+//             (-2,1)→列3行3-6；(1,-2)→列6行0-3。
+// 逐案封锁前缀偏移的落点，断言 tryRotate 依表序选中首个可行偏移。
+// ---------------------------------------------------------------------------
+describe('I 块 0→1 依 I_KICKS 表序逐偏移命中（T034 增补）', () => {
+  const at = (cells: readonly (readonly [number, number])[]): Board => {
+    const board = createEmptyBoard();
+    for (const [x, y] of cells) board[y][x] = 'Z';
+    return board;
+  };
+  const ipr0 = (x: number, y: number): ActivePiece => ({ type: 'I', x, y, rotation: 0 });
+
+  it('空盘：首偏移 (0,0) 即成功，位置不变', () => {
+    const piece = ipr0(3, 2);
+    const result = tryRotate(createEmptyBoard(), piece, 1);
+    expect(result).not.toBe(piece);
+    expect(result).toEqual({ type: 'I', x: 3, y: 2, rotation: 1 });
+  });
+
+  it('仅封 (0,0) 落点：命中第 2 偏移 (-2,0) → (1,2)', () => {
+    const board = at([[5, 4]]);
+    const result = tryRotate(board, ipr0(3, 2), 1);
+    expect(result).toEqual({ type: 'I', x: 1, y: 2, rotation: 1 });
+  });
+
+  it('封前 3 偏移落点：命中第 4 偏移 (-2,1) → (1,3)', () => {
+    // (0,0) 封 (5,4)；(-2,0) 仅封其落点内的 (3,2)（行 2 不在 (-2,1) 落点内）；(1,0) 封 (6,3)
+    const board = at([[5, 4], [3, 2], [6, 3]]);
+    const result = tryRotate(board, ipr0(3, 2), 1);
+    expect(result).toEqual({ type: 'I', x: 1, y: 3, rotation: 1 });
+  });
+
+  it('封前 4 偏移落点：命中第 5 偏移 (1,-2) → (4,0)', () => {
+    // 封锁点全部落在更早偏移的落点内、且不触及 (1,-2) 落点（列 6 行 0-3）：
+    // (5,4)∈(0,0)；(3,2)∈(-2,0)；(6,4)∈(1,0)\(1,-2)；(3,4)∈(-2,1)。
+    const board = at([[5, 4], [3, 2], [6, 4], [3, 4]]);
+    const result = tryRotate(board, ipr0(3, 2), 1);
+    expect(result).toEqual({ type: 'I', x: 4, y: 0, rotation: 1 });
+  });
+
+  it('五偏移全被封锁：返回入参同一引用，x/y/rotation 与棋盘完全不变', () => {
+    const board = at([[5, 4], [3, 2], [6, 4], [3, 4], [6, 1]]);
+    const frozen = JSON.parse(JSON.stringify(board));
+    const piece = ipr0(3, 2);
+    const result = tryRotate(board, piece, 1);
+    expect(result).toBe(piece); // 同一引用 = 原态不变
+    expect(piece).toEqual({ type: 'I', x: 3, y: 2, rotation: 0 });
+    expect(board).toEqual(frozen);
+  });
+
+  it('成功用例均不修改入参棋盘与方块（不可变性复核）', () => {
+    const board = at([[5, 4], [3, 2], [6, 3]]);
+    const frozenBoard = JSON.parse(JSON.stringify(board));
+    const piece = ipr0(3, 2);
+    const frozenPiece = { ...piece };
+    const result = tryRotate(board, piece, 1);
+    expect(result).not.toBe(piece);
+    expect(piece).toEqual(frozenPiece);
+    expect(board).toEqual(frozenBoard);
+  });
+});
+
