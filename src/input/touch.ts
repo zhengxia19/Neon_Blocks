@@ -54,7 +54,7 @@ export function createTouchControls(container: HTMLElement, options: TouchContro
     { key: 'hard', glyph: '⤓', label: '硬降', press: () => actions.hardDrop() },
     { key: 'rotL', glyph: '↺', label: '旋转（逆时针）', press: () => actions.rotate(-1) },
     { key: 'rotR', glyph: '↻', label: '旋转（顺时针）', press: () => actions.rotate(1) },
-    { key: 'hold', glyph: '⤒', label: '暂存（Hold）', press: () => actions.hold() },
+    { key: 'hold', glyph: '⤒', label: '暂存', press: () => actions.hold() },
   ];
 
   const buttons = new Map<string, HTMLButtonElement>();
