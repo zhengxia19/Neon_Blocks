@@ -1,0 +1,31 @@
+// Neon_Blocks 联网对战 Worker 配置（N08）。
+// 边界：不迁移前端静态资源（GitHub Pages 工作流保持原样）；单 SQLite-backed DO 绑定。
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "neon-blocks-room-api",
+  "main": "src/index.ts",
+  // 显式兼容日期（清单 N08 要求；不使用隐式默认）
+  "compatibility_date": "2026-10-01",
+  // 公开 API 原点：workers.dev 子域名（正式路由/自定义域属 N44 部署阶段）
+  "workers_dev": true,
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ROOM_DO",
+        "class_name": "RoomDO"
+      }
+    ]
+  },
+  // 当前 Wrangler 规范：SQLite-backed DO 用 new_sqlite_classes 迁移声明
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["RoomDO"]
+    }
+  ],
+  "vars": {
+    // CORS/Origin 白名单（逗号分隔）：正式仅 GitHub Pages 站点；本地开发白名单在
+    // src/cors.ts 中仅用于测试环境。
+    "ALLOWED_ORIGINS": "https://zhengxia19.github.io"
+  }
+}

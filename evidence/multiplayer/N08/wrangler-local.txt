@@ -1,0 +1,10 @@
+P1 health => STATUS=200 BODY={"status":"ok","protocol":"neon-blocks-mp","version":1} ACAO=*
+P2 probe-123456-first => STATUS=200 BODY={"id":"40238590e6ff05a09bdf84f71b3ff6c5aecf90e2517dbefd4375003dfa72d1c8","code":"123456","generation":1} ACAO=*
+P3 probe-123456-again(idempotent) => STATUS=200 BODY={"id":"40238590e6ff05a09bdf84f71b3ff6c5aecf90e2517dbefd4375003dfa72d1c8","code":"123456","generation":1} ACAO=*
+P4 probe-234567(separate-DO) => STATUS=200 BODY={"id":"d77d807375ddc4d7de2de3b2579ac7106b8d7480741169af065beb0e002e8efe","code":"234567","generation":1} ACAO=*
+N1 probe-099999(invalid-code) => STATUS=400 BODY={"error":"BAD_ROOM_CODE","message":"房间码非法。"} ACAO=*
+N2 evil-origin => STATUS=403 BODY={"error":"BAD_ORIGIN","message":"来源不被允许。"} ACAO=*
+P5 prod-origin => STATUS=200 BODY={"status":"ok","protocol":"neon-blocks-mp","version":1} ACAO=https://zhengxia19.github.io
+P6 options-preflight => STATUS=204 ALLOW-METHODS=GET, POST, OPTIONS MAX-AGE=600
+N3 options-evil => STATUS=403
+---

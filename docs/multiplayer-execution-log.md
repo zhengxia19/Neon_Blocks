@@ -118,3 +118,16 @@
 - **HEAD**：N07 提交（见下方提交记录）
 - **单机全量回归（§0 规则 7）**：`npm ci` → 0；`npm run typecheck` → 0；`npm run test` → 0（**15 文件 / 278 例**）；`npm run build` → 0；`npm run test:e2e` → 0（**7 例**）。证据 `evidence/multiplayer/G0/`。
 - **结论**：单机零退化（E2E 与 N01 基线同为 7 例全绿；主包无网络代码）；协议/校验/错误码/种子随机/起始等级均有正反测试；装配分流有浏览器实证。P0 关闭，进入 P1（N08 Worker/DO 骨架）。
+
+---
+
+## N08 — Wrangler/DO 骨架与本地模拟 ✅ PASS
+
+- **基线 HEAD**：`0ecc4d5`（N07/G0 之后）
+- **改动文件（3 个逻辑文件 + 配置 + 2 测试）**：新增 `worker/wrangler.jsonc`（显式兼容日期 2026-10-01、单 ROOM_DO 绑定、`new_sqlite_classes` 迁移、`ALLOWED_ORIGINS` vars、workers_dev 公开 API 原点）、`worker/src/room.ts`（SQLite DO 骨架：room_meta 单行 + generation 探针）、`worker/src/cors.ts`（Origin 白名单纯函数：正式仅 `https://zhengxia19.github.io`，本地开发白名单仅测试）、`worker/test/cors.test.ts`（4 例）；修改 `worker/src/index.ts`（CORS 接线 + `/api/__probe/<码>` DO 探针 + DO 类入口导出）、`worker/test/protocol-boundary.test.ts`（Env 参数与 404 JSON 断言随行为更新）、`worker/vitest.config.ts`（`cloudflare:workers` node stub 别名）、`.gitignore`（`.wrangler`、`worker/.tmp`）
+- **本地模拟（wrangler dev 4.151.2）**：绑定表显示 ROOM_DO(local)+vars；探针 9 项全过——health 200；`__probe/123456` 200（DO 实例化+SQLite generation=1）；重复调用幂等（同 id、gen 不变）；`234567` 独立 DO（不同 id）；`099999`→400 BAD_ROOM_CODE；evil Origin→403 BAD_ORIGIN；正式 Pages Origin→200 且 ACAO 回显；OPTIONS 预检 204（methods/max-age）；OPTIONS evil→403。证据 `evidence/multiplayer/N08/{wrangler-dev-startup,wrangler-local,worker-test,worker-typecheck}.txt`。
+- **实测陷阱（写入 room.ts 注释）**：①「SELECT `.next()` 判空再 INSERT」守卫在 workerd 下失效——未耗尽游标使后续写入对之后查询不可见，改 `INSERT OR IGNORE` 幂等插入；②构造器缓存 `ctx.storage.sql` 句柄写入不可见，改每次经 `this.ctx.storage.sql`。
+- **环境注记**：本机默认 `%TEMP%` 下 workerd `CreateDirectory miniflare-email-store` 拒绝访问（同路径 pwsh/cmd/node 正常、D 盘正常）→ 本地模拟以 `TEMP=worker\.tmp` 重定向（已 gitignore），非代码问题。
+- **命令与退出码**：`npm --prefix worker run typecheck` → 0；`npm --prefix worker test` → 0（**2 文件 / 9 例**）；deploy.yml SHA256 前缀 `5A08B009` 与 N01 基线一致（未动）。
+- **复审结论**：独立复审 PASS——范围无越界（deploy.yml 全哈希与 N01 基线一致、前端未动）；契约要素齐备（显式兼容日期、new_sqlite_classes、workers_dev、CORS 精确匹配无前缀混淆、探针二次校验）；证据与复跑完全一致、正反断言齐备。非阻塞观察留后续：DEV_ORIGINS 无条件并入允许集（N10 用 vars 开关 gate）、探针路由 N10 必须移除、预检含 POST 属前瞻。
+- **未解决事项**：探针路由 `/api/__probe` 为验收临时件，N10 正式创建/加入 API 后移除。

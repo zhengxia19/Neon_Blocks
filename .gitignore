@@ -23,3 +23,7 @@ test-results
 *.njsproj
 *.sln
 *.sw?
+
+# Wrangler 本地状态与 workerd 临时目录（N08）
+.wrangler
+worker/.tmp

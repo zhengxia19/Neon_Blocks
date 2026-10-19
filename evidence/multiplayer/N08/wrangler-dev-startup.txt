@@ -1,0 +1,23 @@
+⛅️ wrangler 4.151.2
+────────────────────
+Your Worker has access to the following bindings:
+Binding                                                   Resource                  Mode
+env.ROOM_DO (RoomDO)                                      Durable Object            local
+env.ALLOWED_ORIGINS ("https://zhengxia19.github.io")      Environment Variables     local
+
+⎔ Starting local server...
+[wrangler:info] Ready on http://127.0.0.1:8787
+[wrangler:info] GET /api/health 200 OK (20ms)
+[wrangler:info] GET /api/__probe/123456 200 OK (23ms)
+[wrangler:info] GET /api/__probe/123456 200 OK (10ms)
+[wrangler:info] GET /api/__probe/234567 200 OK (15ms)
+[wrangler:info] GET /api/__probe/099999 400 Bad Request (6ms)
+[wrangler:info] GET /api/health 403 Forbidden (3ms)
+[wrangler:info] GET /api/health 200 OK (6ms)
+[wrangler:info] OPTIONS /api/health 204 No Content (8ms)
+[wrangler:info] OPTIONS /api/health 403 Forbidden (6ms)
+
+# 环境注记：本机默认 %TEMP%（C:\Users\zx\AppData\Local\Temp）下 workerd CreateDirectory
+# 被拒（#5 拒绝访问，miniflare-email-store），pwsh/cmd/node 同路径写入正常，workerd 在
+# D: 盘任意路径正常——判定为本机环境对 workerd.exe 的 Temp 写入限制。本地模拟以
+# TEMP=D:\tcodes\Neon_Blocks\worker\.tmp 重定向后稳定启动（已加入 .gitignore）。
