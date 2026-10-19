@@ -85,3 +85,16 @@
 - **命令与退出码**：`npm run typecheck` → 0；`npm run test` → 0（**13 文件 / 263 例**，新增 8 例）；`npm run build` → 0（产物 33.39 kB 未变，说明未影响单机包）。
 - **复审结论**：正向（金样本、重复执行一致、每 7 枚恰为 7 种各一次、S1/S3 同种子同序列、S2 六席位互异）与反向（不同种子序列不同、`seatIndex=0/1.5` 抛 `RangeError`、`count=-1` 抛错、种子 0 不退化为常数）均通过；`src/game/` 仍无网络/DOM 依赖（`import type` 编译期擦除），既有 `random.test.ts` 10 例不变。
 - **未解决事项**：引擎尚未接入种子（属 N06/N34 范围）。
+
+---
+
+## N06 — 可配置起始等级 ✅ PASS
+
+- **基线 HEAD**：`8316163`（N05 之后）
+- **改动文件（2 个逻辑文件 + 1 个测试）**：`src/game/engine.ts`（构造第三参 `startLevel=1`、私有 `#startLevel`、只读 getter、初值/restart 沿用、`#settleClear` 传起始等级）、`src/game/scoring.ts`（`levelForLines(totalLines, startLevel=1)` = `startLevel + floor(lines/10)`，非法起始等级抛 `RangeError`）、新增 `tests/unit/start-level.test.ts`（8 例）
+- **兼容性**：原两参构造调用完全不变（单机默认 1 级）；旧 `engine.test.ts` 70 例全过；测试逐字复现旧断言 `[836,4,1]`。联网范围 1–10 由协议层 `validateStartLevel`（N04）保证，引擎层仅校验 ≥1 整数（升级后等级可 >10，不设硬上限）。
+- **测试要点**：1/5/10 级重力表（900/420/170，含 11 级=145、30 级=60 底线）；引擎下落按 `MAX_STEP_MS=100` 截断语义以 ≤100ms 步进累计（4×100ms 不动、+20ms 恰 420ms 下移；10 级 100+70=170ms 恰触发）；消行升级至 12 行→`startLevel+1` 且该次得分按清行前等级结算（`delta=36+800*5` 决定性断言）；restart 保留起始等级；非法值 0/-3/2.5/NaN 反向断言。
+- **过程说明**：首跑 2 失败均为新写用例自身笔误（`floor(25/10)=2` 期望误写 8；`step(419)` 被 100ms 截断致累计不足），修正测试期望与步进设计，实现未改动。
+- **命令与退出码**：`npm run test` → 0（**14 文件 / 271 例**，新增 8 例）；`npm run typecheck` → 0；`npm run build` → 0（产物 JS 33.66 kB，未引入网络代码）。证据 `evidence/multiplayer/N06/{test,typecheck,build}.txt`。
+- **复审结论**：独立复审 PASS——改动范围无越界（deploy.yml/ui/net/shared 未动，`src/game/` 无网络/DOM 依赖）；构造兼容、公式、清行前等级结算顺序、restart 保留、非法值拒绝、协议层 1–10 校验齐备；断言无弱化。
+- **未解决事项**：无。

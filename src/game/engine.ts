@@ -38,16 +38,25 @@ export type GameStateView = Omit<Readonly<GameState>, 'board' | 'nextQueue' | 'b
 export class GameEngine {
   #state: GameState;
   #rng: () => number;
+  /** 本局起始等级（单机默认 1；联网由房主设定 1–10，范围由协议层校验）。 */
+  #startLevel: number;
   /** 事件自增序号：lastEvent.id 单调递增供渲染层去重（S03.3，T027+ 事件任务使用）。 */
   #eventSeq = 0;
 
   /**
    * @param rng 随机源（默认 Math.random）；测试可注入确定性 rng（S03.2 7-bag）。
+   *            联网对局注入 `createSeededRng(seatSeed)` 以保证全员可复现（N05/N34）。
    * @param initialBoard 初始棋盘（默认空棋盘）；仅为确定性边界测试注入，
    *                     正常应用不传，restart 始终从空棋盘开始（S03.3）。
+   * @param startLevel 起始等级（默认 1，保持单机行为不变）；等级公式为
+   *                   `startLevel + floor(lines/10)`（N06）。
    */
-  constructor(rng: () => number = Math.random, initialBoard?: Board) {
+  constructor(rng: () => number = Math.random, initialBoard?: Board, startLevel = 1) {
+    if (!Number.isInteger(startLevel) || startLevel < 1) {
+      throw new RangeError(`无效起始等级：${startLevel}（必须为 ≥1 的整数）`);
+    }
     this.#rng = rng;
+    this.#startLevel = startLevel;
     this.#state = {
       board: initialBoard !== undefined ? cloneBoard(initialBoard) : createEmptyBoard(),
       active: null,
@@ -58,13 +67,18 @@ export class GameEngine {
       status: 'ready',
       score: 0,
       lines: 0,
-      level: 1,
+      level: startLevel,
       gravityElapsedMs: 0,
       lockElapsedMs: 0,
       lockResetCount: 0,
       lastEvent: null,
     };
     this.#assertInternals();
+  }
+
+  /** 本局起始等级（只读）。 */
+  get startLevel(): number {
+    return this.#startLevel;
   }
 
   /**
@@ -198,7 +212,7 @@ export class GameEngine {
     }
     this.#state.score += lineClearPoints(cleared, this.#state.level); // 等级取清行前
     this.#state.lines += cleared;
-    this.#state.level = levelForLines(this.#state.lines);
+    this.#state.level = levelForLines(this.#state.lines, this.#startLevel);
     this.#eventSeq += 1;
     this.#state.lastEvent = { id: this.#eventSeq, kind: 'clear', count: cleared };
   }
@@ -303,7 +317,8 @@ export class GameEngine {
    * （空棋盘、分数/行数/等级归零、Hold 槽与限制清除、队列与袋清空、三计时器
    * 复位、lastEvent 置 null）并立即进入 running 生成第一块。restart 始终从
    * 空棋盘开始（initialBoard 仅构造注入，不在此复用）。事件自增序号跨局保留，
-   * 保证渲染层按 id 去重不受重开影响。
+   * 保证渲染层按 id 去重不受重开影响。起始等级沿用构造值（N06），
+   * 因此联网对局重开后仍按房主 `startLevel` 起算。
    */
   restart(): void {
     this.#state.board = createEmptyBoard();
@@ -315,7 +330,7 @@ export class GameEngine {
     this.#state.status = 'running'; // 先置 running 令 #spawnNext 正常生效
     this.#state.score = 0;
     this.#state.lines = 0;
-    this.#state.level = 1;
+    this.#state.level = this.#startLevel;
     this.#state.gravityElapsedMs = 0;
     this.#state.lockElapsedMs = 0;
     this.#state.lockResetCount = 0;

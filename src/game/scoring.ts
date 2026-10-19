@@ -40,14 +40,18 @@ export function dropPoints(kind: DropKind, cells: number): number {
 }
 
 /**
- * 等级公式（S03.5）：`level = 1 + floor(totalLines / 10)`，无上限。
- * 非法输入（非 ≥0 整数行数）显式拒绝。
+ * 等级公式（S03.5）：`level = startLevel + floor(totalLines / 10)`，无上限。
+ * `startLevel` 默认 1，保持单机既有行为不变；联网对局由房主设置 1–10（协议层校验范围）。
+ * 非法输入（非 ≥0 整数行数、非 ≥1 整数起始等级）显式拒绝。
  */
-export function levelForLines(totalLines: number): number {
+export function levelForLines(totalLines: number, startLevel = 1): number {
   if (!Number.isInteger(totalLines) || totalLines < 0) {
     throw new RangeError(`无效累计消行数：${totalLines}（必须为 ≥0 的整数）`);
   }
-  return 1 + Math.floor(totalLines / 10);
+  if (!Number.isInteger(startLevel) || startLevel < 1) {
+    throw new RangeError(`无效起始等级：${startLevel}（必须为 ≥1 的整数）`);
+  }
+  return startLevel + Math.floor(totalLines / 10);
 }
 
 /**
