@@ -1,17 +1,21 @@
-// Neon Blocks — 主棋盘 Canvas 渲染器（规格 S05，任务 T038–T040）。
+// Neon Blocks — 主棋盘 Canvas 渲染器（规格 S05，任务 T038–T041）。
 // 高清缩放契约：CSS 盒子尺寸 × min(devicePixelRatio, 2) 设置内部 backing store；
 // 每次绘制前 `setTransform(dpr,0,0,dpr,0,0)` 重置变换，绝不累计 scale；
 // resize 幂等（同尺寸不写 canvas.width，避免比例叠加与闪烁）。
 // T039：#0B1022 底色 + rgba(255,255,255,0.055) 细网格（1 物理像素、设备像素对齐）；
 // T040：锁定块（rows 4..23）与活动块（getMatrix×x/y）共用玻璃糖果单格绘制路径，
-// 隐藏区格与界外格跳过；ghost T041、特效 T045 起续写。
+// 隐藏区格与界外格跳过；T041：Ghost 30% 色描边无填充、着地不重复、ghostEnabled
+// 开关控制；特效 T045 起续写。
 
+import { getGhostY } from '../game/board';
 import { HIDDEN_ROWS } from '../game/constants';
 import { getMatrix } from '../game/pieces';
 import type { GameState, PieceType } from '../game/types';
 
-/** 每帧渲染选项（后续任务扩展：ghost 开关 T041、清行/硬降特效与 reducedMotion T045）。 */
+/** 每帧渲染选项（后续任务扩展：清行/硬降特效与 reducedMotion T045）。 */
 export interface RenderOptions {
+  /** 落点预判 Ghost 开关（S07 用户设置 ghost；缺省视为开启）。 */
+  ghostEnabled?: boolean;
   /** 减少动画：跳过清行扫光、硬降光尾等特效（T045 接入，本任务仅预留契约位）。 */
   reducedMotion?: boolean;
 }
@@ -50,6 +54,17 @@ const CELL_SHADOW_BOTTOM = 'rgba(0, 0, 0, 0.24)';
 
 /** 每格 1px 内描边（S04.1）。 */
 const CELL_INNER_STROKE = 'rgba(255, 255, 255, 0.24)';
+
+/** Ghost 描边透明度（S04.1：幽灵块使用 30% 色描边、无填充）。 */
+const GHOST_STROKE_ALPHA = 0.3;
+
+/** #RRGGBB → rgba(...) 小工具（Ghost 30% 描边用，色值仍来自精确色板）。 */
+function withAlpha(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
 
 export class BoardRenderer {
   readonly #canvas: HTMLCanvasElement;
@@ -113,7 +128,6 @@ export class BoardRenderer {
    * ghost T041、特效 T045 起在此文件续写，签名保持稳定。
    */
   render(state: GameState, opts: RenderOptions = {}): void {
-    void opts; // T041/T045 起读取 ghost/reducedMotion 开关
     const ctx = this.#ctx;
     // 每帧重置变换（幂等），再清屏——即使调用方错过 resize 也不会叠加变换。
     ctx.setTransform(this.#dpr, 0, 0, this.#dpr, 0, 0);
@@ -125,9 +139,54 @@ export class BoardRenderer {
     this.#drawGrid();
     if (Array.isArray(state.board)) {
       this.#drawLockedCells(state);
+      if (state.active && opts.ghostEnabled !== false) {
+        this.#drawGhost(state);
+      }
     }
     if (state.active) {
       this.#drawActivePiece(state);
+    }
+  }
+
+  /**
+   * 落点预判 Ghost（S03.2/T041）：`getGhostY` 投影（纯函数，绝不调用随机生成；
+   * 暂停/结束时 active 为 null 或不再前进，本方法只读 state）。仅 30% 类型色
+   * 描边、无填充（S04.1）；ghostY 与 active.y 重合（已着地）时不重复绘制轮廓。
+   * 绘制顺序在锁定块之后、活动块之前，保证活动块覆盖重合轮廓。
+   */
+  #drawGhost(state: GameState): void {
+    const active = state.active;
+    if (active === null || active === undefined || !Array.isArray(state.board)) {
+      return;
+    }
+    const ghostY = getGhostY(state.board, active);
+    if (ghostY === active.y) {
+      return; // 与活动块同位置：轮廓由活动块本体表达，不再重画
+    }
+    const ctx = this.#ctx;
+    const matrix = getMatrix(active.type, active.rotation);
+    ctx.strokeStyle = withAlpha(PIECE_FILL[active.type], GHOST_STROKE_ALPHA);
+    ctx.lineWidth = 1; // CSS 像素（setTransform 已含 dpr）
+    const { width: cw, height: ch } = this.cellSize;
+    const dpr = this.#dpr;
+    const gap = 0.5 / dpr;
+    for (let j = 0; j < matrix.length; j += 1) {
+      const line = matrix[j];
+      for (let i = 0; i < line.length; i += 1) {
+        if (line[i] !== '1') {
+          continue;
+        }
+        const boardY = ghostY + j;
+        const boardX = active.x + i;
+        if (boardY < HIDDEN_ROWS || boardY >= HIDDEN_ROWS + GRID_ROWS || boardX < 0 || boardX >= GRID_COLUMNS) {
+          continue;
+        }
+        const x = boardX * cw + gap;
+        const y = (boardY - HIDDEN_ROWS) * ch + gap;
+        const radius = Math.min(cw, ch) * CELL_RADIUS_RATIO;
+        this.#roundedPath(x, y, cw - gap * 2, ch - gap * 2, radius);
+        ctx.stroke();
+      }
     }
   }
 
