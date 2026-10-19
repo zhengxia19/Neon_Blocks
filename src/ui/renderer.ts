@@ -1,8 +1,9 @@
-// Neon Blocks — 主棋盘 Canvas 渲染器骨架（规格 S05，任务 T038）。
+// Neon Blocks — 主棋盘 Canvas 渲染器（规格 S05，任务 T038–T039）。
 // 高清缩放契约：CSS 盒子尺寸 × min(devicePixelRatio, 2) 设置内部 backing store；
 // 每次绘制前 `setTransform(dpr,0,0,dpr,0,0)` 重置变换，绝不累计 scale；
 // resize 幂等（同尺寸不写 canvas.width，避免比例叠加与闪烁）。
-// 背景网格/锁定块/幽灵/活动块的绘制自 T039 起在本文件逐步接入。
+// T039：#0B1022 底色 + rgba(255,255,255,0.055) 细网格（1 物理像素、设备像素对齐），
+// Canvas 只映射可见区 rows 4..23；锁定块/幽灵/活动块自 T040 起逐步接入。
 
 import type { GameState } from '../game/types';
 
@@ -18,6 +19,12 @@ const GRID_ROWS = 20;
 
 /** DPR 上限 2（S05：CSS 尺寸 × min(devicePixelRatio, 2)，3x 屏不继续翻倍省内存）。 */
 const MAX_DPR = 2;
+
+/** 主棋盘背景精确色值（S04.1/S04.2 `--board` #0B1022）。 */
+const BOARD_FILL = '#0B1022';
+
+/** 细网格线精确色值（S04.1：rgba(255,255,255,0.055)）。 */
+const GRID_LINE_COLOR = 'rgba(255, 255, 255, 0.055)';
 
 export class BoardRenderer {
   readonly #canvas: HTMLCanvasElement;
@@ -77,15 +84,49 @@ export class BoardRenderer {
 
   /**
    * 单帧绘制入口（S05：单一主 Canvas；调用方在 rAF 中每帧一次）。
-   * 本任务（T038）仅完成清屏；底色与网格线 T039、锁定块 T040、ghost T041、
-   * 活动块与特效 T042/T045 起在此文件续写，签名保持稳定。
+   * T039：底色 + 网格线；锁定块 T040、ghost T041、活动块与特效 T042/T045
+   * 起在此文件续写，签名保持稳定。
    */
   render(state: GameState, opts: RenderOptions = {}): void {
-    void state; // T039 起读取 board/active/ghost
     void opts; // T041/T045 起读取 ghost/reducedMotion 开关
     const ctx = this.#ctx;
     // 每帧重置变换（幂等），再清屏——即使调用方错过 resize 也不会叠加变换。
     ctx.setTransform(this.#dpr, 0, 0, this.#dpr, 0, 0);
     ctx.clearRect(0, 0, this.#cssWidth, this.#cssHeight);
+    // S04.1：主棋盘背景 #0B1022（S04.2 --board 精确色值）。
+    ctx.fillStyle = BOARD_FILL;
+    ctx.fillRect(0, 0, this.#cssWidth, this.#cssHeight);
+    // S04.1：细网格线 rgba(255,255,255,0.055)，1 物理像素、对齐 CSS 格尺寸取整。
+    this.#drawGrid();
+    // state.board 的可见区映射自 T040 起绘制（rows 4..23 → Canvas 行 0..19）。
+    void state;
+  }
+
+  /**
+   * 10×20 可见网格的细线（S03.1：可见区即内部棋盘 rows 4..23 的投影；隐藏
+   * 缓冲区 0..3 不在 Canvas 内，画线只覆盖可见区）。为避免半像素模糊，格线
+   * 坐标按设备像素取整后回到 CSS 单位，线宽恰为 1 物理像素。
+   */
+  #drawGrid(): void {
+    const ctx = this.#ctx;
+    const { width: cellW, height: cellH } = this.cellSize;
+    const cssW = this.#cssWidth;
+    const cssH = this.#cssHeight;
+    const dpr = this.#dpr;
+    const snap = (cssValue: number): number => Math.round(cssValue * dpr) / dpr;
+    ctx.strokeStyle = GRID_LINE_COLOR;
+    ctx.lineWidth = 1 / dpr;
+    ctx.beginPath();
+    for (let col = 1; col < GRID_COLUMNS; col += 1) {
+      const x = snap(col * cellW);
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, cssH);
+    }
+    for (let row = 1; row < GRID_ROWS; row += 1) {
+      const y = snap(row * cellH);
+      ctx.moveTo(0, y);
+      ctx.lineTo(cssW, y);
+    }
+    ctx.stroke();
   }
 }
