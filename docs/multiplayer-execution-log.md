@@ -40,3 +40,16 @@
   - 产物扫描：`dist/assets/*.js` 中无 `DurableObject` / `ExportedHandler` / `ROOM_DO` 标记
 - **复审结论**：前端原构建正常、shared 可被前端单独 typecheck、`src/game/` 无 net/worker 依赖、shared 无 DOM/Worker API；Worker 独立编译已在本地验证，其 DO 绑定与 Wrangler 本地模拟留待 N08。`.github/workflows/deploy.yml` 未改动。
 - **未解决事项**：Worker 的 `wrangler.jsonc` 与 DO 绑定尚未创建（属 N08 范围）。
+
+---
+
+## N03 — 锁定协议与错误码 ✅ PASS
+
+- **基线 HEAD**：`d68c0a8`
+- **改动文件（2 个逻辑文件 + 2 个测试）**：`shared/protocol.ts`（扩展为完整契约）、`shared/errors.ts`（新增）、`tests/unit/protocol.test.ts`（新增 10 例）、`worker/test/protocol-boundary.test.ts`（+1 例）、`src/net/index.ts`（仅补充再导出）
+- **协议要点**：`v/type/seq/revision/roomGeneration` 全部固定；C→S 白名单 `ready|start|settings_update|snapshot|gameover|leave|ping`，S→C 白名单 `room_state|player_joined|player_left|countdown|match_start|scoreboard|watch_target|remote_snapshot|match_end|error|pong`（与方案 §7.2 逐字一致，测试断言）；快照模型含 24×10 棋盘（24 行 × 10 字符）、活动块、得分、消行、等级、状态、`seq`；HTTP 模型 `CreateRoomRequest/JoinRoomRequest/SeatGrantedResponse/TicketResponse/HealthResponse`；机密 `seatToken` 只在创建/加入响应出现一次，`playerId` 为可公开的内部席位 ID，`nickname` 为公开显示名。
+- **兼容/拒绝策略（前后端一致）**：版本必须精确等于 1，否则 `error(PROTOCOL_VERSION)` + WS 1002 关闭；未知 `type` → `error(UNKNOWN_TYPE)` 忽略不断连；客户端携带 `FORBIDDEN_CLIENT_FIELDS`（`seatToken/ticket/playerId/matchId/winners/eliminatedAt/serverTime/revision/generation/seed/…`）→ `error(FORBIDDEN_FIELD)` 整条拒绝；未声明扩展字段按白名单丢弃。
+- **错误码**：30 个中文错误码目录 `ERROR_CATALOG`（协议/参数/房间席位/状态机/服务端五类），`describeError` 对未知码统一回退 `INTERNAL`，不外泄内部文本。
+- **命令与退出码**：`npm run typecheck` → 0；`npm run test` → 0（**11 文件 / 243 例**，新增 10 例：全消息序列化往返、类型白名单、版本判定、非法 JSON 返回 null、未知类型、污染字段、shared 与 `src/game/constants` 棋盘尺寸一致、错误目录完整性与未知码回退）；`npm run build` → 0；`npm --prefix worker run typecheck` → 0；`npm --prefix worker test` → 0（**4 例**，证明 Worker 侧引用同一 `PROTOCOL_VERSION` 与同一错误目录）。
+- **复审结论**：前后端引用同一协议版本与同一错误目录（两侧测试各自断言）；协议版本错误、未知类型、服务端禁止字段均有反向断言；`shared/` 保持纯类型/常量，无 DOM/Worker API。
+- **未解决事项**：运行时严格校验（昵称/房间码/坐标/字节上限）留待 N04。

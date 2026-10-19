@@ -5,12 +5,29 @@
  * 具体实现：N23 快照编码、N24 限频发布、N31 客户端生命周期。
  */
 export {
-  PROTOCOL_ID,
-  PROTOCOL_VERSION,
+  CLIENT_MESSAGE_TYPES,
   MAX_MESSAGE_BYTES,
   MIN_PLAYERS,
   MAX_PLAYERS,
   NICKNAME_PATTERN,
+  PROTOCOL_ID,
+  PROTOCOL_VERSION,
+  RANDOM_MODES,
   ROOM_CODE_MAX,
   ROOM_CODE_MIN,
+  SERVER_MESSAGE_TYPES,
+  decodeMessage,
+  encodeMessage,
+  isVersionSupported,
+} from '../../shared/protocol';
+export { ERROR_CATALOG, ERROR_CODES, describeError, isErrorCode } from '../../shared/errors';
+export type {
+  ClientMessage,
+  ClientMessageType,
+  LeaderboardEntry,
+  PlayerView,
+  RoomSettings,
+  ServerMessage,
+  ServerMessageType,
+  SnapshotPayload,
 } from '../../shared/protocol';
