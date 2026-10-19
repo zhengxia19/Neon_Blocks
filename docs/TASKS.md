@@ -596,7 +596,7 @@
 - **验证命令/动作**：`npm run build`，Emulate CSS prefers-reduced-motion 手动检查。
 - **通过条件**：减少动画生效；关闭特效不改变消行或积分。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T061｜性能测量和按需微调
+#### - [x] T061｜性能测量和按需微调
 - **依赖**：T053, T056, T060。**允许修改文件**：`docs/execution-log.md、src/ui/renderer.ts（仅确有性能证据时）`。**规格**：S05,S08。
 - **明确步骤**：
   1. 使用 Chromium Performance 或自定义 `performance.now()` 记录 3 分钟试玩帧时间与内存趋势，浏览器/机器/分辨率写入日志。
