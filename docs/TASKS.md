@@ -291,7 +291,7 @@
 - **验证命令/动作**：`npx vitest run tests/unit/engine.test.ts`。
 - **通过条件**：硬降后旧块变已锁定块、active 为新块、落差奖励准确、无需等待重力。 **且通用质量门禁通过、执行日志已写入**；否则不勾选。
 
-#### - [ ] T028｜实现基于 dt 的自然重力
+#### - [x] T028｜实现基于 dt 的自然重力
 - **依赖**：T021, T022, T023, T027。**允许修改文件**：`src/game/engine.ts、tests/unit/engine.test.ts`。**规格**：S03.3。
 - **明确步骤**：
   1. `step(dtMs)` 非 running 直接返回，NaN/负数作 0，最大 100ms。

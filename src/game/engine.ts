@@ -1,10 +1,10 @@
-// T022/T023/T024/T025/T026/T027：GameEngine 类——私有状态、初始 ready 状态、NEXT 队列补充与出生活动块、
-// 水平移动、顺逆旋转、单次软降、硬降立即锁块（规格 S03.1,S03.2,S03.3,S03.4,S03.5）。
+// T022–T028：GameEngine 类——私有状态、初始 ready 状态、NEXT 队列补充与出生活动块、
+// 水平移动、顺逆旋转、单次软降、硬降立即锁块、基于 dt 的自然重力（规格 S03.1–S03.5）。
 // 纯逻辑模块：不访问 DOM/Canvas/localStorage；UI 仅经 getState() 只读视图读取状态。
 // 动作 API（move/rotate/softDrop/…）由 T024+ 逐个补齐。
 import { canPlace, clearFullRows, cloneBoard, createEmptyBoard, getGhostY, mergePiece } from './board';
 import { drawFromBag } from './random';
-import { dropPoints } from './scoring';
+import { dropPoints, gravityIntervalMs } from './scoring';
 import { tryRotate } from './srs';
 import type { ActivePiece, Board, Cell, GameState, PieceType, Rotation } from './types';
 
@@ -16,6 +16,10 @@ const SPAWN_Y = 2;
 const SPAWN_ROTATION: Rotation = 0;
 /** NEXT 队列长度（S03.2：始终补充到 5，UI 仅显示前 3）。 */
 const NEXT_QUEUE_SIZE = 5;
+/** 单次 step 可接受的最大 delta（S03.3：单次上限 100ms，超出按 100 截断）。 */
+const MAX_STEP_MS = 100;
+/** 单帧重力循环最多移动格数（S03.3：避免卡顿循环）。 */
+const MAX_GRAVITY_MOVES = 20;
 
 /**
  * 深度只读状态视图（S03.3）：顶层属性与嵌套数组（board 行、nextQueue、bag）
@@ -196,6 +200,35 @@ export class GameEngine {
     this.#state.board = clear.board;
     // clear.cleared（0..4）的得分/行数/等级结算在 T033 接入锁定路径统一处理。
     this.#spawnNext();
+  }
+
+  /**
+   * 基于 dt 的自然重力（S03.3）：非 running 直接返回；delta 非有限（NaN/Infinity）
+   * 或负数一律按 0 处理，单次有效增量上限 100ms。重力时间累积到当前等级间隔
+   * （`gravityIntervalMs(level)`）即下降一格，可循环处理多格但最多 20 次；
+   * 不能下降（触底）时时间照常累积但不移动、不给分——不依赖 setInterval，
+   * 由外部唯一的 requestAnimationFrame 循环驱动。自然下落零加分。
+   */
+  step(dtMs: number): void {
+    if (this.#state.status !== 'running') {
+      return;
+    }
+    const delta = Number.isFinite(dtMs) && dtMs > 0 ? Math.min(dtMs, MAX_STEP_MS) : 0;
+    this.#state.gravityElapsedMs += delta;
+    if (this.#state.active === null) {
+      return;
+    }
+    const interval = gravityIntervalMs(this.#state.level);
+    let moves = 0;
+    while (moves < MAX_GRAVITY_MOVES && this.#state.gravityElapsedMs >= interval) {
+      const moved: ActivePiece = { ...this.#state.active, y: this.#state.active.y + 1 };
+      if (!canPlace(this.#state.board, moved)) {
+        break; // 触底：保持时间累积，锁定延迟计时在 T029 接管
+      }
+      this.#state.active = moved;
+      this.#state.gravityElapsedMs -= interval;
+      moves += 1;
+    }
   }
 
   /** 只读状态快照（S03.3）：嵌套数组同为只读视图，UI 不得修改。 */

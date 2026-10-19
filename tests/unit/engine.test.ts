@@ -1,4 +1,4 @@
-// T022–T027：GameEngine 初始 ready 状态、NEXT 队列与出生、水平移动、顺逆旋转、软降、硬降锁块测试（规格 S03.1,S03.2,S03.3,S03.4,S03.5）。
+// T022–T028：GameEngine 初始 ready 状态、NEXT 队列与出生、水平移动、顺逆旋转、软降、硬降锁块、自然重力测试（规格 S03.1–S03.5）。
 import { describe, expect, it } from 'vitest';
 import { canPlace, createEmptyBoard } from '../../src/game/board';
 import { BOARD_HEIGHT, BOARD_WIDTH } from '../../src/game/constants';
@@ -583,5 +583,87 @@ describe('GameEngine 硬降与锁块（T027，S03.3/S03.5）', () => {
     const overBefore = snapshot(over);
     over.hardDrop();
     expect(snapshot(over)).toEqual(overBefore);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T028：基于 dt 的自然重力（S03.3）
+// ---------------------------------------------------------------------------
+describe('GameEngine 自然重力 step（T028，S03.3）', () => {
+  // rng=()=>0：首块 I 出生 y=2；L1 间隔 900ms（与 GRAVITY_MS[0] 一致）。
+  const newRunning = (): GameEngine => {
+    const engine = new GameEngine(() => 0);
+    engine.start();
+    return engine;
+  };
+
+  it('900ms 首次下降：连续 100ms step，第 9 次前不降、第 9 次降 1 格且自然下落零加分', () => {
+    const engine = newRunning();
+    for (let i = 1; i <= 8; i += 1) {
+      engine.step(100);
+      expect(engine.getState().active?.y).toBe(2); // 累积 i×100 < 900 不降
+      expect(engine.getState().gravityElapsedMs).toBeCloseTo(i * 100, 10);
+    }
+    engine.step(100); // 累积恰 900 → 降 1 格，余数清零
+    const s = engine.getState();
+    expect(s.active?.y).toBe(3);
+    expect(s.gravityElapsedMs).toBeCloseTo(0, 10);
+    // 自然重力不加分、不发事件、不动锁定计时（软降分与之分离）
+    expect(s.score).toBe(0);
+    expect(s.lastEvent).toBeNull();
+    expect(s.lockElapsedMs).toBe(0);
+  });
+
+  it('单次 delta 上限 100ms：step(10000) 与 step(100) 等效，8 次不降第 9 次降', () => {
+    const engine = newRunning();
+    for (let i = 1; i <= 8; i += 1) {
+      engine.step(10000); // 截断为 100
+      expect(engine.getState().gravityElapsedMs).toBeCloseTo(i * 100, 10);
+      expect(engine.getState().active?.y).toBe(2);
+    }
+    engine.step(10000);
+    expect(engine.getState().active?.y).toBe(3);
+  });
+
+  it('非法 delta（NaN/负数/Infinity/非数字）一律按 0：状态完全不变', () => {
+    const engine = newRunning();
+    const before = snapshot(engine);
+    for (const bad of [NaN, -50, Infinity, -Infinity, undefined as unknown as number]) {
+      engine.step(bad);
+    }
+    expect(snapshot(engine)).toEqual(before);
+    // 与正常 tick 混合：非法值不吞掉已有累积时间（正常路径照常推进）
+    for (let i = 0; i < 9; i += 1) engine.step(100);
+    expect(engine.getState().active?.y).toBe(3);
+  });
+
+  it('27 次 100ms 精确推进：y=2+3（900/1800/2700 各降 1 格）、score 恒 0', () => {
+    const engine = newRunning();
+    for (let i = 0; i < 27; i += 1) engine.step(100);
+    const s = engine.getState();
+    expect(s.active?.y).toBe(5);
+    expect(s.gravityElapsedMs).toBeCloseTo(0, 10);
+    expect(s.score).toBe(0);
+  });
+
+  it('ready 状态 step 不下降、不累积（快照完全不变；paused 测试在 T031 补齐）', () => {
+    const engine = new GameEngine(() => 0);
+    const before = snapshot(engine);
+    for (let i = 0; i < 30; i += 1) engine.step(100);
+    expect(snapshot(engine)).toEqual(before);
+  });
+
+  it('触底后持续 step：不下降、零加分、不崩溃（锁定延迟由 T029 接管）', () => {
+    const engine = newRunning();
+    // 软降至 y=22 贴底（I r0 实体行 23 已满）
+    for (let i = 0; i < 20; i += 1) engine.softDrop();
+    expect(engine.getState().active?.y).toBe(22);
+    const scoreBefore = engine.getState().score;
+    for (let i = 0; i < 30; i += 1) engine.step(100); // 3000ms 远超 900
+    const s = engine.getState();
+    expect(s.active?.y).toBe(22); // 不能下降：位置保持
+    expect(s.score).toBe(scoreBefore); // 不加分
+    expect(s.active).not.toBeNull(); // 未锁定（T029 前 step 不负责锁定）
+    expect(s.gravityElapsedMs).toBeGreaterThanOrEqual(0); // 时间照常累积不为负
   });
 });
