@@ -1,0 +1,37 @@
+
+ RUN  v5.0.5 D:/tcodes/Neon_Blocks/worker
+
+ ✓ test/ranking.test.ts (11 tests) 8ms
+ ✓ test/watch-target.test.ts (11 tests) 17ms
+ ✓ test/seed-derivation.test.ts (7 tests) 7ms
+ ✓ test/leaderboard.test.ts (7 tests) 8ms
+ ✓ test/protocol-boundary.test.ts (5 tests) 37ms
+ ✓ test/cors.test.ts (4 tests) 13ms
+ ✓ test/room-leave.test.ts (7 tests) 53ms
+ ✓ test/room-ticket.test.ts (9 tests) 54ms
+ ✓ test/room-join.test.ts (7 tests) 56ms
+ ✓ test/room-create.test.ts (6 tests) 48ms
+ ✓ test/room-join-route.test.ts (5 tests) 53ms
+ ✓ test/room-countdown.test.ts (7 tests) 85ms
+ ✓ test/room-ticket-route.test.ts (5 tests) 63ms
+ ✓ test/room-state.test.ts (10 tests) 86ms
+ ✓ test/room-allocate.test.ts (5 tests) 114ms
+ ✓ test/room-alarm.test.ts (8 tests) 88ms
+ ✓ test/room-hibernation.test.ts (11 tests) 96ms
+ ✓ test/room-idle.test.ts (9 tests) 106ms
+ ✓ test/room-grace.test.ts (10 tests) 153ms
+ ✓ test/room-elimination.test.ts (12 tests) 179ms
+ ✓ test/room-routing.test.ts (10 tests) 234ms
+ ✓ test/room-scoreboard.test.ts (10 tests) 243ms
+ ✓ test/http-ratelimit.test.ts (9 tests) 411ms
+   ✓ N22 有界窗口表（禁止无限增长进程级 Map） (1)
+     ✓ 4100 个不同 IP 各创建一次：桶数封顶 4096，最旧桶按插入序淘汰后可再创建 352ms
+ ✓ test/room-snapshot.test.ts (12 tests) 2848ms
+   ✓ N25 恶意流量硬上限 (5)
+     ✓ 6 人 × 100Hz × 60 秒：内存管线有界（快照≤6、连接≤6、背压槽≤6） 2705ms
+
+ Test Files  24 passed (24)
+      Tests  197 passed (197)
+   Start at  09:01:42
+   Duration  3.18s (tests 75%, import 12%, transform 11%, worker 2%)
+
