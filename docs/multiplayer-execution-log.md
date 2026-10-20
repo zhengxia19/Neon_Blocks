@@ -377,3 +377,16 @@
 - **命令与退出码**：worker vitest→0（21/169）；worker tsc→0；根 vitest→0（17/300）；根 tsc→0；build→0；playwright→0（7 passed）；deploy.yml 未动（5A08B009）。
 - **复审结论**：独立只读复审 PASS（无 P1；P2×2 已修：①驱逐后映射不重建致整局停摆→惰性重建+测试；②默认环含 COUNTDOWN 离席幽灵→roster∩seats+测试；O1 JSON 拼接 id 加固、O2 切换清背压槽、O5 改用 match_roster 冻结 join_order 已采纳）。非阻塞观察：O3 淘汰者作为目标/观察者路由语义未测（切换只得最后帧，符合设计，N30 补）；O4 双连接各收一份 watch_target（合理）；O6 `BAD_STATE/INVALID_TARGET` 未入 shared 错误目录（N30 接线时处理）；watch_target/remote_snapshot revision 仍硬编码 1（N28 统一）。
 - **未解决事项**：无阻塞；N27 排行榜纯函数→N28 dirty 批处理（revision 统一）→N29 目标选择纯函数替换默认环→N30 周期切换接线（≤1s、丢弃旧目标快照）。
+
+---
+
+## N27 — 统一积分排行榜纯函数 ✅ PASS
+
+- **基线 HEAD**：`7960282`（N26 之后）
+- **改动文件**：`worker/src/leaderboard.ts`（新增纯函数模块：`LeaderboardRow{playerId,nickname,score,lines,joinOrder,status}`；`buildLeaderboard(rows)→LeaderboardEntry[]`（协议冻结形状 protocol.ts:208-216，joinOrder 不进广播）——显示全序=分数降序→消行降序→joinOrder 升序（joinOrder 冻结唯一⇒真全序、不依赖 sort 稳定性、与输入顺序无关）；rank=竞赛排名（并列共享、跳号 1,1,3），并列判定只看分数（方案 §5:127 逐字一致，消行/加入序仅稳定显示不影响名次）；无观看者参数⇒不可能因名字/观察目标重排；死人留榜状态原样携带分数固定；`topScorePlayerIds(entries)`=得分领先者集合（可并列、顺序无关 Math.max——复审 O1 加固），与 N19 winners/match_end standings 语义分离「得分第一≠胜者」）；`worker/test/leaderboard.test.ts`（新增 7 例）。未接 room.ts（N28 发布）、未动 ranking.ts/协议。
+- **单测**：worker `npx vitest run`→0（**22 文件 / 176 例**：leaderboard 7 例——方案 §6 六分数例排序+跳号 rank 1,2,3,3,5,6；同分不同消行共享名次 1,1,1 且消行降序→加入序升序显示；eliminated 留榜首（得分第一≠胜者）；disconnected 状态携带不扰序；乱序两组输入 deep-equal 同一份+arity=1 排除观看者参数；负向：消行 99 不翻转分数序、单条 rank=1、空输入空输出；topScorePlayerIds 并列多人+乱序集合不变+空）。
+- **本地模拟**：纯函数无服务端接线；复审独立复跑 tsc 0/vitest 22/176 与证据逐字吻合；手验竞赛排名 [5,5,5,3]→1,1,1,4、[5,3,3]→1,2,2。
+- **实测排障**：无（纯新增模块）。
+- **命令与退出码**：worker vitest→0（22/176）；worker tsc→0；根 vitest→0（17/300）；根 tsc→0；build→0；playwright→0（7 passed）；deploy.yml 未动（5A08B009）。
+- **复审结论**：独立只读复审 PASS（无 P1、无 P2；O1 topScorePlayerIds 隐含输入已降序前提→已改 Math.max 顺序无关+补乱序断言；O2 NaN 分数破坏全序由 N25 快照校验入约兜底（服务端每 revision 仅算一份广播，验收无威胁）；O3 arity 断言系弱代理，合看 TS 签名足够）。
+- **未解决事项**：无阻塞；N28 在 room.ts 消费 buildLeaderboard 做 dirty 批处理 ≤2Hz 发布（ScoreboardMsg.revision 统一管理，全员同 revision）。
