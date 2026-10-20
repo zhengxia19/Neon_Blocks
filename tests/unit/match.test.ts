@@ -71,8 +71,56 @@ describe('N34 装配结构断言', () => {
     expect(SRC.match).not.toContain('WebSocket');
     expect(SRC.match).not.toContain('NetClient');
     expect(SRC.multiplayer).toContain('computeClockOffset(msg.serverTime, Date.now())');
-    expect(SRC.multiplayer).toContain('bootMatch(root, msg, clockOffset)');
+    expect(SRC.multiplayer).toContain('bootMatch(root, msg, clockOffset, myPlayerId)');
     expect(SRC.multiplayer).toContain('match?.destroy()');
+  });
+
+  it('正向：N38 双棋盘与排行榜连接（match 消费、multiplayer 转发）', () => {
+    // match.ts：远程棋盘挂对手 Canvas、排行榜视图填槽、切换即复位水位、resize 透传。
+    expect(SRC.match).toContain('new RemoteBoard(refs.opponentCanvas)');
+    expect(SRC.match).toContain('createLeaderboardView(refs.leaderboardSlot)');
+    expect(SRC.match).toContain('remoteBoard.resetForTarget()');
+    expect(SRC.match).toContain('remoteBoard.resize()');
+    expect(SRC.match).toContain('leaderboardView.markWinners(');
+    // 陈旧目标帧丢弃：只绘制当前观察目标。
+    expect(SRC.match).toContain('if (targetPlayerId !== watchTargetId) return false;');
+    // multiplayer：四类对局消息接线 + 快照发布 + gameover 单发。
+    expect(SRC.multiplayer).toContain("case 'scoreboard':");
+    expect(SRC.multiplayer).toContain("case 'watch_target':");
+    expect(SRC.multiplayer).toContain("case 'remote_snapshot':");
+    expect(SRC.multiplayer).toContain("case 'match_end':");
+    expect(SRC.multiplayer).toContain('new SnapshotPublisher(');
+    expect(SRC.multiplayer).toContain("type: 'snapshot'");
+    expect(SRC.multiplayer).toContain("type: 'gameover'");
+    // 发布通道与连接态联动（断开丢弃、重连恢复）。
+    expect(SRC.multiplayer).toContain('publisher?.setConnected(true)');
+    expect(SRC.multiplayer).toContain('publisher?.setConnected(false)');
+  });
+
+  it('正向：复审 N38 P2 修复钉死——淘汰冻结延迟到目标首帧、gameover 成功才置位', () => {
+    // P2-1：状态驱动冻结/遮罩仅在当前目标已有帧后生效（resetForTarget 复位水位
+    // -1；lastSeq<0 直接返回，补帧到达后 applyRemoteSnapshot 再同步面板冻结）。
+    expect(SRC.match).toContain('if (remoteBoard.state.lastSeq < 0) return;');
+    expect(SRC.match).toContain('if (drawn) syncOpponentPanel();');
+    // 冻结/遮罩仍由榜单状态驱动（同源，不本地另算）。
+    expect(SRC.match).toContain("if (entry.status === 'eliminated') remoteBoard.freeze();");
+    expect(SRC.match).toContain("else if (entry.status === 'disconnected') remoteBoard.setDisconnected();");
+    // P2-2：gameover 上报 send 成功才置 gameoverSent（断线下一 tick 重试）。
+    expect(SRC.multiplayer).toMatch(
+      /if \(client\.send\(\{ v: PROTOCOL_VERSION, type: 'gameover', reason: 'topout' \}\)\) \{\s*gameoverSent = true;/,
+    );
+  });
+
+  it('反向：N38 后 match.ts 仍无网络代码；单人包不含发布器', () => {
+    expect(SRC.match).not.toMatch(/fetch\(/);
+    expect(SRC.match).not.toContain('WebSocket');
+    expect(SRC.match).not.toContain('NetClient');
+    expect(SRC.match).not.toContain('SnapshotPublisher');
+    expect(SRC.match).not.toContain('decodeSnapshot');
+    // snapshot-source 纯函数：无网络、无 DOM、无时钟。
+    const srcSnap = readFileSync(join(process.cwd(), 'src', 'app', 'snapshot-source.ts'), 'utf8');
+    expect(srcSnap).not.toMatch(/fetch\(|WebSocket|NetClient/);
+    expect(srcSnap).not.toMatch(/document\.|window\.|Date\.now|Math\.random/);
   });
 
   it('正向：预倒计时遮罩由 countdown.startAt 校准墙钟驱动，match_start 前清除', () => {

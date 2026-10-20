@@ -1,0 +1,31 @@
+[WebServer] (node:40308) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 8 tests using 8 workers
+
+(node:34216) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:33376) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:34336) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:36900) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:39468) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:25340) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:31148) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:15972) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok 2 [chromium] › tests\e2e\mp-lobby.spec.ts:56:3 › N33 等待大厅（双端） › 创建房间 → 大厅：6 位房间码、席位视图、房主控件 (2.3s)
+  ok 1 [chromium] › tests\e2e\mp-lobby.spec.ts:105:3 › N33 等待大厅（双端） › 房主改设置 → 访客同步只读值；设置变更重置全员准备 (3.6s)
+  ok 6 [chromium] › tests\e2e\mp-lobby.spec.ts:71:3 › N33 等待大厅（双端） › 加入 → 双端席位同步；访客只读；准备后全员准备才可开局 (3.8s)
+  ok 7 [chromium] › tests\e2e\mp-layout.spec.ts:107:3 › N36 双棋盘响应式布局（双端实时对局） › 390×844：对手缩略条置顶不遮挡、触屏按键可见、无横向溢出 (6.8s)
+  ok 8 [chromium] › tests\e2e\mp-layout.spec.ts:78:3 › N36 双棋盘响应式布局（双端实时对局） › 桌面 1280：严格 2 Canvas、双棋盘无重叠、排行榜列就位、无横向溢出 (7.3s)
+  ok 4 [chromium] › tests\e2e\mp-layout.spec.ts:145:3 › N36 双棋盘响应式布局（双端实时对局） › 320×568：无横向溢出、双棋盘可见、排行榜可折叠展开 (7.5s)
+  ok 5 [chromium] › tests\e2e\mp-lobby.spec.ts:132:3 › N33 等待大厅（双端） › N34 开局装配：服务器倒计时→进行中；棋盘渲染；个人暂停禁用 (7.7s)
+  ok 3 [chromium] › tests\e2e\mp-boards.spec.ts:72:3 › N38 双棋盘与排行榜连接（三人局） › 两棋盘无第三块；目标切换 <1s；不同观看者不同目标；补帧；榜单全员一致不乱序 (7.8s)
+
+  8 passed (10.6s)

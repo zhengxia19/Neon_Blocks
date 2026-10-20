@@ -3,9 +3,11 @@
  * 动态路径下才导入 `src/net/`（单人主包不含网络代码）；面板与大厅纯 DOM
  * （`src/ui/mp-entry.ts`、`src/ui/lobby.ts`），本文件只做接线：
  * NetClient 生命周期、room_state 权威视图驱动、协议消息发送与中文错误回显。
- * 对局界面属 N34–N40。
+ * N38：对局期消息接线——本人快照发布（SnapshotPublisher 5Hz 上限 + 连接态
+ * 联动）、scoreboard/watch_target/remote_snapshot/match_end 转发对局句柄、
+ * 引擎 gameover 单发上报（淘汰时刻由服务器接收时刻裁决）。
  */
-import { PROTOCOL_VERSION, type ServerMessage } from '../../shared/protocol';
+import { PROTOCOL_VERSION, decodeSnapshot, type ServerMessage, SnapshotPublisher } from '../net';
 import { NetClient } from '../net';
 import { bootMatch, computeClockOffset, countdownLabel, type MatchHandle } from './match';
 import { renderLobby, type LobbyController } from '../ui/lobby';
@@ -18,6 +20,8 @@ import { mountMultiplayerLayout } from '../ui/multiplayer-layout';
 /** 联网装配句柄（连接与 teardown）。 */
 export interface MultiplayerHandle {
   apiBaseUrl: string;
+  /** N38：诊断/E2E——对局观察目标与远程棋盘水位（无对局时 null）。 */
+  matchDebug(): { watchTargetId: string | null; remoteSeq: number } | null;
   teardown(): void;
 }
 
@@ -37,6 +41,50 @@ export function bootMultiplayer(root: HTMLElement, apiBaseUrl: string): Multipla
   // N34：预倒计时遮罩（countdown→match_start 之间；只依赖校准墙钟显示）。
   let preCountdownEl: HTMLElement | null = null;
   let preCountdownTimer: number | null = null;
+  // N38：本人快照发布（seq 由发布计数单调供给；gameover 单发一次）。
+  let publisher: SnapshotPublisher | null = null;
+  let snapTimer: number | null = null;
+  let snapSeq = 0;
+  let gameoverSent = false;
+
+  const stopSnapshotPublishing = (): void => {
+    if (snapTimer !== null) {
+      window.clearInterval(snapTimer);
+      snapTimer = null;
+    }
+    publisher?.stop();
+    publisher = null;
+  };
+
+  const startSnapshotPublishing = (): void => {
+    if (match === null) return;
+    snapSeq = 0;
+    gameoverSent = false;
+    publisher = new SnapshotPublisher({
+      // 发布器出口是编码后文本：解码回对象走 NetClient.send（统一 seq 信封）。
+      send: (text): boolean => {
+        const decoded = decodeSnapshot(text);
+        return decoded.ok
+          ? client.send({ v: PROTOCOL_VERSION, type: 'snapshot', snapshot: decoded.snapshot })
+          : false;
+      },
+    });
+    publisher.setActive(true);
+    publisher.setConnected(client.state === 'open');
+    snapTimer = window.setInterval((): void => {
+      if (match === null || publisher === null) return;
+      const state = match.engine.getState();
+      snapSeq += 1;
+      publisher.publish(match.buildSnapshot(snapSeq));
+      if (!gameoverSent && state.status === 'gameover') {
+        // 复审 N38 P2-2：send 成功才置位——断线瞬间的 gameover 上报在重连后的
+        // 下一 tick 重试（服务端仅经 gameover 消息裁决淘汰时刻）。
+        if (client.send({ v: PROTOCOL_VERSION, type: 'gameover', reason: 'topout' })) {
+          gameoverSent = true;
+        }
+      }
+    }, 250);
+  };
 
   const clearPreCountdown = (): void => {
     if (preCountdownTimer !== null) {
@@ -85,9 +133,27 @@ export function bootMultiplayer(root: HTMLElement, apiBaseUrl: string): Multipla
           clearPreCountdown();
           lobby?.destroy();
           lobby = null;
-          match = bootMatch(root, msg, clockOffset);
+          match = bootMatch(root, msg, clockOffset, myPlayerId);
+          // N38：装配完成即开始 5Hz 快照发布（对局期数据上行）。
+          startSnapshotPublishing();
           break;
         }
+        case 'scoreboard':
+          // N38：全员同一份榜单（服务端排序），逐行照抄进排行榜视图。
+          match?.applyScoreboard(msg.entries);
+          break;
+        case 'watch_target':
+          // N38：切换对手预览（同步生效；服务器已按 ≤500ms 批次去抖）。
+          match?.applyWatchTarget(msg.targetPlayerId);
+          break;
+        case 'remote_snapshot':
+          // N38：只绘制当前观察目标帧（陈旧目标迟到帧在对局句柄内丢弃）。
+          match?.applyRemoteSnapshot(msg.targetPlayerId, msg.snapshot);
+          break;
+        case 'match_end':
+          // N38：胜者仅标记高亮（结果面板完整语义属 N39）。
+          match?.applyMatchEnd(msg.winners);
+          break;
         case 'error':
           lobby?.showMessage('error', msg.message);
           break;
@@ -95,7 +161,12 @@ export function bootMultiplayer(root: HTMLElement, apiBaseUrl: string): Multipla
           break;
       }
     },
+    onOpen(): void {
+      // N38：重连成功即恢复快照发布通道（断开期间的帧已被发布器丢弃）。
+      publisher?.setConnected(true);
+    },
     onClose: (info): void => {
+      publisher?.setConnected(false);
       if (leftIntentionally) return;
       if (info.willReconnect) {
         lobby?.showMessage('info', '连接中断，正在自动重连……');
@@ -130,6 +201,7 @@ export function bootMultiplayer(root: HTMLElement, apiBaseUrl: string): Multipla
         client.leave();
         leftIntentionally = false;
         clearPreCountdown();
+        stopSnapshotPublishing();
         lobby?.destroy();
         lobby = null;
         entry = renderMultiplayerEntry(root, entryHandlers);
@@ -178,11 +250,16 @@ export function bootMultiplayer(root: HTMLElement, apiBaseUrl: string): Multipla
   let tornDown = false;
   return {
     apiBaseUrl,
+    matchDebug(): { watchTargetId: string | null; remoteSeq: number } | null {
+      if (match === null) return null;
+      return { watchTargetId: match.debug.watchTargetId(), remoteSeq: match.debug.remoteSeq() };
+    },
     teardown(): void {
       if (tornDown) return;
       tornDown = true;
       client.close();
       clearPreCountdown();
+      stopSnapshotPublishing();
       entry?.destroy();
       lobby?.destroy();
       match?.destroy();

@@ -7,14 +7,22 @@
  * 后台冻结防护：rAF 在隐藏页停摆，恢复后单帧 dt 封顶（MAX_CATCHUP_MS），
  * 不补跑大量游戏帧；继续/淘汰由服务器 room_state 决定（N39 接入结果 UI）。
  * 纯助手（偏差/标签/封顶）导出供单测钉死；本文件不出现任何网络代码。
+ * N38：双棋盘与排行榜连接——远程棋盘（RemoteBoard）挂在 #opponent-canvas，
+ * 排行榜视图（leaderboard.ts）填 #leaderboard-slot；`applyScoreboard/
+ * applyWatchTarget/applyRemoteSnapshot/applyMatchEnd` 由 multiplayer 接线转发
+ * 服务器消息（本文件只消费，不收发）。切换观察目标即 `resetForTarget`
+ * （旧目标最后画面保留至新目标补帧到达，无闪白）；resize 透传远程 Canvas。
  */
 import { GameEngine } from '../game/engine';
 import { createSeededRng } from '../game/seeded-rng';
-import type { MatchStartMsg } from '../../shared/protocol';
+import type { LeaderboardEntry, MatchStartMsg, SnapshotPayload } from '../../shared/protocol';
 import { mountMultiplayerLayout, type MultiplayerLayoutRefs } from '../ui/multiplayer-layout';
 import { BoardRenderer } from '../ui/renderer';
 import { EffectsController } from '../ui/effects';
 import { createHud } from '../ui/hud';
+import { RemoteBoard } from '../ui/remote-board';
+import { createLeaderboardView, statusLabel } from '../ui/leaderboard';
+import { snapshotFromState } from './snapshot-source';
 import { KeyboardController } from '../input/keyboard';
 import { RepeatController } from '../input/repeat';
 import { createTouchControls } from '../input/touch';
@@ -44,6 +52,18 @@ export function clampFrameDelta(dtMs: number): number {
 export interface MatchHandle {
   matchId: string;
   engine: GameEngine;
+  /** N38：服务器 scoreboard → 排行榜视图与对手面板（榜单逐行照抄，不重排）。 */
+  applyScoreboard(entries: LeaderboardEntry[]): void;
+  /** N38：watch_target 切换观察目标（同步生效：<1s；同目标重复通知幂等）。 */
+  applyWatchTarget(targetPlayerId: string): void;
+  /** N38：remote_snapshot 仅接受当前观察目标的帧（陈旧目标帧丢弃）。 */
+  applyRemoteSnapshot(targetPlayerId: string, snapshot: SnapshotPayload): boolean;
+  /** N38：match_end 胜者标记（仅高亮，不改服务端榜单行序）。 */
+  applyMatchEnd(winnerPlayerIds: string[]): void;
+  /** N38：本人状态 → 快照载荷（seq 由装配层发布计数供给，本文件不发送）。 */
+  buildSnapshot(seq: number): SnapshotPayload;
+  /** 诊断/E2E：当前观察目标与远程棋盘水位。 */
+  readonly debug: { watchTargetId(): string | null; remoteSeq(): number };
   destroy(): void;
 }
 
@@ -55,6 +75,7 @@ export function bootMatch(
   root: HTMLElement,
   match: MatchStartMsg,
   clockOffset: number,
+  selfPlayerId: string,
   deps: { now?: () => number } = {},
 ): MatchHandle {
   const wallNow = deps.now ?? ((): number => Date.now());
@@ -76,6 +97,30 @@ export function bootMatch(
     miniScore: refs.miniScore,
     miniLevel: refs.miniLevel,
   });
+
+  // N38：远程棋盘与排行榜视图（消费服务器消息；本文件不收发任何消息）。
+  const remoteBoard = new RemoteBoard(refs.opponentCanvas);
+  const leaderboardView = createLeaderboardView(refs.leaderboardSlot);
+  let watchTargetId: string | null = null;
+  let lastEntries: LeaderboardEntry[] = [];
+
+  // 对手面板与观察目标同步（数据源=同一份服务端榜单，绝不本地另算）。
+  const syncOpponentPanel = (): void => {
+    if (watchTargetId === null) return;
+    const entry = lastEntries.find((e) => e.playerId === watchTargetId);
+    if (entry === undefined) return;
+    refs.opponentName.textContent = entry.nickname;
+    refs.opponentScore.textContent = `分数 ${entry.score}`;
+    refs.opponentLines.textContent = `消行 ${entry.lines}`;
+    refs.opponentStatus.textContent = statusLabel(entry.status);
+    // 复审 N38 P2-1：状态驱动冻结/遮罩延迟到当前目标首帧绘制后——服务端顺序为
+    // scoreboard(eliminated)→watch_target→补帧，若先 freeze 则补帧被 shouldDraw
+    // 丢弃、Canvas 残留上一目标帧。resetForTarget 复位水位（-1），lastSeq>=0
+    // 即「当前目标已有帧」，此时冻结保留的才是目标自己的最后画面。
+    if (remoteBoard.state.lastSeq < 0) return;
+    if (entry.status === 'eliminated') remoteBoard.freeze();
+    else if (entry.status === 'disconnected') remoteBoard.setDisconnected();
+  };
 
   // 倒计时遮罩：只依赖校准墙钟（rAF 停摆期间时间照样推进，恢复即正确）。
   const countdown = document.createElement('div');
@@ -112,10 +157,11 @@ export function bootMatch(
     },
   });
 
-  // N36：窗口尺寸变化同步本人棋盘 backing store（对手棋盘随 RemoteBoard.resize
-  // 在 N38 接线）；BoardRenderer.resize 幂等，同尺寸不写 canvas.width。
+  // N36：窗口尺寸变化同步本人棋盘 backing store；N38：远程棋盘同一 resize
+  // 透传（BoardRenderer.resize 幂等，同尺寸不写 canvas.width）。
   const onResize = (): void => {
     renderer.resize();
+    remoteBoard.resize();
   };
   window.addEventListener('resize', onResize);
 
@@ -194,6 +240,37 @@ export function bootMatch(
   return {
     matchId: match.matchId,
     engine,
+    applyScoreboard(entries: LeaderboardEntry[]): void {
+      lastEntries = entries;
+      leaderboardView.update(entries, selfPlayerId);
+      syncOpponentPanel();
+    },
+    applyWatchTarget(targetPlayerId: string): void {
+      if (targetPlayerId === watchTargetId) return;
+      watchTargetId = targetPlayerId;
+      // 切换即复位水位（旧目标最后画面保留至新目标补帧到达，无闪白）。
+      remoteBoard.resetForTarget();
+      syncOpponentPanel();
+    },
+    applyRemoteSnapshot(targetPlayerId: string, snapshot: SnapshotPayload): boolean {
+      // 只绘制当前观察目标的帧：陈旧目标的迟到帧直接丢弃（无第三棋盘语义）。
+      if (targetPlayerId !== watchTargetId) return false;
+      const drawn = remoteBoard.applySnapshot(snapshot);
+      // 复审 N38 P2-1：当前目标首帧绘制成功后补一次面板同步——此前被延迟的
+      // 淘汰冻结/断线遮罩在目标自己的最后画面上生效。
+      if (drawn) syncOpponentPanel();
+      return drawn;
+    },
+    applyMatchEnd(winnerPlayerIds: string[]): void {
+      leaderboardView.markWinners(winnerPlayerIds);
+    },
+    buildSnapshot(seq: number): SnapshotPayload {
+      return snapshotFromState(engine.getState(), seq);
+    },
+    debug: {
+      watchTargetId: (): string | null => watchTargetId,
+      remoteSeq: (): number => remoteBoard.state.lastSeq,
+    },
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
@@ -203,6 +280,7 @@ export function bootMatch(
       window.removeEventListener('resize', onResize);
       keyboard.dispose();
       touch.dispose();
+      leaderboardView.clear();
     },
   };
 }
