@@ -497,4 +497,13 @@
 - **复审**：独立只读复审 PASS（P1×0、P2×1、O×6）；复跑数字与证据逐项吻合（root 23/361、worker 26/216、tsc 0/0、build 哈希与字节一致）。P2-1（match.ts rAF 循环未调用 `touchRepeat.update(dtMs)`——RepeatController 无独立计时器，联网长按触屏 ↓ 只触发一次软降，与单人 35ms 节奏不符）已合入前修复：frame() 补 `keyboard.update(dtMs)`+`touchRepeat.update(dtMs)`（闭环 O-1 键盘同类缺口），match.test.ts 补节奏断言；O-5（320 用例缺重叠断言）同批补入。
 - **遗留观察**：O-1 键盘 ↓ 长按同类缺口与 P2-1 一并修复（update 每帧推进）；O-2 桌面五列最小合计 ≈1130px，768～1130px 中间视口带（如 1024）可能横向溢出——CSS 注释已改为钉死 320/390/1280，中间带待 N41 矩阵补 1024 E2E 或收窄侧栏；O-3 `__NEON_BLOCKS_MP_LAYOUT__` 暂无测试引用（无 Worker 骨架断言能力未兑现）；O-4 match.ts 仅 window resize 无单人 ResizeObserver，N38 RemoteBoard.resize 接线时统一；O-6 bootMatch 挂载后抛错时 #app 的 mp-mode 类残留（main.ts 回退只 catch import 失败），N38 顺手兜底；O-7 折叠判定仅挂载时求值，运行中跨断点不重排 details 开合（网格仍响应式），视需要补 matchMedia change 监听。
 
+## N37 — 全员统一排行榜组件 ✅ PASS
+
+- **范围**：新建 `src/ui/leaderboard.ts`（纯函数 `statusLabel`/`buildRows`/`winnersSummary` + `createLeaderboardView` DOM 视图）；`src/styles/multiplayer.css` 追加 `.lb-*` 表格样式；新建 `tests/unit/leaderboard-ui.test.ts` 8 例。服务端/shared 零改动（`scoreboard` 广播 N27/N28 已就绪）。
+- **实现要点**：只渲染服务端同 revision 榜单——`buildRows` 逐行照抄输入顺序与 rank，客户端不排序、不计算名次（乱序输入照抄反向钉死）；本人仅 `lb-self` 行高亮+`aria-current`，不改行序；胜者独立标识（`winnersSummary` 横幅按榜单顺序取昵称、全员文案一致 + `lb-winner` 行标记），与「得分第一」语义分离且不改行序（终局仍按得分排）；已淘汰留榜分数固定、断线「连接中断」；DOM 视图 ≤6 行全量重建 tbody，无 innerHTML/网络/排序/时钟。
+- **测试**：8 例——正向（六状态中文映射、1/2/2/4 并列名次照抄+仅 selfId 行高亮、终局胜者 p_s 标记不改行序且得分第一 p_w 分离、多胜者文案按榜单顺序、未知 winnerId 无影响）；反向（乱序输入照抄证明绝不重排、源码无 fetch/WebSocket/innerHTML/`.sort(`/`Date.now`/`Math.random`）。跨客户端一致性 E2E 属 N38 接线验收。
+- **门槛**：根 vitest 24 文件/369 全绿、根 tsc=0、build=0（mp chunk 22.43 kB 不变——组件未接线，N38 入包；index CSS 11.31 kB 含 lb 样式）；worker 26/216、worker tsc=0（零改动）；Playwright 无 Worker 15 通过/7 跳过（新 CSS 无回归）。证据 `evidence/multiplayer/N37/`。
+- **复审**：独立只读复审 PASS（P1×0、P2×0、O×4）；复跑数字与证据逐项吻合（root 24/369、worker 26/216、tsc 0/0、mp chunk 22.43 kB 不变——组件未入包经字符串扫描证实）。复审 O-1（终局用例 fixture 名次不自洽：2000/1800 同标 rank 1，服务端实产 1/2/3）与 O-2（update 按引用保存 entries，装配层复用数组会反映到后续重渲染）已合入前修复：fixture 改 1/2/3 并补 rank 断言、update 复制数组。
+- **遗留观察**：O-1 组件尚无调用方，N38 联网装配接线（scoreboard→update、match_end winners→markWinners）；O-2 胜者横幅在榜单面板内部（方案允许「排行榜上方或结果面板」），N39 结果面板若另行突出胜者需避免重复标识；O-3 `lb-winners` 横幅 `aria-live=polite` 与 slot 的 polite 叠加，屏幕阅读器可能双读（N38 实测后定夺）；O-4 昵称列 max-width 96px 截断（6 人窄列防溢出优先），超长昵称 tooltip 未做；O-5（复审）DOM 视图仅源码结构断言（无 jsdom），render/banner 行为级覆盖由 N38 E2E 兑现。
+
 

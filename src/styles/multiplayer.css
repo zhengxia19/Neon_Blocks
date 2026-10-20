@@ -128,3 +128,48 @@
     max-height: calc(100vh - 440px);
   }
 }
+
+/* ── 排行榜表格（N37）：服务端权威顺序逐行照抄，仅本人高亮、胜者横幅 ──── */
+.lb-winners {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent, #7dd3fc);
+  padding: 2px 0 6px;
+}
+
+.lb-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.lb-table th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 2px 4px;
+}
+
+.lb-table td {
+  padding: 3px 4px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 96px;
+}
+
+.lb-table .lb-rank {
+  width: 2.2em;
+  color: var(--muted);
+}
+
+.lb-table tr.lb-self td {
+  background: color-mix(in srgb, var(--accent, #7dd3fc) 16%, transparent);
+  font-weight: 700;
+}
+
+.lb-table tr.lb-winner .lb-name::after {
+  content: ' 🏆';
+}
