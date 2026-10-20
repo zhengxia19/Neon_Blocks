@@ -3,36 +3,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { CreateRoomRequest } from '../../shared/protocol';
 import { RoomDO } from '../src/room';
-import { makeFakeCtx, type FakeHibernatableSocket } from './stubs/sqlite-storage';
-
-interface WsState {
-  sent: string[];
-  attachment: unknown;
-  closed: { code: number; reason: string } | null;
-  bufferedAmount: number;
-}
-
-function makeFakeWs(): { ws: WebSocket; state: WsState } {
-  const state: WsState = { sent: [], attachment: null, closed: null, bufferedAmount: 0 };
-  const ws: FakeHibernatableSocket = {
-    send: (m: string) => state.sent.push(m),
-    close: (code?: number, reason?: string) => {
-      state.closed = { code: code ?? 1005, reason: reason ?? '' };
-    },
-    serializeAttachment: (a: unknown) => {
-      state.attachment = a;
-      return JSON.stringify(a);
-    },
-    deserializeAttachment: () => state.attachment,
-    get bufferedAmount() {
-      return state.bufferedAmount;
-    },
-  };
-  return { ws: ws as unknown as WebSocket, state };
-}
-
-const T0 = 1_700_000_000_000;
-const EMPTY_BOARD = Array.from({ length: 24 }, () => '..........');
+import { makeFakeCtx } from './stubs/sqlite-storage';
+import { EMPTY_BOARD, makeFakeWs, T0, type WsState } from './room-routing-helpers';
 
 function snapPayload(seq: number) {
   return {

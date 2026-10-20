@@ -120,7 +120,7 @@ describe('N17 闹钟调度与 600 秒边界', () => {
       expect(end).toEqual({
         v: 1,
         type: 'match_end',
-        revision: 1,
+        revision: expect.any(Number), // N28：房间级单调 revision（不再硬编码 1）
         matchId: res.match.matchId,
         reason: 'timeout',
         winners: expect.arrayContaining([host]),

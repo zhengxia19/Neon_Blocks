@@ -390,3 +390,17 @@
 - **命令与退出码**：worker vitest→0（22/176）；worker tsc→0；根 vitest→0（17/300）；根 tsc→0；build→0；playwright→0（7 passed）；deploy.yml 未动（5A08B009）。
 - **复审结论**：独立只读复审 PASS（无 P1、无 P2；O1 topScorePlayerIds 隐含输入已降序前提→已改 Math.max 顺序无关+补乱序断言；O2 NaN 分数破坏全序由 N25 快照校验入约兜底（服务端每 revision 仅算一份广播，验收无威胁）；O3 arity 断言系弱代理，合看 TS 签名足够）。
 - **未解决事项**：无阻塞；N28 在 room.ts 消费 buildLeaderboard 做 dirty 批处理 ≤2Hz 发布（ScoreboardMsg.revision 统一管理，全员同 revision）。
+
+### N28 服务端排行榜 dirty 批处理与发布 ✅ PASS
+- 范围：`worker/src/room.ts` + 假时钟测试（新增 `room-scoreboard.test.ts` 10 用例；共享夹具 `room-routing-helpers.ts`）。
+- 实现：
+  - 房间级单调 `#revision`：countdown/match_start/player_left/match_end/remote_snapshot 扇出/watch_target/协议 error/scoreboard 全部经 `#nextRevision()`，废除硬编码 1；不变式限定「同一连接内同 revision ⇒ 内容一致」（`shared/protocol.ts` 注释修订，复审 O-1）。
+  - dirty 批处理：`#markScoreboardDirty(immediate, now)`——成绩/断线/重连走事件时间戳门控（≥500ms 立即发；静默窗内合并为**单个一次性 setTimeout**，无常驻 500ms 定时器、无每变更 Alarm）；淘汰/终局走立即通道（终局两处统一传事件 now，复审 O-3）。
+  - `#flushScoreboard`：dirty 才重排（不按每快照全员重排）；数据源=冻结名单+eliminations+seats.disconnected_at+内存快照槽（**零写库**）；entries JSON 与上次一致则跳过发布（不占 revision，方案 §5「无变化不重复推送」）；驱逐重建后槽全空且已开球 ≥500ms 跳过发布（0 分假榜不覆盖正确榜，复审 P2-1）；全员同一份 entries+revision。
+  - 触发点：快照入账（score/lines 变化才标脏）、批量淘汰、两处终局、断线/重连、开局首榜；startGame/nextRound/releaseRoomData 重置批处理态（防陈旧定时器跨局补发）。
+- 验收：6 人 5Hz×5s=150 帧压力下榜单含首榜 ≤11 条（≤2Hz）且全员逐字段一致；无变化时零广播、`vi.getTimerCount()===0`；静默窗内多次变化仅 1 定时器、到点一次发布最新值；淘汰即时广播且死人留榜分数冻结（420 分实测）；压力全程 sql.exec 语句级 spy：零 UPDATE/DELETE/REPLACE、INSERT 仅幂等 ensureRow、行数不变、alarmCalls 不新增（复审 P2-2/O-4）；revision 严格递增；终局立即发布最终榜（得分降序不切换）；被淘汰者后续快照不再触发；跨局批处理态作废；驱逐重建槽空跳过假榜、入账后重建真榜。
+- 旧测试适配：alarm/countdown/elimination/grace 的 `revision: 1` 硬编码断言放宽为 `expect.any(Number)`（N28 语义即废除硬编码）；countdown 用例消息数 2→3（新增首榜，断言增强）。
+- 门槛：worker tsc=0、worker vitest 23 文件/186 全绿；根 vitest 300 全绿、根 tsc=0、build=0、Playwright 7/7。证据 `evidence/multiplayer/N28/`。
+- 复审：独立只读复审 PASS（P1×0、P2×2 均已在提交前修复：P2-1 驱逐守卫+用例、P2-2 语句级断言）。
+- 遗留观察：淘汰风暴（6 人连续立即通道）最坏 6 条榜单/瞬时——受席位规模约束，可接受；`#revision` 内存态跨驱逐归零已在协议注释文档化（O-2）。
+

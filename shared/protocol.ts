@@ -344,7 +344,12 @@ export type ClientMessage =
   | LeaveMsg
   | PingMsg;
 
-/** 服务端消息带房间/榜单 revision（同 revision 内容完全一致）。 */
+/**
+ * 服务端消息带房间/榜单 revision。不变式按**单条连接**成立：同一连接上收到的
+ * 同 revision 消息内容完全一致（跨席位载荷如 match_start 的 seatSeed/seatIndex
+ * 逐席位不同，故不声明全局同 revision ⇒ 同内容）。revision 为 DO 内存态，
+ * 驱逐重建后归零，客户端不得跨实例用它做去重。
+ */
 export interface ServerRevField {
   revision: number;
 }

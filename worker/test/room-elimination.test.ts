@@ -109,13 +109,13 @@ describe('N18 淘汰与提前终局', () => {
     expect(room.getLobbyState()?.state).toBe('FINISHED'); // 最后 1 人立即胜出
     const msgs = parsed(states.get(host) as WsState);
     expect(msgs.filter((m) => m.type === 'player_left')).toEqual([
-      { v: 1, type: 'player_left', revision: 1, playerId: ids[1], reason: 'eliminated' },
-      { v: 1, type: 'player_left', revision: 1, playerId: ids[2], reason: 'eliminated' },
-      { v: 1, type: 'player_left', revision: 1, playerId: ids[3], reason: 'eliminated' },
+      { v: 1, type: 'player_left', revision: expect.any(Number), playerId: ids[1], reason: 'eliminated' },
+      { v: 1, type: 'player_left', revision: expect.any(Number), playerId: ids[2], reason: 'eliminated' },
+      { v: 1, type: 'player_left', revision: expect.any(Number), playerId: ids[3], reason: 'eliminated' },
     ]);
     const end = msgs.find((m) => m.type === 'match_end');
     expect(end).toEqual({
-      v: 1, type: 'match_end', revision: 1, matchId, reason: 'survival', winners: [host], standings: [],
+      v: 1, type: 'match_end', revision: expect.any(Number), matchId, reason: 'survival', winners: [host], standings: [],
     });
     vi.useRealTimers();
   });
@@ -250,7 +250,7 @@ describe('N18 淘汰与提前终局', () => {
     expect(room.getLobbyState()?.state).toBe('FINISHED');
     const end = parsed(states.get(host) as WsState).find((m) => m.type === 'match_end');
     expect(end).toEqual({
-      v: 1, type: 'match_end', revision: 1, matchId, reason: 'timeout',
+      v: 1, type: 'match_end', revision: expect.any(Number), matchId, reason: 'timeout',
       winners: expect.arrayContaining([host, ids[1]]), standings: [],
     });
     expect(((end as { winners: string[] }).winners ?? []).length).toBe(2); // 存活 2 人并列

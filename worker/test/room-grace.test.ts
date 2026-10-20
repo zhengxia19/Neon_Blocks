@@ -138,7 +138,7 @@ describe('N20 断线宽限与单席位重连', () => {
         (x) => x.type === 'player_left' && x.reason === 'grace_expired',
       );
       expect(mine).toEqual([
-        { v: 1, type: 'player_left', revision: 1, playerId: m.ids[1], reason: 'grace_expired' },
+        { v: 1, type: 'player_left', revision: expect.any(Number), playerId: m.ids[1], reason: 'grace_expired' },
       ]);
     }
     // 席位存续（≠30 分钟房间清理）：房间仍占用、席位仍在、断线标记保留。

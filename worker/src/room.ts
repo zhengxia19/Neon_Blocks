@@ -33,14 +33,17 @@ import type {
   MatchId,
   MatchStartMsg,
   PlayerLeftMsg,
+  PlayerStatus,
   RandomMode,
   RngAlgo,
   RoomPhase,
   RoomSettings,
+  ScoreboardMsg,
   SnapshotMsg,
 } from '../../shared/protocol';
 import { describeError } from '../../shared/errors';
 import { validateClientMessage, withinMessageLimit } from '../../shared/validate';
+import { buildLeaderboard, type LeaderboardRow } from './leaderboard';
 import type { Env } from './index';
 
 type RoomMetaRow = { generation: number; occupied: number };
@@ -51,6 +54,8 @@ const INBOUND_RATE_PER_SEC = 20;
 // N25：出站背压阈值——ws.bufferedAmount 超过此值时快照帧只入单槽队列
 // （丢弃旧帧保留新帧），缓冲回落后补发。槽数受连接数约束（≤6）。
 const OUTBOUND_BUFFER_LIMIT = 16_384;
+// N28：排行榜广播最小间隔（最高 2Hz；方案 §5:129「排行榜最多广播 2 次／秒」）。
+const SCOREBOARD_MIN_INTERVAL_MS = 500;
 
 /** N25：席位最新快照槽（内存态，绝不写 SQLite；N26 单目标路由读取源）。 */
 export type SnapshotSlot = {
@@ -58,6 +63,9 @@ export type SnapshotSlot = {
   seq: number;
   matchId: MatchId;
   receivedAt: number;
+  /** N28：入账时提取的成绩（榜单构建免重复解析；快照校验保证为有限数）。 */
+  score: number;
+  lines: number;
 };
 
 export type CreateClaim =
@@ -244,6 +252,18 @@ export class RoomDO extends DurableObject<Env> {
   readonly #watchTarget = new Map<string, string>();
   // targetPlayerId → 观察该目标的席位集合（反向索引：快照扇出 O(观察者数)，杜绝 O(N²) 全发）。
   readonly #watchersOf = new Map<string, Set<string>>();
+  // —— N28：服务端消息 revision 与排行榜 dirty 批处理（内存态；无常驻定时器、
+  // 无每变更 Alarm——仅在有 pending 变更且处于静默窗时挂单个一次性定时器）——
+  // 房间级消息 revision：每个广播批次/单发消息递增一次（同 revision ⇒ 内容一致）。
+  #revision = 0;
+  // 榜单脏标记：成绩/状态变化置位，广播时才重排（不按每个快照全员重排）。
+  #sbDirty = false;
+  // 上次榜单广播时刻（null=本局尚未发过，首个变化立即发）。
+  #sbLastSentAt: number | null = null;
+  // 上次广播的 entries 序列化（内容一致则跳过发布，不占 revision）。
+  #sbLastEntriesJson: string | null = null;
+  // 静默窗内合并多个变化的单个一次性定时器（发出即清空；无变化永不挂）。
+  #sbTimer: ReturnType<typeof setTimeout> | null = null;
 
   // SQLite DO 访问方式（本地 workerd 实测）：每次经 `this.ctx.storage.sql` 取用；
   // 构造器缓存句柄在驱逐后写入不可见。
@@ -728,6 +748,8 @@ export class RoomDO extends DurableObject<Env> {
     // N26：订阅映射随局作废（RUNNING 时按冻结名单重建默认环）。
     this.#watchTarget.clear();
     this.#watchersOf.clear();
+    // N28：榜单批处理态随局作废（开局首榜在 advanceToRunning 重新发布）。
+    this.#resetScoreboardBatch();
     this.#sql.exec(
       `INSERT OR REPLACE INTO match_state
          (id, match_id, generation, master_seed, rng_algo, start_at, deadline_at, running_at)
@@ -747,9 +769,17 @@ export class RoomDO extends DurableObject<Env> {
         config.randomMode === 'S2' ? deriveSeatSeed(masterSeed, r.player_id) : masterSeed;
     }
     // 一次性下发倒计时（各客户端本地显示 3、2、1；不逐秒广播）。
+    const countdownRevision = this.#nextRevision();
     this.#broadcast((playerId) => {
       void playerId;
-      return { v: PROTOCOL_VERSION, type: 'countdown', revision: 1, matchId, startAt, deadlineAt };
+      return {
+        v: PROTOCOL_VERSION,
+        type: 'countdown',
+        revision: countdownRevision,
+        matchId,
+        startAt,
+        deadlineAt,
+      };
     });
     const settings: RoomSettings = {
       capacity: config.capacity,
@@ -863,10 +893,11 @@ export class RoomDO extends DurableObject<Env> {
       seatIndex.set(s.player_id, Number(s.join_order));
     }
     const masterSeed = Number(row.master_seed);
+    const matchStartRevision = this.#nextRevision();
     this.#broadcast((playerId) => ({
       v: PROTOCOL_VERSION,
       type: 'match_start',
-      revision: 1,
+      revision: matchStartRevision,
       matchId: row.match_id,
       startAt,
       deadlineAt: Number(row.deadline_at),
@@ -878,6 +909,9 @@ export class RoomDO extends DurableObject<Env> {
     // N26：建立默认观察环（确定性：按冻结加入序号的下一席位，永不为自身；
     // 目标选择算法属 N29 纯函数，N30 周期重估并即时补发最后一帧）。
     this.#buildDefaultWatchRing(Number(meta.generation));
+    // N28：开局首榜（全员零分/playing；此后仅经 dirty 批处理发布，≤2Hz）。
+    this.#sbDirty = true;
+    this.#flushScoreboard(now);
     return { started: true, matchId: row.match_id, startAt, deadlineAt: Number(row.deadline_at) };
   }
 
@@ -920,7 +954,7 @@ export class RoomDO extends DurableObject<Env> {
       else this.ctx.storage.setAlarm(Number(row.start_at));
       return;
     }
-    if (now >= Number(row.deadline_at)) this.#endAtDeadline(Number(meta.generation), row.match_id);
+    if (now >= Number(row.deadline_at)) this.#endAtDeadline(Number(meta.generation), row.match_id, now);
     else this.ctx.storage.setAlarm(Number(row.deadline_at));
   }
 
@@ -1098,6 +1132,8 @@ export class RoomDO extends DurableObject<Env> {
     // N26：订阅映射随业务释放清空。
     this.#watchTarget.clear();
     this.#watchersOf.clear();
+    // N28：榜单批处理态随业务释放清空（含未触发的一次性定时器）。
+    this.#resetScoreboardBatch();
     void this.ctx.storage.deleteAlarm();
   }
 
@@ -1106,23 +1142,26 @@ export class RoomDO extends DurableObject<Env> {
    * 非 RUNNING 直接返回，不重复广播。此刻尚无淘汰面（N18），名单全员存活 →
    * winners=冻结名单全体；最终名次 standings 由 N19 ranking 填充。
    */
-  #endAtDeadline(generation: number, matchId: string): void {
+  #endAtDeadline(generation: number, matchId: string, now = Date.now()): void {
     const res = this.finishGame();
     if (!res.finished) return;
     // N18：超时终局的胜者 = 冻结名单中未被淘汰的存活者（无淘汰时即全体）。
     const winners = this.#survivorsOf(generation, matchId);
+    const matchEndRevision = this.#nextRevision();
     this.#broadcast(
       () =>
         ({
           v: PROTOCOL_VERSION,
           type: 'match_end',
-          revision: 1,
+          revision: matchEndRevision,
           matchId,
           reason: 'timeout',
           winners,
           standings: [],
         }) as MatchEndMsg,
     );
+    // N28：终局为关键状态——最终榜单立即广播（得分降序不切换，方案 §5:131）。
+    this.#markScoreboardDirty(true, now);
   }
 
   /** 当代 match_state 单行（时间/种子权威）；不存在或代际陈旧返回 undefined。 */
@@ -1159,7 +1198,9 @@ export class RoomDO extends DurableObject<Env> {
 
   /** 向全部 Hibernation 存量连接按席位身份发送一条服务端消息（附件缺失跳过）。 */
   #broadcast(
-    build: (playerId: string) => CountdownMsg | MatchStartMsg | MatchEndMsg | PlayerLeftMsg,
+    build: (
+      playerId: string,
+    ) => CountdownMsg | MatchStartMsg | MatchEndMsg | PlayerLeftMsg | ScoreboardMsg,
   ): number {
     let sent = 0;
     for (const ws of this.ctx.getWebSockets()) {
@@ -1169,6 +1210,124 @@ export class RoomDO extends DurableObject<Env> {
       sent += 1;
     }
     return sent;
+  }
+
+  /** N28：房间级消息 revision（每广播批次/单发消息递增一次；同 revision ⇒ 内容完全一致）。 */
+  #nextRevision(): number {
+    this.#revision += 1;
+    return this.#revision;
+  }
+
+  /**
+   * N28：成绩/状态变化标记榜单 dirty。事件时间戳门控最高 2Hz：距上次广播
+   * ≥500ms 立即随事件发出（零额外定时器）；静默窗内只挂**一个**一次性定时器
+   * 合并全部变化（无待发送变化时不唤醒：无常驻 500ms 定时器、绝不每次变更
+   * 调 Alarm）。关键状态（淘汰/终局）immediate=true 立即广播。
+   */
+  #markScoreboardDirty(immediate: boolean, now: number = Date.now()): void {
+    this.#sbDirty = true;
+    if (immediate) {
+      this.#flushScoreboard(now);
+      return;
+    }
+    if (this.#sbTimer !== null) return; // 已合并：不重复挂、不重置窗口
+    if (this.#sbLastSentAt === null || now - this.#sbLastSentAt >= SCOREBOARD_MIN_INTERVAL_MS) {
+      this.#flushScoreboard(now);
+      return;
+    }
+    const wait = SCOREBOARD_MIN_INTERVAL_MS - (now - this.#sbLastSentAt);
+    this.#sbTimer = setTimeout(() => {
+      this.#sbTimer = null;
+      this.#flushScoreboard(Date.now());
+    }, wait);
+  }
+
+  /**
+   * N28：榜单唯一重排/发布点（dirty 才构建；每 ≤500ms 至多一次，全员同一份
+   * entries+revision）。数据源：冻结名单 + 淘汰表 + 席位断线标记 + 内存快照槽
+   * （**零写库**，读查询受席位规模约束）。
+   */
+  #flushScoreboard(now: number): void {
+    if (this.#sbTimer !== null) {
+      clearTimeout(this.#sbTimer);
+      this.#sbTimer = null;
+    }
+    if (!this.#sbDirty) return;
+    this.#sbDirty = false;
+    this.#ensureSchema();
+    this.#ensureRow();
+    const meta = this.#sql
+      .exec<RoomMetaRow>('SELECT generation, occupied FROM room_meta WHERE id = 1')
+      .one();
+    if (meta.occupied !== 1) return;
+    const config = this.#readConfig();
+    if (config === null || config.generation !== Number(meta.generation)) return;
+    const generation = Number(meta.generation);
+    const row = this.#readMatchState(generation);
+    if (row === undefined) return; // 未开局（LOBBY/COUNTDOWN）：无榜单可发
+    const matchId = String(row.match_id);
+    const eliminated = new Set(
+      [
+        ...this.#sql.exec<{ player_id: string }>(
+          'SELECT player_id FROM eliminations WHERE generation = ? AND match_id = ?',
+          generation,
+          matchId,
+        ),
+      ].map((r) => r.player_id),
+    );
+    const disconnected = new Map<string, number>();
+    for (const s of this.#sql.exec<{ player_id: string; disconnected_at: number | null }>(
+      'SELECT player_id, disconnected_at FROM seats WHERE generation = ?',
+      generation,
+    )) {
+      if (s.disconnected_at !== null) disconnected.set(s.player_id, Number(s.disconnected_at));
+    }
+    const rows: LeaderboardRow[] = [];
+    let anySlot = false;
+    for (const r of this.#sql.exec<{ player_id: string; nickname: string; join_order: number }>(
+      'SELECT player_id, nickname, join_order FROM match_roster WHERE generation = ? ORDER BY join_order ASC',
+      generation,
+    )) {
+      const slot = this.#snapLatest.get(r.player_id);
+      if (slot !== undefined) anySlot = true;
+      let status: PlayerStatus = 'playing';
+      if (eliminated.has(r.player_id)) status = 'eliminated';
+      else if (disconnected.has(r.player_id)) status = 'disconnected';
+      rows.push({
+        playerId: r.player_id,
+        nickname: r.nickname,
+        score: slot?.score ?? 0,
+        lines: slot?.lines ?? 0,
+        joinOrder: Number(r.join_order),
+        status,
+      });
+    }
+    if (rows.length === 0) return;
+    // 复审 P2-1（N28）：DO 驱逐后内存槽全空——若已开球 ≥500ms 仍无人入账，跳过发布
+    // （全员 0 分榜会覆盖客户端已显示的正确榜；发布错误榜劣于不发布；后续快照入账
+    // 自然重建。开局首榜在 now===startAt 发布，不受此守卫影响）。
+    if (!anySlot && now - Number(row.start_at) >= SCOREBOARD_MIN_INTERVAL_MS) return;
+    const entries = buildLeaderboard(rows);
+    // 方案 §5：榜单内容无变化不重复推送（不占 revision、不刷新发布时刻）。
+    const entriesJson = JSON.stringify(entries);
+    if (entriesJson === this.#sbLastEntriesJson) return;
+    const revision = this.#nextRevision();
+    this.#broadcast(
+      () => ({ v: PROTOCOL_VERSION, type: 'scoreboard', revision, entries }) as ScoreboardMsg,
+    );
+    this.#sbLastSentAt = now;
+    this.#sbLastEntriesJson = entriesJson;
+  }
+
+  /** N28：局/房间切换作废榜单批处理态（revision 计数保持单调，防陈旧定时器补发）。 */
+  #resetScoreboardBatch(): void {
+    if (this.#sbTimer !== null) {
+      clearTimeout(this.#sbTimer);
+      this.#sbTimer = null;
+    }
+    this.#sbDirty = false;
+    this.#sbLastSentAt = null;
+    this.#sbLastEntriesJson = null;
   }
 
   /** N15：RUNNING→FINISHED 权威转换（N17 到期/N18 淘汰裁决触发；此处提供转移与幂等拒绝）。 */
@@ -1283,18 +1442,21 @@ export class RoomDO extends DurableObject<Env> {
         matchId,
         generation,
       );
+      const leftRevision = this.#nextRevision();
       this.#broadcast(
         () =>
           ({
             v: PROTOCOL_VERSION,
             type: 'player_left',
-            revision: 1,
+            revision: leftRevision,
             playerId,
             reason,
           }) as PlayerLeftMsg,
       );
       accepted.push(playerId);
     }
+    // N28：淘汰属关键状态——榜单立即广播（死人留榜、分数冻结在最后快照）。
+    if (accepted.length > 0) this.#markScoreboardDirty(true, now);
     const survivors = this.#survivorsOf(generation, matchId);
     let matchEnded = false;
     let winners: string[] = [];
@@ -1306,7 +1468,7 @@ export class RoomDO extends DurableObject<Env> {
       matchEnded = true;
     }
     if (matchEnded) {
-      this.#endMatchWithWinners(matchId, winners);
+      this.#endMatchWithWinners(matchId, winners, now);
       // N21（N18 复审 O1）：提前终局取消残留的 deadline 闹钟（重排候选或 deleteAlarm）。
       this.#rescheduleAlarms(now);
     }
@@ -1361,21 +1523,24 @@ export class RoomDO extends DurableObject<Env> {
   }
 
   /** N18：淘汰触发的提前终局（经 finishGame 幂等门；reason=survival）。 */
-  #endMatchWithWinners(matchId: string, winners: string[]): void {
+  #endMatchWithWinners(matchId: string, winners: string[], now = Date.now()): void {
     const res = this.finishGame();
     if (!res.finished) return;
+    const matchEndRevision = this.#nextRevision();
     this.#broadcast(
       () =>
         ({
           v: PROTOCOL_VERSION,
           type: 'match_end',
-          revision: 1,
+          revision: matchEndRevision,
           matchId,
           reason: 'survival',
           winners,
           standings: [],
         }) as MatchEndMsg,
     );
+    // N28：终局为关键状态——最终榜单立即广播。
+    this.#markScoreboardDirty(true, now);
   }
 
   /**
@@ -1410,6 +1575,8 @@ export class RoomDO extends DurableObject<Env> {
     // N26：订阅映射同样随局作废（RUNNING 时重建默认环）。
     this.#watchTarget.clear();
     this.#watchersOf.clear();
+    // N28：榜单批处理态随局作废。
+    this.#resetScoreboardBatch();
     // N21：下一局若全员连接已意外离线，空置闹钟仍适用（重排最近候选）。
     this.#markIdleIfEmpty(Date.now());
     this.#rescheduleAlarms(Date.now());
@@ -1630,6 +1797,8 @@ export class RoomDO extends DurableObject<Env> {
       result.generation,
     );
     this.#sql.exec('UPDATE seats SET disconnected_at = NULL WHERE player_id = ?', result.playerId);
+    // N28：重连恢复「连接中断」标记属状态变化（非关键，走批处理）。
+    this.#markScoreboardDirty(false);
     // workers-types：acceptWebSocket 第二参为 tags；附件经 serializeAttachment 随
     // socket 持久化，休眠/重建后 deserializeAttachment 恢复席位身份。
     this.ctx.acceptWebSocket(ws);
@@ -1841,7 +2010,17 @@ export class RoomDO extends DurableObject<Env> {
       seq: msg.snapshot.seq,
       matchId,
       receivedAt: Date.now(),
+      score: msg.snapshot.score,
+      lines: msg.snapshot.lines,
     });
+    // N28：成绩变化只置 dirty（不按每个快照全员重排）；分数/消行未变不标记。
+    if (
+      prev === undefined ||
+      prev.score !== msg.snapshot.score ||
+      prev.lines !== msg.snapshot.lines
+    ) {
+      this.#markScoreboardDirty(false);
+    }
     // N26：单目标路由——只向当前观察该玩家的连接投递（扇出 O(观察者数)≤N-1，
     // 每席位至多一条目标流；绝不向全员转发造成 O(N²)）。
     // P2-1（N26 复审）：DO 驱逐/重建后内存订阅映射丢失——RUNNING 中惰性重建
@@ -1850,7 +2029,8 @@ export class RoomDO extends DurableObject<Env> {
     const watchers = this.#watchersOf.get(att.playerId);
     if (watchers !== undefined && watchers.size > 0) {
       const slot = this.#snapLatest.get(att.playerId) as SnapshotSlot;
-      const text = `{"v":${PROTOCOL_VERSION},"type":"remote_snapshot","revision":1,"targetPlayerId":${JSON.stringify(att.playerId)},"snapshot":${slot.encoded}}`;
+      const revision = this.#nextRevision();
+      const text = `{"v":${PROTOCOL_VERSION},"type":"remote_snapshot","revision":${revision},"targetPlayerId":${JSON.stringify(att.playerId)},"snapshot":${slot.encoded}}`;
       for (const ws of this.ctx.getWebSockets()) {
         const wAtt = this.#attachmentOf(ws);
         if (wAtt !== null && watchers.has(wAtt.playerId)) this.deliverFrame(wAtt.connId, ws, text);
@@ -1893,6 +2073,7 @@ export class RoomDO extends DurableObject<Env> {
     // P2-1（N26 复审）：驱逐重建后订阅映射为空——先惰性重建默认环再改写。
     if (this.#watchTarget.size === 0) this.#buildDefaultWatchRing(generation);
     this.#setWatchMaps(playerId, targetPlayerId);
+    const watchTargetRevision = this.#nextRevision();
     for (const ws of this.ctx.getWebSockets()) {
       const att = this.#attachmentOf(ws);
       if (att === null || att.playerId !== playerId) continue;
@@ -1903,7 +2084,7 @@ export class RoomDO extends DurableObject<Env> {
         JSON.stringify({
           v: PROTOCOL_VERSION,
           type: 'watch_target',
-          revision: 1,
+          revision: watchTargetRevision,
           targetPlayerId,
         }),
       );
@@ -1912,7 +2093,7 @@ export class RoomDO extends DurableObject<Env> {
         this.deliverFrame(
           att.connId,
           ws,
-          `{"v":${PROTOCOL_VERSION},"type":"remote_snapshot","revision":1,"targetPlayerId":${JSON.stringify(targetPlayerId)},"snapshot":${slot.encoded}}`,
+          `{"v":${PROTOCOL_VERSION},"type":"remote_snapshot","revision":${this.#nextRevision()},"targetPlayerId":${JSON.stringify(targetPlayerId)},"snapshot":${slot.encoded}}`,
         );
       }
     }
@@ -1999,14 +2180,14 @@ export class RoomDO extends DurableObject<Env> {
     return row === undefined ? null : (String(row.match_id) as MatchId);
   }
 
-  /** 协议 error 回复（message/retryable 取自 shared 错误目录；revision 暂硬编码 1，N28 修订号统一管理）。 */
+  /** 协议 error 回复（message/retryable 取自 shared 错误目录；N28：revision 房间级单调）。 */
   #sendProtocolError(ws: WebSocket, code: string): void {
     const meta = describeError(code);
     ws.send(
       JSON.stringify({
         v: PROTOCOL_VERSION,
         type: 'error',
-        revision: 1,
+        revision: this.#nextRevision(),
         code,
         message: meta.message,
         retryable: meta.retryable,
@@ -2038,12 +2219,23 @@ export class RoomDO extends DurableObject<Env> {
   }
 
   /** N25：管线内存态规模（全部受席位/连接数约束；测试断言有界性）。 */
-  pipelineStats(): { snapshots: number; conns: number; outSlots: number; watchTargets: number } {
+  pipelineStats(): {
+    snapshots: number;
+    conns: number;
+    outSlots: number;
+    watchTargets: number;
+    sbRevision: number;
+    sbDirty: boolean;
+    sbTimerPending: boolean;
+  } {
     return {
       snapshots: this.#snapLatest.size,
       conns: this.#connSeq.size,
       outSlots: this.#outSlots.size,
       watchTargets: this.#watchTarget.size,
+      sbRevision: this.#revision,
+      sbDirty: this.#sbDirty,
+      sbTimerPending: this.#sbTimer !== null,
     };
   }
 
@@ -2093,6 +2285,9 @@ export class RoomDO extends DurableObject<Env> {
     if (released !== 1) return; // 已被替换的陈旧 close：不清标记、不排闹钟
     const now = Date.now();
     this.#sql.exec('UPDATE seats SET disconnected_at = ? WHERE player_id = ?', now, att.playerId);
+    // N28：断线显示「连接中断」属状态变化（宽限期非关键，走 ≤2Hz 批处理；
+    // 宽限到期淘汰是独立裁决，走关键立即通道）。
+    this.#markScoreboardDirty(false, now);
     // N21：若本连接是最后一条活动连接 → 记录空置起点（空置闹钟候选）。
     this.#markIdleIfEmpty(now);
     this.#maybeScheduleGraceAlarm(now);

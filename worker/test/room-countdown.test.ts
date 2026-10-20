@@ -172,7 +172,7 @@ describe('N16 COUNTDOWN→RUNNING 临界时刻与提前开始拒绝', () => {
       expect(msgs[0]).toEqual({
         v: 1,
         type: 'countdown',
-        revision: 1,
+        revision: expect.any(Number), // N28：房间级单调 revision
         matchId: res.match.matchId,
         startAt: res.match.startAt,
         deadlineAt: res.match.deadlineAt,
@@ -181,11 +181,11 @@ describe('N16 COUNTDOWN→RUNNING 临界时刻与提前开始拒绝', () => {
     room.advanceToRunning(res.match.startAt);
     for (const [index, id] of all.entries()) {
       const msgs = states.get(id)!.sent.map((m) => JSON.parse(m) as Record<string, unknown>);
-      expect(msgs.length).toBe(2);
+      expect(msgs.length).toBe(3); // countdown + match_start + N28 首榜
       expect(msgs[1]).toEqual({
         v: 1,
         type: 'match_start',
-        revision: 1,
+        revision: expect.any(Number),
         matchId: res.match.matchId,
         startAt: res.match.startAt,
         deadlineAt: res.match.deadlineAt,
@@ -194,6 +194,7 @@ describe('N16 COUNTDOWN→RUNNING 临界时刻与提前开始拒绝', () => {
         seatIndex: index + 1,
         startLevel: 2,
       });
+      expect(msgs[2]).toMatchObject({ type: 'scoreboard' });
     }
   });
 
