@@ -145,8 +145,8 @@ test.describe('N33 等待大厅（双端）', () => {
       await expect(a.locator('#mp-pre-countdown')).toContainText(/即将开始：[123]/, { timeout: LOBBY_TIMEOUT });
       await expect(b.locator('#mp-pre-countdown')).toContainText(/即将开始：[123]/, { timeout: LOBBY_TIMEOUT });
       // 到点开局：状态行切换为进行中，棋盘画布就位。
-      await expect(a.locator('#mp-match-status')).toHaveText('比赛进行中', { timeout: 8000 });
-      await expect(b.locator('#mp-match-status')).toHaveText('比赛进行中', { timeout: 8000 });
+      await expect(a.locator('#mp-match-status')).toContainText('比赛进行中', { timeout: 8000 });
+      await expect(b.locator('#mp-match-status')).toContainText('比赛进行中', { timeout: 8000 });
       await expect(a.locator('#board-canvas')).toBeVisible();
       await expect(b.locator('#board-canvas')).toBeVisible();
       // 个人暂停禁用：暂停按钮隐藏；Esc 不产生暂停（状态行不变、无暂停遮罩）。
@@ -154,8 +154,8 @@ test.describe('N33 等待大厅（双端）', () => {
       await a.keyboard.press('Escape');
       await b.keyboard.press('Escape');
       await a.waitForTimeout(600);
-      await expect(a.locator('#mp-match-status')).toHaveText('比赛进行中');
-      await expect(b.locator('#mp-match-status')).toHaveText('比赛进行中');
+      await expect(a.locator('#mp-match-status')).toContainText('比赛进行中');
+      await expect(b.locator('#mp-match-status')).toContainText('比赛进行中');
       await expect(a.locator('#overlay-root')).not.toContainText('已暂停');
       await expect(b.locator('#overlay-root')).not.toContainText('已暂停');
     } finally {

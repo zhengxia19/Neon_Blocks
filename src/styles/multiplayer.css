@@ -173,3 +173,36 @@
 .lb-table tr.lb-winner .lb-name::after {
   content: ' 🏆';
 }
+
+/* ── N39-b 结果面板（match-results.ts）：overlay-root 全局 pointer-events:none
+   （不拦截棋盘交互），面板自身必须重新开启，否则房主「下一局」按钮不可点。 ── */
+#mp-results {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  text-align: center;
+}
+
+/* display:flex 会覆盖 [hidden] 的 UA display:none（E2E 首跑教训：面板创建即
+   「可见」，结果断言抢在 match_end 之前读到空文案）——显式恢复隐藏语义。 */
+#mp-results[hidden] {
+  display: none;
+}
+
+.mp-results-title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--text);
+}
+
+.mp-results-winners {
+  font-size: 14px;
+  color: var(--accent-2);
+}

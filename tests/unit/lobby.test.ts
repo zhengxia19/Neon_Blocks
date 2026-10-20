@@ -112,7 +112,8 @@ describe('N33 大厅装配结构（纯 DOM、无网络；接线经 NetClient）'
     const mp = SRC('app/multiplayer.ts');
     expect(mp).toMatch(/from\s+['"]\.\.\/ui\/lobby['"]/);
     // N34 起 room_state 先做墙钟校准再驱动大厅（校准行在 update 之前）。
-    expect(mp).toMatch(/case 'room_state':\s*clockOffset = computeClockOffset\(msg\.serverTime, Date\.now\(\)\);\s*lobby\?\.update\(msg\)/);
+    // N39-b：case 改为块作用域（对局期 LOBBY 拆局分支），update 在 else 分支。
+    expect(mp).toMatch(/case 'room_state': \{\s*clockOffset = computeClockOffset\(msg\.serverTime, Date\.now\(\)\);[\s\S]*?lobby\?\.update\(msg\);/);
     for (const t of ["type: 'ready'", "type: 'start'", "type: 'leave'", "type: 'settings_update'"]) {
       expect(mp).toContain(t);
     }

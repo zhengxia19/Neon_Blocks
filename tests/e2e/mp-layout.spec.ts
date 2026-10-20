@@ -56,8 +56,8 @@ async function startMatch(a: Page, b: Page): Promise<void> {
   await readyUp(b, 'guest02', a);
   await expect(a.locator('#mp-start')).toBeEnabled({ timeout: LOBBY_TIMEOUT });
   await a.click('#mp-start');
-  await expect(a.locator('#mp-match-status')).toHaveText('比赛进行中', { timeout: 10_000 });
-  await expect(b.locator('#mp-match-status')).toHaveText('比赛进行中', { timeout: 10_000 });
+  await expect(a.locator('#mp-match-status')).toContainText('比赛进行中', { timeout: 10_000 });
+  await expect(b.locator('#mp-match-status')).toContainText('比赛进行中', { timeout: 10_000 });
 }
 
 interface Box { x: number; y: number; width: number; height: number }

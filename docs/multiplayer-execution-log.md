@@ -523,3 +523,13 @@
 - **门槛**：根 vitest 25/378、根 tsc=0、build=0（mp chunk 30.76 kB、index 36.08 kB、CSS 11.31 kB 不变——客户端零改动）；worker vitest 27 文件/219（+1 文件 +3 用例）、worker tsc=0；E2E Worker 运行时 mp 组 8 通过、无 Worker 全量 15 通过/8 跳过。证据 `evidence/multiplayer/N39-a/`。
 - **复审**：独立只读复审 PASS（P1×0、P2×0、O×4）；复跑数字与证据逐项吻合（root 25/378、worker 27/219、tsc 0/0、build 哈希一致→客户端零改动得证）。设计决策 (a) 复用 `start` 判定合理：§7.2 白名单封闭枚举且协议契约测试钉死，新增类型将偏离唯一实施依据；(b) 无语义漏洞——COUNTDOWN/RUNNING 行为不变、双发 start 幂等安全、FINISHED 阶段 guest 发 start 错误码由 GAME_STARTED 变为更准确的 NOT_HOST（预期新语义）。O-1（N36 截图被 E2E 复跑覆写）已 `git checkout` 还原不入本次提交；O-2 临时日志草稿追加后删除。
 - **遗留观察**：O-1 终局后 guest 也可发 `start`（收 NOT_HOST），UI 层「下一局」按钮应仅房主可见——N39-b 结果面板落实；O-2 `BAD_STATE→NOT_IN_GAME` 映射仅在 `#readConfig` 检查点后状态竞态时出现——复审证实 pre-check→nextRound 同一同步段内 WS 路径实际不可达，映射纯防御；O-3 下一局复用 `start` 意味着 N39-b 结果面板按钮与大厅开始按钮同消息不同阶段语义，客户端无需新发送路径；O-4（复审）`nextRound` 后 settings_update 恢复可用，满足 §2「下一局可重选模式/种子」——N39-b 大厅复用既有设置 UI 即兑现。
+
+## N39-b 淘汰、超时、结果与下一局 UI（客户端）— 完成
+- 范围：match_end 结果面板 + 600 秒剩余状态行 + 淘汰展示 + 房主专属下一局（N39 拆分之二，服务端见 N39-a）。
+- 改动（逻辑 3 文件 ≈250 行）：src/ui/match-results.ts（新增：formatRemaining/endReasonLabel/winnersText 纯函数 + #mp-results/#mp-next-round 面板）；src/app/match.ts（状态行逐秒「剩余 mm:ss」用 deadlineAt−校准墙钟、本人淘汰由服务端榜单 status=eliminated 驱动、applyMatchEnd 全量消费并冻结棋盘卸载输入）；src/app/multiplayer.ts（room_state 块作用域跟踪 myIsHost、对局期收 phase=LOBBY → 停快照+拆对局+重建大厅、match_end 停快照上行、下一局承载于 start，§7.2 C→S 白名单零改动）；multiplayer.css（#mp-results pointer-events:auto + [hidden] display:none）。
+- 测试：tests/unit/match-results.test.ts（11 用例，正+反+CSS 钉死）；tests/e2e/mp-results.spec.ts（双人真实 topout→只剩 1 人即时结束→两端结果文案逐字一致→榜单「已淘汰」→房主专属下一局→回大厅房间码不变→再准备再开局闭环）；playwright testMatch 加 mp-results；mp-lobby/layout/boards 状态行断言 toHaveText→toContainText。
+- E2E 教训（已钉死）：overlay-root 全局 pointer-events:none 拦截面板按钮点击；display:flex 覆盖 UA [hidden] 致面板创建即「可见」。
+- 复审（独立只读）：PASS，P1×0、P2×2、O×7。P2-1 终局冻结（match_end 停快照上行 + ended 后跳过 step/节奏 + releaseInputs+dispose 输入）；P2-2 isHost getter 化（房主局中转让后新房主仍可开下一局）。修复后全门禁复跑绿。
+- 门禁：root 26 文件/388 用例；root tsc 0；build mp 32.77 kB / index 36.08 kB 不变 / CSS 11.72 kB；worker 27/219（零改动）；worker tsc 0；E2E mp 组（worker 8787 在跑）9 通过；E2E 全量（无 worker）15 通过/9 跳过。
+- 证据：evidence/multiplayer/N39-b/（README + 7 份原始输出）。
+- 遗留观察转 N40：对局期 error 静默丢弃（O-1）；mp-mode 类回大厅残留（O-3）；极端短局「本局无胜者」理论边界（O-4）；断线错过 match_end 后 FINISHED 重连界面停滞（O-7）。

@@ -23,7 +23,8 @@ export default defineConfig({
       // N33：mp-lobby 需本机 Worker(8787)，未运行时用例内跳过；仅桌面 project 跑。
       // N36：mp-layout 双棋盘布局同样需 Worker（真实对局装配），仅桌面 project 跑。
       // N38：mp-boards 双棋盘/排行榜连接需 Worker（三人真实对局），仅桌面 project 跑。
-      testMatch: /(^|[/\\])(desktop|smoke|mp-entry|mp-lobby|mp-layout|mp-boards)\.spec\.ts$/,
+      // N39-b：mp-results 淘汰/结果/下一局 UI 需 Worker（双人真实对局终局），仅桌面 project 跑。
+      testMatch: /(^|[/\\])(desktop|smoke|mp-entry|mp-lobby|mp-layout|mp-boards|mp-results)\.spec\.ts$/,
       use: { ...devices['Desktop Chrome'] },
     },
     {

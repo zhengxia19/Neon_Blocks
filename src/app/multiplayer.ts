@@ -6,11 +6,15 @@
  * N38：对局期消息接线——本人快照发布（SnapshotPublisher 5Hz 上限 + 连接态
  * 联动）、scoreboard/watch_target/remote_snapshot/match_end 转发对局句柄、
  * 引擎 gameover 单发上报（淘汰时刻由服务器接收时刻裁决）。
+ * N39-b：终局与下一局——match_end 全量转发（结果面板/胜负独立文案）；对局期
+ * 收到 phase=LOBBY 的 room_state（房主「下一局」触发 FINISHED→LOBBY）即停发布、
+ * 拆对局、按新 room_state 重建大厅；本人房主身份从 room_state.players 跟踪，
+ * 决定对局结果面板是否渲染「下一局」入口（服务端仍裁决权限）。
  */
 import { PROTOCOL_VERSION, decodeSnapshot, type ServerMessage, SnapshotPublisher } from '../net';
 import { NetClient } from '../net';
 import { bootMatch, computeClockOffset, countdownLabel, type MatchHandle } from './match';
-import { renderLobby, type LobbyController } from '../ui/lobby';
+import { renderLobby, type LobbyCallbacks, type LobbyController } from '../ui/lobby';
 import { renderMultiplayerEntry, type EntryController } from '../ui/mp-entry';
 import { mountMultiplayerLayout } from '../ui/multiplayer-layout';
 
@@ -46,6 +50,9 @@ export function bootMultiplayer(root: HTMLElement, apiBaseUrl: string): Multipla
   let snapTimer: number | null = null;
   let snapSeq = 0;
   let gameoverSent = false;
+  // N39-b：本人房主身份（room_state.players 权威跟踪）与房间码（重建大厅提示用）。
+  let myIsHost = false;
+  let lastRoomCode = '';
 
   const stopSnapshotPublishing = (): void => {
     if (snapTimer !== null) {
@@ -113,10 +120,27 @@ export function bootMultiplayer(root: HTMLElement, apiBaseUrl: string): Multipla
     apiBaseUrl,
     onMessage: (msg: ServerMessage): void => {
       switch (msg.type) {
-        case 'room_state':
+        case 'room_state': {
           clockOffset = computeClockOffset(msg.serverTime, Date.now());
-          lobby?.update(msg);
+          const self = msg.players.find((player) => player.playerId === myPlayerId);
+          if (self !== undefined) myIsHost = self.isHost;
+          if (match !== null && msg.phase === 'LOBBY') {
+            // N39-b：房主「下一局」（FINISHED 阶段 start，N39-a 服务端分派）→
+            // 服务器向全员广播 LOBBY：停快照发布、拆对局（释放监听/计时器），
+            // 按新 room_state 重建大厅（席位/准备态由服务端权威驱动）。
+            stopSnapshotPublishing();
+            match.destroy();
+            match = null;
+            clearPreCountdown();
+            lobby?.destroy();
+            lobby = renderLobby(root, myPlayerId, lobbyHandlers);
+            lobby.update(msg);
+            lobby.showMessage('info', `房间码 ${lastRoomCode}，全员准备后房主可再开局。`);
+          } else {
+            lobby?.update(msg);
+          }
           break;
+        }
         case 'player_joined':
           lobby?.showMessage('info', `${msg.player.nickname} 加入了房间。`);
           break;
@@ -133,7 +157,14 @@ export function bootMultiplayer(root: HTMLElement, apiBaseUrl: string): Multipla
           clearPreCountdown();
           lobby?.destroy();
           lobby = null;
-          match = bootMatch(root, msg, clockOffset, myPlayerId);
+          match = bootMatch(root, msg, clockOffset, myPlayerId, {}, {
+            // N39-b：房主才渲染「下一局」入口；发送仍走 start（服务端按阶段裁决）。
+            // 复审 P2-2：getter 取实时值——房主局中离开转让后新房主仍可开下一局。
+            isHost: (): boolean => myIsHost,
+            onNextRound: (): void => {
+              client.send({ v: PROTOCOL_VERSION, type: 'start' });
+            },
+          });
           // N38：装配完成即开始 5Hz 快照发布（对局期数据上行）。
           startSnapshotPublishing();
           break;
@@ -151,8 +182,11 @@ export function bootMultiplayer(root: HTMLElement, apiBaseUrl: string): Multipla
           match?.applyRemoteSnapshot(msg.targetPlayerId, msg.snapshot);
           break;
         case 'match_end':
-          // N38：胜者仅标记高亮（结果面板完整语义属 N39）。
-          match?.applyMatchEnd(msg.winners);
+          // N39-b：全量转发（原因 + 胜者 + 房主入口；全员收到同一条 → 同结果）。
+          // 复审 P2-1：终局即停 5Hz 快照上行（FINISHED 下服务端 #ingestSnapshot
+          // 本就空操作，停发省掉空转带宽；LOBBY 拆局路径仍保留兜底停发）。
+          stopSnapshotPublishing();
+          match?.applyMatchEnd(msg);
           break;
         case 'error':
           lobby?.showMessage('error', msg.message);
@@ -179,8 +213,34 @@ export function bootMultiplayer(root: HTMLElement, apiBaseUrl: string): Multipla
     },
   });
 
+  // N39-b：大厅接线提取为常量——下一局重建大厅时复用同一控制器组。
+  const lobbyHandlers: LobbyCallbacks = {
+    onReady(): void {
+      client.send({ v: PROTOCOL_VERSION, type: 'ready' });
+    },
+    onStart(): void {
+      client.send({ v: PROTOCOL_VERSION, type: 'start' });
+    },
+    onLeave(): void {
+      client.send({ v: PROTOCOL_VERSION, type: 'leave' });
+      leftIntentionally = true;
+      client.leave();
+      leftIntentionally = false;
+      clearPreCountdown();
+      stopSnapshotPublishing();
+      lobby?.destroy();
+      lobby = null;
+      entry = renderMultiplayerEntry(root, entryHandlers);
+      entry.showMessage('info', '已离开房间。');
+    },
+    onSettingsUpdate(settings): void {
+      client.send({ v: PROTOCOL_VERSION, type: 'settings_update', ...settings });
+    },
+  };
+
   async function enterLobby(code: string, playerId: string): Promise<void> {
     myPlayerId = playerId;
+    lastRoomCode = code;
     const res = await client.connect();
     if (!res.ok) {
       entry?.showMessage('error', res.message);
@@ -188,29 +248,7 @@ export function bootMultiplayer(root: HTMLElement, apiBaseUrl: string): Multipla
     }
     entry?.destroy();
     entry = null;
-    lobby = renderLobby(root, myPlayerId, {
-      onReady(): void {
-        client.send({ v: PROTOCOL_VERSION, type: 'ready' });
-      },
-      onStart(): void {
-        client.send({ v: PROTOCOL_VERSION, type: 'start' });
-      },
-      onLeave(): void {
-        client.send({ v: PROTOCOL_VERSION, type: 'leave' });
-        leftIntentionally = true;
-        client.leave();
-        leftIntentionally = false;
-        clearPreCountdown();
-        stopSnapshotPublishing();
-        lobby?.destroy();
-        lobby = null;
-        entry = renderMultiplayerEntry(root, entryHandlers);
-        entry.showMessage('info', '已离开房间。');
-      },
-      onSettingsUpdate(settings): void {
-        client.send({ v: PROTOCOL_VERSION, type: 'settings_update', ...settings });
-      },
-    });
+    lobby = renderLobby(root, myPlayerId, lobbyHandlers);
     lobby.showMessage('info', `房间码 ${code}，分享给好友加入；全员准备后房主可开局。`);
   }
 

@@ -87,7 +87,7 @@ test.describe('N38 双棋盘与排行榜连接（三人局）', () => {
       await readyAll(pages);
       await a.click('#mp-start');
       for (const p of pages) {
-        await expect(p.locator('#mp-match-status')).toHaveText('比赛进行中', { timeout: 8000 });
+        await expect(p.locator('#mp-match-status')).toContainText('比赛进行中', { timeout: 8000 });
       }
 
       // 无第三棋盘：全页严格 2 个 Canvas（本人 + 对手）。

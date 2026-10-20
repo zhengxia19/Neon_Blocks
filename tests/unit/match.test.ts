@@ -71,7 +71,7 @@ describe('N34 装配结构断言', () => {
     expect(SRC.match).not.toContain('WebSocket');
     expect(SRC.match).not.toContain('NetClient');
     expect(SRC.multiplayer).toContain('computeClockOffset(msg.serverTime, Date.now())');
-    expect(SRC.multiplayer).toContain('bootMatch(root, msg, clockOffset, myPlayerId)');
+    expect(SRC.multiplayer).toContain('bootMatch(root, msg, clockOffset, myPlayerId, {}, {');
     expect(SRC.multiplayer).toContain('match?.destroy()');
   });
 

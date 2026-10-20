@@ -12,16 +12,20 @@
  * applyWatchTarget/applyRemoteSnapshot/applyMatchEnd` 由 multiplayer 接线转发
  * 服务器消息（本文件只消费，不收发）。切换观察目标即 `resetForTarget`
  * （旧目标最后画面保留至新目标补帧到达，无闪白）；resize 透传远程 Canvas。
+ * N39-b：对局状态行明确展示 600 秒剩余（`deadlineAt − 校准墙钟` 逐秒刷新）与
+ * 本人淘汰（服务端榜单 status=eliminated 驱动，不本地另算）；match_end 全量
+ * 消费（原因 + 胜者独立文案 + 房主「下一局」按钮，match-results.ts 组件）。
  */
 import { GameEngine } from '../game/engine';
 import { createSeededRng } from '../game/seeded-rng';
-import type { LeaderboardEntry, MatchStartMsg, SnapshotPayload } from '../../shared/protocol';
+import type { LeaderboardEntry, MatchEndMsg, MatchStartMsg, SnapshotPayload } from '../../shared/protocol';
 import { mountMultiplayerLayout, type MultiplayerLayoutRefs } from '../ui/multiplayer-layout';
 import { BoardRenderer } from '../ui/renderer';
 import { EffectsController } from '../ui/effects';
 import { createHud } from '../ui/hud';
 import { RemoteBoard } from '../ui/remote-board';
 import { createLeaderboardView, statusLabel } from '../ui/leaderboard';
+import { createResultsPanel, endReasonLabel, formatRemaining, winnersText } from '../ui/match-results';
 import { snapshotFromState } from './snapshot-source';
 import { KeyboardController } from '../input/keyboard';
 import { RepeatController } from '../input/repeat';
@@ -59,7 +63,7 @@ export interface MatchHandle {
   /** N38：remote_snapshot 仅接受当前观察目标的帧（陈旧目标帧丢弃）。 */
   applyRemoteSnapshot(targetPlayerId: string, snapshot: SnapshotPayload): boolean;
   /** N38：match_end 胜者标记（仅高亮，不改服务端榜单行序）。 */
-  applyMatchEnd(winnerPlayerIds: string[]): void;
+  applyMatchEnd(msg: MatchEndMsg): void;
   /** N38：本人状态 → 快照载荷（seq 由装配层发布计数供给，本文件不发送）。 */
   buildSnapshot(seq: number): SnapshotPayload;
   /** 诊断/E2E：当前观察目标与远程棋盘水位。 */
@@ -77,6 +81,9 @@ export function bootMatch(
   clockOffset: number,
   selfPlayerId: string,
   deps: { now?: () => number } = {},
+  // 复审 N39-b P2-2：isHost 用 getter 而非快照——房主局中离开触发转让后，
+  // 新房主的结果面板仍出现「下一局」按钮（match_end 时刻读实时值）。
+  ui: { isHost: () => boolean; onNextRound: () => void } = { isHost: () => false, onNextRound: () => undefined },
 ): MatchHandle {
   const wallNow = deps.now ?? ((): number => Date.now());
   // N36：联网装配使用双棋盘布局（本人棋盘与单人完全一致 + 对手棋盘/排行榜槽）。
@@ -103,6 +110,9 @@ export function bootMatch(
   const leaderboardView = createLeaderboardView(refs.leaderboardSlot);
   let watchTargetId: string | null = null;
   let lastEntries: LeaderboardEntry[] = [];
+
+  // N39-b：结果面板（match_end 驱动显示；房主才渲染「下一局」按钮）。
+  const results = createResultsPanel(refs.overlayRoot, { onNextRound: ui.onNextRound });
 
   // 对手面板与观察目标同步（数据源=同一份服务端榜单，绝不本地另算）。
   const syncOpponentPanel = (): void => {
@@ -172,6 +182,10 @@ export function bootMatch(
   let lastHudKey = '';
   let lastLabel = '';
   let statusShown = false;
+  // N39-b：终局标记与本人淘汰标记（均由服务端消息驱动，不本地裁决）。
+  let ended = false;
+  let selfEliminated = false;
+  let lastStatusLabel = '';
 
   const frame = (nowMs: number): void => {
     if (destroyed) return;
@@ -181,15 +195,18 @@ export function bootMatch(
 
     // 长按节奏推进（与单人主循环同构）：键盘 ↓ 与触屏 ↓ 的软降节奏
     // 由 update(dt) 累加驱动（RepeatController 无独立计时器）。
-    keyboard.update(dtMs);
-    touchRepeat.update(dtMs);
+    // 复审 N39-b P2-1：match_end 后冻结本地棋盘（不再步进/推进节奏）。
+    if (!ended) {
+      keyboard.update(dtMs);
+      touchRepeat.update(dtMs);
+    }
 
     // 开局判定：校准墙钟到达 startAt 即启动（不依赖隐藏页里停摆的 rAF 计数）。
-    if (!started && wallNow() + clockOffset >= match.startAt) {
+    if (!started && !ended && wallNow() + clockOffset >= match.startAt) {
       started = true;
       engine.start();
     }
-    engine.step(dtMs);
+    if (!ended) engine.step(dtMs);
 
     const state = engine.getState();
     renderer.render(state, {
@@ -213,11 +230,23 @@ export function bootMatch(
         lastLabel = label;
         countdown.textContent = `即将开始：${label}`;
       }
-    } else if (!statusShown) {
-      statusShown = true;
-      countdown.textContent = '';
-      countdown.hidden = true;
-      statusLine.textContent = '比赛进行中';
+    } else {
+      if (!statusShown) {
+        statusShown = true;
+        countdown.textContent = '';
+        countdown.hidden = true;
+      }
+      // N39-b：状态行明确展示 600 秒剩余（服务器 deadlineAt − 校准墙钟，逐秒
+      // 刷新；隐藏页 rAF 停摆但墙钟照样推进，恢复即正确）与本人淘汰
+      // （服务端榜单 status=eliminated 驱动，不本地另算）。
+      if (!ended) {
+        const selfTag = selfEliminated ? '你已淘汰，等待比赛结束' : '比赛进行中';
+        const label = `${selfTag} · 剩余 ${formatRemaining(match.deadlineAt - (wallNow() + clockOffset))}`;
+        if (label !== lastStatusLabel) {
+          lastStatusLabel = label;
+          statusLine.textContent = label;
+        }
+      }
     }
   };
   rafId = requestAnimationFrame(frame);
@@ -242,6 +271,9 @@ export function bootMatch(
     engine,
     applyScoreboard(entries: LeaderboardEntry[]): void {
       lastEntries = entries;
+      // N39-b：本人淘汰以服务端榜单状态为准（gameover 上报后 ≤500ms 批量广播）。
+      const selfEntry = entries.find((entry) => entry.playerId === selfPlayerId);
+      if (selfEntry?.status === 'eliminated') selfEliminated = true;
       leaderboardView.update(entries, selfPlayerId);
       syncOpponentPanel();
     },
@@ -261,8 +293,24 @@ export function bootMatch(
       if (drawn) syncOpponentPanel();
       return drawn;
     },
-    applyMatchEnd(winnerPlayerIds: string[]): void {
-      leaderboardView.markWinners(winnerPlayerIds);
+    applyMatchEnd(msg: MatchEndMsg): void {
+      // N39-b：全员收到同一条 match_end → 全员显示同一结果。胜者昵称按服务端
+      // 榜单顺序提取（与 winnersSummary 同规则），保证各客户端文案一致；
+      // 胜负独立文案与「得分第一」语义分离（榜单行序不因胜者改变）。
+      ended = true;
+      leaderboardView.markWinners(msg.winners);
+      const winnerSet = new Set(msg.winners);
+      const names = lastEntries
+        .filter((entry) => winnerSet.has(entry.playerId))
+        .map((entry) => entry.nickname);
+      const reasonLabel = endReasonLabel(msg.reason);
+      statusLine.textContent = reasonLabel;
+      results.show({ reasonLabel, winnersText: winnersText(names), isHost: ui.isHost() });
+      // 复审 N39-b P2-1：终局即释放并卸载输入（键盘监听移除、触屏按钮移除），
+      // 死局棋盘不可再操作；dispose 幂等（destroy 二次调用安全）。
+      releaseInputs();
+      keyboard.dispose();
+      touch.dispose();
     },
     buildSnapshot(seq: number): SnapshotPayload {
       return snapshotFromState(engine.getState(), seq);
@@ -281,6 +329,7 @@ export function bootMatch(
       keyboard.dispose();
       touch.dispose();
       leaderboardView.clear();
+      results.destroy();
     },
   };
 }
