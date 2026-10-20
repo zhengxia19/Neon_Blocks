@@ -457,4 +457,14 @@
 - **复审**：独立只读复审 PASS（P1×0、P2×0、O×7）。复审员独立复跑全部数字与证据吻合（chunk hash 亦相同）；验收 a–f 逐项核验通过（同源正则、服务端权威未削弱、默认构建主包 tree-shake 掉分流条、deploy.yml 未触碰）。
 - **遗留观察**：O-1 创建房间默认 `capacity:4/randomMode:'S1'/startLevel:1`，房主可改属 N33 大厅；O-2 加入/创建成功后仅中文提示「席位已保留」，无 WS 自动连接与大厅跳转（N33 接线 `client.connect()`）；O-3 双标签页席位互抢（N31 O-5）仍未装配处理，N33 大厅期决策；O-4 REST RATE_LIMITED 退避重试（N31 O-6）当前为手动重试（按钮恢复可用），N34 对局期再评估；O-5 分流条在单人页渲染于 boot 之后（顺序约束），若未来布局重构需保持；O-6（复审）E2E 降级用例依赖 8787 无监听（假失败非假通过，证据含端口检查）；O-7（复审）联网分支动态 import 无 .catch、href 丢弃其它 query、busy/teardown 无直接行为测试——均移交 N33 大厅装配期一并处理。
 
+## N33 — 房主设置与等待大厅 ✅ PASS
+
+- **范围**：`worker/src/room.ts` WS 分发新增 `ready/start/leave/settings_update` 与 `room_state` 全量广播（attach 首帧+事件后同步；同一 payload 对所有 socket 发送相同 JSON 文本、revision 每帧一次）；房间码持久化（claim 写入 + WS fetch 兜底 UPDATE）；`shared/errors.ts` 新增 `BAD_CONFIG`/`CAPACITY_BELOW_SEATS`；新建 `src/ui/lobby.ts`（纯 DOM 大厅：房间码/复制、席位列表、房主设置表单、准备/开局/离开、phase 中文标签）；重写 `src/app/multiplayer.ts`（connect→大厅渲染、四类 C→S 发送、S→C 分发、离开清凭据回入口）；新建 `worker/test/room-lobby.test.ts` 11 例、`tests/unit/lobby.test.ts` 8 例、`tests/e2e/mp-lobby.spec.ts` 3 例（chromium，8787 探测自动跳过）。
+- **实现要点**：`ready` 单向置 true（无 un-ready，设置变更服务端重置）；`start` 三门槛 `NOT_ENOUGH_PLAYERS`/`NOT_READY`（PLAYERS_NOT_READY 调用点映射）/`NOT_HOST`，成功广播 room_state（COUNTDOWN+startAt）；`settings_update` 仅房主 LOBBY 可改，容量低于已占席位 → `CAPACITY_BELOW_SEATS`；leave 广播 `player_left{reason:'left'}`+房主移交+room_state，末人离开立即释放；断线席位转 `disconnected` 保留（宽限内）。
+- **测试**：worker 11 例——正向（首帧 room_state PlayerView 逐字段、ready/设置/开局/离开广播序列、断线 status=disconnected、重连接管其他席位即时刷新广播）；反向（NOT_HOST、BAD_LEVEL（信封校验先行）、CAPACITY_BELOW_SEATS、开局后 settings→GAME_STARTED、离房者 ready→UNAUTHORIZED）。根 8 例——纯助手（canEditRoom/canStartMatch/validateSettingsForm 四字段中文文案/phaseLabel/copyCodeMessage）+结构断言（lobby.ts 无 fetch/WebSocket/NetClient、multiplayer 分发与发送形态）。E2E 3 例——创建→6 位码+席位+房主控件+单人开局禁用；双端席位同步+访客只读+全员准备才可开局+开局倒计时文案；房主改设置→访客同步+ready 重置。
+- **门槛**：worker tsc=0、worker vitest 26 文件/216 全绿（4 个既有用例因 attach 首帧 room_state 契约更新）；根 vitest 20 文件/337 全绿、根 tsc=0、build=0（multiplayer chunk 17.9 kB）、Playwright 无 Worker 15 通过/3 跳过 + 本机 Worker 大厅 3 通过（合计 18/18）。证据 `evidence/multiplayer/N33/`。
+- **修复回归**：`NetClient.#post` 方法形式调用浏览器 fetch 触发 `Illegal invocation`（node undici 不暴露），改 `.call(null,…)`+源码级回归断言；E2E 等待首帧 room_state 填码后再读房间码防竞态；wrangler dev 需 `--var ALLOW_DEV_ORIGINS:true` 放行 4173 来源。
+- **复审**：独立只读复审 PASS（P1×0、P2×1、O×6）；复跑数字与证据逐项吻合（root 20/337、worker 26/215、tsc 0/0、build 0、chunk 17.91 kB）。P2（重连接管不向其他席位广播 room_state，席位列表长期显示「连接中断」）已合入前修复：attach 首帧改走 `#sendRoomState()` 全量广播+新增专测（worker 215→216），修复后大厅 E2E 3/3 复验通过。
+- **遗留观察**：O-1 双标签页同席位互抢（4003→自动重连）大厅期维持现状，N34 对局装配期决策；O-2 `BAD_CONFIG` 目前仅 DO 直调可达（信封先行）；O-3 attach 首帧依赖 workerd 缓冲（dev 路径可接受，生产 N44 前复核）；O-4 nextRound 的 WS 触发留 N39；O-5（N32 O-7）动态 import 无 .catch 仍未处理，N34 装配期处理；O-6（复审）协议 `customSeed?: string` 无 null，房主无法经 WS 清空种子（S3→S1→S3 旧种子留存），协议冻结留档；O-7（复审）enterLobby connect 失败不清已保存凭据，再点创建泄漏旧席位至闲置回收（客户端边缘场景，N34 装配期评估）。
+
 

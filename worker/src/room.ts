@@ -32,12 +32,16 @@ import type {
   MatchEndMsg,
   MatchId,
   MatchStartMsg,
+  PlayerJoinedMsg,
   PlayerLeftMsg,
   PlayerStatus,
+  PlayerView,
   RandomMode,
   RngAlgo,
+  RoomCode,
   RoomPhase,
   RoomSettings,
+  RoomStateMsg,
   ScoreboardMsg,
   SnapshotMsg,
   WatchTargetMsg,
@@ -359,6 +363,13 @@ export class RoomDO extends DurableObject<Env> {
     } catch {
       // 列已存在（N15 前旧库）：幂等忽略。
     }
+    // N33：房间码持久化（room_state 回显用；DO 与码经 idFromName 一一映射，
+    // 占用时写入、WS 握手路径兜底补写，同一 DO 生命周期内恒定）。
+    try {
+      sql.exec('ALTER TABLE room_config ADD COLUMN room_code TEXT');
+    } catch {
+      // 列已存在（N33 前旧库）：幂等忽略。
+    }
     sql.exec(
       `CREATE TABLE IF NOT EXISTS match_roster (
          player_id TEXT PRIMARY KEY,
@@ -409,7 +420,7 @@ export class RoomDO extends DurableObject<Env> {
    * （条件 UPDATE + changes()）与配置/席位写入构成无 await 的同步段：不存在
    * 「已占用但无席位」的半初始化窗口（N10 复审观察①）。
    */
-  async createRoom(req: CreateRoomRequest): Promise<CreateClaim> {
+  async createRoom(req: CreateRoomRequest, roomCode?: string): Promise<CreateClaim> {
     this.#ensureSchema();
     this.#ensureRow();
     const playerId = `p_${randomHex(6)}`;
@@ -434,13 +445,14 @@ export class RoomDO extends DurableObject<Env> {
     this.#sql.exec('DELETE FROM eliminations');
     this.#sql.exec(
       `INSERT OR REPLACE INTO room_config
-         (id, capacity, random_mode, start_level, custom_seed, generation)
-       VALUES (1, ?, ?, ?, ?, ?)`,
+         (id, capacity, random_mode, start_level, custom_seed, generation, room_code)
+       VALUES (1, ?, ?, ?, ?, ?, ?)`,
       req.capacity,
       req.randomMode,
       req.startLevel,
       req.customSeed ?? null,
       generation,
+      roomCode ?? null,
     );
     this.#sql.exec(
       `INSERT INTO seats (player_id, nickname, token_hash, is_host, join_order, generation)
@@ -540,6 +552,30 @@ export class RoomDO extends DurableObject<Env> {
       startLevel: config.startLevel,
     };
     if (config.customSeed !== undefined) settings.customSeed = config.customSeed;
+    // N33：加入成功即向已连接席位广播 player_joined + room_state（大厅实时刷新；
+    // 新加入者尚未连接 WS，只收 HTTP 响应）。
+    const joinedView: PlayerView = {
+      playerId,
+      nickname,
+      seatIndex: joinOrder,
+      isHost: false,
+      ready: false,
+      status: 'lobby',
+      score: 0,
+      lines: 0,
+      level: settings.startLevel,
+    };
+    const joinedRevision = this.#nextRevision();
+    this.#broadcast(
+      () =>
+        ({
+          v: PROTOCOL_VERSION,
+          type: 'player_joined',
+          revision: joinedRevision,
+          player: joinedView,
+        }) as PlayerJoinedMsg,
+    );
+    this.#sendRoomState();
     return { joined: true, generation: Number(meta.generation), playerId, seatToken, joinOrder, settings };
   }
 
@@ -609,6 +645,98 @@ export class RoomDO extends DurableObject<Env> {
       seats,
       generation: Number(meta.generation),
     };
+  }
+
+  /**
+   * N33：席位公开视图（PlayerView[]，无令牌）。状态映射：LOBBY 下按
+   * 准备/断线标记；COUNTDOWN/RUNNING 下按淘汰表/断线标记；FINISHED 下
+   * 淘汰/完赛。成绩取内存快照槽（无则 0），等级按 startLevel+⌊lines/10⌋。
+   */
+  #playerViews(): PlayerView[] {
+    const lobby = this.getLobbyState();
+    if (lobby === null) return [];
+    const eliminated = new Set(
+      [
+        ...this.#sql.exec<{ player_id: string }>(
+          'SELECT player_id FROM eliminations WHERE generation = ?',
+          lobby.generation,
+        ),
+      ].map((r) => r.player_id),
+    );
+    return lobby.seats.map((seat) => {
+      const snap = this.#snapLatest.get(seat.playerId);
+      const score = snap?.score ?? 0;
+      const lines = snap?.lines ?? 0;
+      const disconnected = seat.disconnectedAt !== null;
+      let status: PlayerStatus;
+      if (lobby.state === 'LOBBY') {
+        status = disconnected ? 'disconnected' : seat.isReady ? 'ready' : 'lobby';
+      } else if (lobby.state === 'FINISHED') {
+        status = eliminated.has(seat.playerId) ? 'eliminated' : 'finished';
+      } else {
+        status = eliminated.has(seat.playerId)
+          ? 'eliminated'
+          : disconnected
+            ? 'disconnected'
+            : 'playing';
+      }
+      return {
+        playerId: seat.playerId,
+        nickname: seat.nickname,
+        seatIndex: seat.joinOrder,
+        isHost: seat.isHost,
+        ready: seat.isReady,
+        status,
+        score,
+        lines,
+        level: lobby.settings.startLevel + Math.floor(lines / 10),
+      };
+    });
+  }
+
+  /**
+   * N33：room_state 载荷（房间级同一份；revision 每次调用递增一次，广播内
+   * 全员同 revision ⇒ 内容完全一致）。未占用/代际不符返回 null。
+   */
+  #roomStatePayload(): RoomStateMsg | null {
+    this.#ensureSchema();
+    this.#ensureRow();
+    const lobby = this.getLobbyState();
+    if (lobby === null) return null;
+    const codeRow = [
+      ...this.#sql.exec<{ room_code: string | null }>(
+        'SELECT room_code FROM room_config WHERE id = 1',
+      ),
+    ][0];
+    const match =
+      lobby.state === 'COUNTDOWN' || lobby.state === 'RUNNING' || lobby.state === 'FINISHED'
+        ? this.#readMatchState(lobby.generation)
+        : undefined;
+    return {
+      v: PROTOCOL_VERSION,
+      type: 'room_state',
+      revision: this.#nextRevision(),
+      roomGeneration: lobby.generation,
+      phase: lobby.state,
+      roomCode: (codeRow?.room_code ?? '') as RoomCode,
+      settings: lobby.settings,
+      players: this.#playerViews(),
+      matchId: match === undefined ? null : (String(match.match_id) as MatchId),
+      startAt: match === undefined ? null : Number(match.start_at),
+      deadlineAt: match === undefined ? null : Number(match.deadline_at),
+      serverTime: Date.now(),
+    };
+  }
+
+  /** N33：向全部活动连接广播同一份 room_state（单 revision、单 JSON 序列化）。 */
+  #sendRoomState(): void {
+    const payload = this.#roomStatePayload();
+    if (payload === null) return;
+    const text = JSON.stringify(payload);
+    for (const ws of this.ctx.getWebSockets()) {
+      if (this.#attachmentOf(ws) === null) continue;
+      ws.send(text);
+    }
   }
 
   /**
@@ -1208,7 +1336,13 @@ export class RoomDO extends DurableObject<Env> {
   #broadcast(
     build: (
       playerId: string,
-    ) => CountdownMsg | MatchStartMsg | MatchEndMsg | PlayerLeftMsg | ScoreboardMsg,
+    ) =>
+      | CountdownMsg
+      | MatchStartMsg
+      | MatchEndMsg
+      | PlayerLeftMsg
+      | PlayerJoinedMsg
+      | ScoreboardMsg,
   ): number {
     let sent = 0;
     for (const ws of this.ctx.getWebSockets()) {
@@ -1825,6 +1959,10 @@ export class RoomDO extends DurableObject<Env> {
     } satisfies WsAttachment);
     // N21：恢复活动连接 → 清空空置起点（残留空置闹钟下次触发时自愈失效）。
     this.#sql.exec('UPDATE room_meta SET idle_since = NULL WHERE id = 1');
+    // N33：新连接建立即下发当前 room_state（大厅首屏；后续经广播增量维护）。
+    // 走全量广播而非单发：新 socket 已 accept+attach 在 getWebSockets 内，
+    // 既收到自己的首帧，也让其他席位即时摆脱「连接中断」陈旧标记（复审 P2）。
+    this.#sendRoomState();
     return result;
   }
 
@@ -1860,6 +1998,14 @@ export class RoomDO extends DurableObject<Env> {
         server = pair[1];
         client = pair[0];
       }
+      // N33：握手路径兜底持久化房间码（DO↔码经 idFromName 恒定映射；
+      // 占用时 createRoom 已写入，此处覆盖直连测试与历史库缺列场景），
+      // 先于 attachWebSocket 内的首帧 room_state，保证首屏房间码正确。
+      this.#ensureSchema();
+      this.#sql.exec(
+        'UPDATE room_config SET room_code = ? WHERE id = 1',
+        decodeURIComponent(url.pathname.slice('/ws/'.length)),
+      );
       const result = await this.attachWebSocket(ticket, server);
       if (!result.ok) {
         return jsonError(result.error, 401);
@@ -1947,19 +2093,66 @@ export class RoomDO extends DurableObject<Env> {
         return;
       }
       case 'ready': {
-        this.setReady(att.playerId, true);
+        // N33：准备状态变更 → 全员 room_state 刷新；拒绝回 error（中文目录）。
+        const result = this.setReady(att.playerId, true);
+        if (result.ok) {
+          this.#sendRoomState();
+        } else {
+          this.#sendProtocolError(ws, result.error);
+        }
         return;
       }
       case 'start': {
-        this.startGame(att.playerId);
+        const result = this.startGame(att.playerId);
+        // N33：开局失败定向回 error（PLAYERS_NOT_READY 复用目录 NOT_READY 文案；
+        // 成功路径的 countdown 广播在 startGame 内原子段完成）。
+        if (!result.started) {
+          this.#sendProtocolError(
+            ws,
+            result.error === 'PLAYERS_NOT_READY' ? 'NOT_READY' : result.error,
+          );
+        } else {
+          // N33：开局成功 → room_state 携带 COUNTDOWN 阶段与 startAt/deadlineAt。
+          this.#sendRoomState();
+        }
         return;
       }
       case 'leave': {
-        this.leaveRoom(att.playerId);
+        const result = this.leaveRoom(att.playerId);
+        if (!result.left) {
+          this.#sendProtocolError(ws, result.error);
+          return;
+        }
+        // N33：主动退出广播 player_left（含房主转让后的 room_state；
+        // 房间随之关闭则不再广播状态）。
+        const leftRevision = this.#nextRevision();
+        this.#broadcast(
+          () =>
+            ({
+              v: PROTOCOL_VERSION,
+              type: 'player_left',
+              revision: leftRevision,
+              playerId: att.playerId,
+              reason: 'left',
+            }) as PlayerLeftMsg,
+        );
+        if (!result.roomClosed) this.#sendRoomState();
         return;
       }
       case 'settings_update': {
-        // 大厅设置的服务端接线属 N33（当前经 HTTP 配置路径，WS 通道暂不放大）。
+        // N33：房主大厅设置（updateConfig 内原子校验：仅 LOBBY、仅房主、
+        // 改后全员准备清零；非法回 error，成功广播 room_state）。
+        const result = this.updateConfig(att.playerId, {
+          capacity: msg.capacity,
+          randomMode: msg.randomMode,
+          startLevel: msg.startLevel,
+          customSeed: msg.customSeed,
+        });
+        if (result.updated) {
+          this.#sendRoomState();
+        } else {
+          this.#sendProtocolError(ws, result.error);
+        }
         return;
       }
     }
@@ -2350,6 +2543,8 @@ export class RoomDO extends DurableObject<Env> {
     // N28：断线显示「连接中断」属状态变化（宽限期非关键，走 ≤2Hz 批处理；
     // 宽限到期淘汰是独立裁决，走关键立即通道）。
     this.#markScoreboardDirty(false, now);
+    // N33：大厅/观战侧同步断线状态（status='disconnected'）。
+    this.#sendRoomState();
     // N21：若本连接是最后一条活动连接 → 记录空置起点（空置闹钟候选）。
     this.#markIdleIfEmpty(now);
     this.#maybeScheduleGraceAlarm(now);

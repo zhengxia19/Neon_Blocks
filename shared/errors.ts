@@ -39,6 +39,9 @@ export const ERROR_CODES = [
   'NOT_ENOUGH_PLAYERS',
   'NOT_IN_GAME',
   'ALREADY_FINISHED',
+  // 大厅设置（N33）
+  'BAD_CONFIG',
+  'CAPACITY_BELOW_SEATS',
   // 服务端
   'INTERNAL',
 ] as const;
@@ -80,6 +83,8 @@ export const ERROR_CATALOG: Record<ErrorCode, { message: string; retryable: bool
   NOT_ENOUGH_PLAYERS: { message: '至少需要 2 名玩家才能开始。', retryable: false },
   NOT_IN_GAME: { message: '当前房间状态不允许该操作。', retryable: false },
   ALREADY_FINISHED: { message: '本局比赛已结束。', retryable: false },
+  BAD_CONFIG: { message: '房间设置不合法，请检查人数、模式、种子与等级。', retryable: false },
+  CAPACITY_BELOW_SEATS: { message: '房间人数不能少于当前已在房间中的玩家数。', retryable: false },
 
   INTERNAL: { message: '服务器内部错误，请稍后再试。', retryable: true },
 };

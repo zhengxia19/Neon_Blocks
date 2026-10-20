@@ -4,6 +4,8 @@
  * 验收钉死：断线/恢复不重入并发连接；长令牌 seatToken 不泄露到握手 URL；
  * 退避封顶不侵蚀 30 秒重连宽限；协议版本不匹配不重连；单人模式不连接。
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CREDENTIAL_KEY,
@@ -460,5 +462,13 @@ describe('N31 单人模式不连接（无自启动副作用）', () => {
     makeClient();
     new NetClient({ apiBaseUrl: API, credentialStore: makeStore(), fetchImpl: makeFetchImpl(() => ({ status: 200, json: {} })).fetchImpl, webSocketImpl: FakeWS });
     expect(FakeWS.ctorCount).toBe(0);
+  });
+});
+
+describe('N33 回归：fetch 以 null 接收者调用（浏览器 Illegal invocation）', () => {
+  it('正向：#post 使用 .call(null, …)；反向：不允许方法调用形式', () => {
+    const src = readFileSync(join(process.cwd(), 'src', 'net', 'client.ts'), 'utf8');
+    expect(src).toMatch(/this\.#fetch\.call\(null,/);
+    expect(src).not.toMatch(/return this\.#fetch\(/);
   });
 });

@@ -323,7 +323,9 @@ export class NetClient {
 
   async #post(path: string, body: unknown): Promise<Response> {
     if (this.#fetch === null) throw new Error('无可用 fetch（未注入替身）');
-    return this.#fetch(this.#apiBase + path, {
+    // 浏览器要求 fetch 以 Window 为接收者调用：保存的引用必须以 null this 调用，
+    // 否则 `this.#fetch(...)` 方法形式触发 Illegal invocation（node undici 无此限制）。
+    return this.#fetch.call(null, this.#apiBase + path, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),

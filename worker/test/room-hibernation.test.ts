@@ -148,12 +148,14 @@ describe('N14 acceptWebSocket 接管', () => {
 describe('N14 事件回调', () => {
   it('ping → pong（附件身份可用）', async () => {
     const { room, ws, state } = await makeAttached();
+    // N33：attach 成功即下发首帧 room_state，事件回调回复排在其后。
+    expect(JSON.parse(state.sent[0])).toMatchObject({ type: 'room_state', phase: 'LOBBY' });
     room.webSocketMessage(ws, 'ping');
-    expect(state.sent).toEqual(['{"type":"pong"}']);
+    expect(state.sent[1]).toBe('{"type":"pong"}');
     room.webSocketMessage(ws, 'unknown-payload');
     // N25：非法载荷回复 error（受每秒限流约束）且连接保持，不放大断连。
-    expect(state.sent.length).toBe(2);
-    expect(JSON.parse(state.sent[1])).toMatchObject({ type: 'error', code: 'BAD_MESSAGE' });
+    expect(state.sent.length).toBe(3);
+    expect(JSON.parse(state.sent[2])).toMatchObject({ type: 'error', code: 'BAD_MESSAGE' });
   });
 
   it('附件缺失的消息连接 → 4001 关闭', async () => {
@@ -205,10 +207,11 @@ describe('N14 休眠/热重启重建', () => {
     expect(revived.getSeats()).toEqual([
       { playerId, nickname: 'host1', isHost: true, joinOrder: 1 },
     ]);
-    // 重建实例上事件回调仍按附件身份工作。
+    // 重建实例上事件回调仍按附件身份工作（N33：attach 首帧 room_state 在前）。
     const ws = accepted[0] as unknown as WebSocket;
     revived.webSocketMessage(ws, 'ping');
-    expect(state.sent).toEqual(['{"type":"pong"}']);
+    expect(state.sent[0]).toMatch(/^{"v":1,"type":"room_state"/);
+    expect(state.sent[1]).toBe('{"type":"pong"}');
   });
 
   it('失效连接即刻关闭：房间关闭重占后旧连接 4001 且声明清除', async () => {

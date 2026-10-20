@@ -166,10 +166,13 @@ describe('N16 COUNTDOWN→RUNNING 临界时刻与提前开始拒绝', () => {
     if (!res.started) throw new Error(JSON.stringify(res));
     const master = masterSeedOf(sql);
     const all = [host, ...guests];
-    for (const id of all) {
+    for (const [index, id] of all.entries()) {
       const msgs = states.get(id)!.sent.map((m) => JSON.parse(m) as Record<string, unknown>);
-      expect(msgs.length).toBe(1); // 不逐秒广播：仅一条
-      expect(msgs[0]).toEqual({
+      // N33：attach 走全量广播——先连接的席位每有一次后续 attach 多收一条 room_state。
+      const lead = all.length - index;
+      expect(msgs.length).toBe(lead + 1); // lead 条 room_state + 一条 countdown（不逐秒广播）
+      for (let k = 0; k < lead; k += 1) expect(msgs[k]).toMatchObject({ type: 'room_state', phase: 'LOBBY' });
+      expect(msgs[lead]).toEqual({
         v: 1,
         type: 'countdown',
         revision: expect.any(Number), // N28：房间级单调 revision
@@ -181,8 +184,9 @@ describe('N16 COUNTDOWN→RUNNING 临界时刻与提前开始拒绝', () => {
     room.advanceToRunning(res.match.startAt);
     for (const [index, id] of all.entries()) {
       const msgs = states.get(id)!.sent.map((m) => JSON.parse(m) as Record<string, unknown>);
-      expect(msgs.length).toBe(4); // countdown + match_start + N28 首榜 + N30 自动目标
-      expect(msgs[1]).toEqual({
+      const lead = all.length - index;
+      expect(msgs.length).toBe(lead + 4); // lead 条 room_state + countdown + match_start + N28 首榜 + N30 自动目标
+      expect(msgs[lead + 1]).toEqual({
         v: 1,
         type: 'match_start',
         revision: expect.any(Number),
@@ -194,9 +198,9 @@ describe('N16 COUNTDOWN→RUNNING 临界时刻与提前开始拒绝', () => {
         seatIndex: index + 1,
         startLevel: 2,
       });
-      expect(msgs[2]).toMatchObject({ type: 'scoreboard' });
+      expect(msgs[lead + 2]).toMatchObject({ type: 'scoreboard' });
       // N30：首榜发布同事件下发自动目标（全零分：host→guests[0]，其余→host）。
-      expect(msgs[3]).toEqual({
+      expect(msgs[lead + 3]).toEqual({
         v: 1,
         type: 'watch_target',
         revision: expect.any(Number),

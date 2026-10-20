@@ -30,7 +30,7 @@ export function randomRoomCode(): string {
 export interface RoomNamespaceLike {
   idFromName(code: string): { toString(): string };
   get(id: unknown): {
-    createRoom(req: CreateRoomRequest): Promise<CreateClaim>;
+    createRoom(req: CreateRoomRequest, roomCode: string): Promise<CreateClaim>;
     joinRoom(nickname: string): Promise<JoinResult>;
     issueTicket(playerId: string, seatToken: string): Promise<TicketResult>;
     fetch(request: Request): Promise<Response>;
@@ -53,7 +53,7 @@ export async function allocateRoomCode(
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const code = randomRoomCode();
     const id = ns.idFromName(code);
-    const claim = await ns.get(id).createRoom(req);
+    const claim = await ns.get(id).createRoom(req, code);
     if (claim.claimed) {
       return { ok: true, code, id: id.toString(), ...claim };
     }

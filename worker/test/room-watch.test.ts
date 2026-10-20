@@ -104,8 +104,16 @@ describe('N30 自动观战目标切换', () => {
     const entryJsons: string[] = [];
     for (const [index, id] of ids.entries()) {
       const msgs = parsed(states.get(id) as WsState);
-      expect(msgs.map((m) => m.type)).toEqual(['countdown', 'match_start', 'scoreboard', 'watch_target']);
-      expect(msgs[3]).toEqual({
+      // N33：attach 走全量广播——先连接的席位每有一次后续 attach 多收一条 room_state。
+      const lead = ids.length - index;
+      expect(msgs.map((m) => m.type)).toEqual([
+        ...new Array<string>(lead).fill('room_state'),
+        'countdown',
+        'match_start',
+        'scoreboard',
+        'watch_target',
+      ]);
+      expect(msgs[lead + 3]).toEqual({
         v: 1,
         type: 'watch_target',
         revision: expect.any(Number),
