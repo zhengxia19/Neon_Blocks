@@ -369,6 +369,107 @@ body {
   margin-top: 6px;
 }
 
+/* ── N32：模式分流条与联网入口面板（全中文；触控目标 ≥44px）────────────── */
+.mp-switch {
+  display: flex;
+  gap: var(--space-1);
+  align-items: center;
+}
+
+.mp-switch-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-button);
+  border: 1px solid rgba(165, 140, 255, 0.35);
+  color: var(--text);
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.mp-switch-link[aria-current='page'] {
+  border-color: var(--accent);
+  background: rgba(165, 140, 255, 0.14);
+}
+
+.mp-entry-panel {
+  background: var(--panel);
+  border: 1px solid rgba(165, 140, 255, 0.25);
+  border-radius: var(--radius-card);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: 420px;
+}
+
+.mp-entry-panel h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.mp-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.mp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.mp-field input {
+  min-height: 44px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-button);
+  border: 1px solid rgba(165, 140, 255, 0.35);
+  background: rgba(10, 14, 28, 0.6);
+  color: var(--text);
+  font-size: 16px; /* ≥16px：防 iOS 聚焦缩放 */
+}
+
+.mp-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.mp-btn {
+  min-height: 44px;
+  min-width: 120px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-button);
+  border: 1px solid var(--accent);
+  background: rgba(165, 140, 255, 0.16);
+  color: var(--text);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.mp-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.mp-message {
+  margin: 0;
+  min-height: 20px;
+  font-size: 14px;
+}
+
+.mp-message-error {
+  color: #ff7a8a;
+}
+
+.mp-message-info {
+  color: var(--accent);
+}
+
 /* ── T060：prefers-reduced-motion 系统降级（S05/S08）────────────────────── */
 /* 系统偏好减少动画时移除 UI 过渡动效；JS 侧（main/effects）同用系统偏好 OR
    用户设置停止清行闪光、硬降拖影与粒子，双通道均系统偏好优先。 */

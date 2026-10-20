@@ -1,0 +1,36 @@
+N32 验收报告 — 模式入口与创建/加入 UI
+日期：2026-02-10（本地）  基线：N31 关闭提交 cdbf46f
+
+范围（与任务清单一致）：src/ui/ 新面板及装配测试。
+逻辑文件（3 个）：src/ui/mp-entry.ts（新）、src/app/multiplayer.ts（重写接线）、src/main.ts（分流条装配）。
+配套：src/styles/app.css（样式）、tests/unit/mp-entry.test.ts（新）、tests/e2e/mp-entry.spec.ts（新）、playwright.config.ts（testMatch + webServer env）。
+
+验收条款 → 证据：
+1) 首页单人/联网分流
+   正向：E2E「首页分流条可见且联网链接可达」（chromium + mobile-chrome 均过）；
+   反向：仅构建期配置 VITE_MULTIPLAYER_API_URL 才渲染分流条（单测结构断言 + mode.test.ts 既有回退用例）。
+2) 联网输入昵称、房间码或创建房间
+   正向：E2E 控件/按钮/链接可见；合法输入点击加入 → NetClient 真实 fetch（无 Worker 时中文降级，证明接线）。
+   反向：非法昵称（中文/超长/空）与非法房间码（5 位/7 位/012345/字母）→ 中文预校验提示（单测 + E2E）。
+3) 昵称合法性服务端再验证
+   客户端与服务端同源 NICKNAME_PATTERN（shared/protocol）；worker joinRoom 服务端再验证用例在 worker 套件（205 全绿）中保持；
+   本地预校验仅为快速反馈，服务端为最终权威（注释与单测均钉死）。
+4) 全部界面中文
+   E2E 以中文 role 定位（联网对战/创建房间/加入房间/返回单人模式）；单测断言面板关键中文文案齐备。
+5) 移动端输入不卡操作
+   E2E（mobile-chrome）：输入框/按钮 boundingBox 高度 ≥44px；聚焦输入后无横向溢出；
+   CSS：input font-size 16px（防 iOS 聚焦缩放）、按钮 min-height 44px；面板不注册任何全局按键监听。
+6) 无登录/复杂注册
+   E2E：input[type=password] 计数为 0；单测：面板无 密码/注册账号/用户名/password/login 标识。
+
+门禁（最终代码态）：
+- 根 vitest：19 文件 / 328 通过（root-vitest.txt）
+- 根 tsc --noEmit：exit 0（root-typecheck.txt，空输出）
+- vite build：exit 0；multiplayer 独立 chunk 11.45 kB，主包 35.67 kB 不含网络代码（root-build.txt）
+- worker vitest：25 文件 / 205 通过；worker tsc：exit 0（worker-vitest.txt / worker-typecheck.txt）
+- Playwright：15/15 通过（原 7 + mp-entry 4×2 project；e2e-playwright.txt；跑前端口 4173/8787 listen=0）
+
+缺陷修复记录：分流条首版在 boot 前 prepend，被 mountLayout 的 root.textContent='' 清空 →
+单人分支改为 boot() 后渲染（main.ts 注释钉死该顺序约束），E2E 复跑 15/15。
+
+结论：PASS。

@@ -22,6 +22,7 @@ import { EffectsController } from './ui/effects';
 import { createHud, createPiecePreview } from './ui/hud';
 import { createOverlays, createSettingsDialog } from './ui/overlays';
 import { mountLayout, type LayoutRefs } from './ui/layout';
+import { renderModeSwitch } from './ui/mp-entry';
 import { resolveAppMode, type AppMode } from './app/mode';
 import type { MultiplayerHandle } from './app/multiplayer';
 
@@ -328,18 +329,30 @@ function boot(rootElement: HTMLElement): AppHandle {
 const appRoot = document.getElementById('app');
 let handle: AppHandle | null = null;
 let mpHandle: MultiplayerHandle | null = null;
+const configuredApiUrl =
+  typeof import.meta.env.VITE_MULTIPLAYER_API_URL === 'string'
+    ? (import.meta.env.VITE_MULTIPLAYER_API_URL as string).trim()
+    : '';
 const mode: AppMode = resolveAppMode({
   search: window.location.search,
   apiUrl: import.meta.env.VITE_MULTIPLAYER_API_URL as string | undefined,
 });
 if (appRoot !== null) {
+  // N32：配置了公开 API 才渲染顶部分流条（单人/联网，全中文，无网络请求）。
+  // 注意：单人分支必须在 boot() 之后渲染——mountLayout 会清空 #app 重建布局。
   if (mode === 'multiplayer') {
-    const apiUrl = (import.meta.env.VITE_MULTIPLAYER_API_URL as string).trim();
+    if (configuredApiUrl !== '') {
+      renderModeSwitch(appRoot, mode);
+    }
+    const apiUrl = configuredApiUrl;
     void import('./app/multiplayer').then((mp) => {
       mpHandle = mp.bootMultiplayer(appRoot, apiUrl);
     });
   } else {
     handle = boot(appRoot);
+    if (configuredApiUrl !== '') {
+      renderModeSwitch(appRoot, mode);
+    }
   }
 }
 

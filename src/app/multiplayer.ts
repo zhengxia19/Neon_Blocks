@@ -1,40 +1,60 @@
 /**
- * N07：联网模式装配入口（最小占位实现）。
- * 仅证明装配分流与网络边界：动态路径下才导入 `src/net/`（单人主包不含网络代码）。
- * 完整大厅/双棋盘/排行榜属 N32–N40；本文件不创建 GameEngine、不引入 WebSocket 细节。
+ * N32：联网模式装配入口——首页分流后的创建/加入面板接线。
+ * 动态路径下才导入 `src/net/`（单人主包不含网络代码）；面板纯 DOM（`src/ui/mp-entry.ts`），
+ * 本文件只做接线：NetClient 生命周期 + 中文错误回显（服务端再验证昵称）。
+ * 房主设置与等待大厅属 N33；对局界面属 N34–N40。
  */
-import { PROTOCOL_VERSION, describeError } from '../net';
+import { NetClient } from '../net';
+import { renderMultiplayerEntry, type EntryController } from '../ui/mp-entry';
 
-/** 联网装配句柄（后续任务扩展连接与 teardown）。 */
+/** 联网装配句柄（连接与 teardown）。 */
 export interface MultiplayerHandle {
   apiBaseUrl: string;
   teardown(): void;
 }
 
 /**
- * 挂载联网占位面板（全中文）。
+ * 挂载联网入口（全中文、无登录）。
  * @param root 页面根元素
  * @param apiBaseUrl 已校验非空的公开 API 地址（由 main.ts 分流时保证）
  */
 export function bootMultiplayer(root: HTMLElement, apiBaseUrl: string): MultiplayerHandle {
-  const panel = document.createElement('section');
-  panel.className = 'mp-entry-panel';
-  panel.setAttribute('aria-label', '联网对战');
+  const client = new NetClient({ apiBaseUrl });
 
-  const title = document.createElement('h2');
-  title.textContent = '联网对战（实施中）';
-  const body = document.createElement('p');
-  body.textContent =
-    `协议 v${PROTOCOL_VERSION} 已就绪；房间大厅与双棋盘界面将在后续任务落地。` +
-    `当前 API：${apiBaseUrl}`;
-  const back = document.createElement('a');
-  back.href = `${window.location.pathname}`;
-  back.textContent = '返回单人模式';
-  panel.append(title, body, back);
-  root.append(panel);
-
-  // 占位期错误文案同样走统一错误目录（中文，不外泄内部文本）。
-  void describeError('INTERNAL');
+  const entry: EntryController = renderMultiplayerEntry(root, {
+    onCreate: (nickname) => {
+      entry.setBusy(true);
+      void client
+        .createRoom({ nickname, capacity: 4, randomMode: 'S1', startLevel: 1 })
+        .then((res) => {
+          if (res.ok) {
+            entry.showMessage('info', `已创建房间 ${res.data.code}，席位已保留。`);
+          } else {
+            entry.showMessage('error', res.message);
+          }
+        })
+        .catch(() => {
+          entry.showMessage('error', '服务器暂时无法访问，请稍后再试。');
+        })
+        .finally(() => entry.setBusy(false));
+    },
+    onJoin: (nickname, roomCode) => {
+      entry.setBusy(true);
+      void client
+        .joinRoom(roomCode, nickname)
+        .then((res) => {
+          if (res.ok) {
+            entry.showMessage('info', `已加入房间 ${res.data.code}，席位已保留。`);
+          } else {
+            entry.showMessage('error', res.message);
+          }
+        })
+        .catch(() => {
+          entry.showMessage('error', '服务器暂时无法访问，请稍后再试。');
+        })
+        .finally(() => entry.setBusy(false));
+    },
+  });
 
   let tornDown = false;
   return {
@@ -42,7 +62,8 @@ export function bootMultiplayer(root: HTMLElement, apiBaseUrl: string): Multipla
     teardown(): void {
       if (tornDown) return;
       tornDown = true;
-      panel.remove();
+      client.close();
+      entry.destroy();
     },
   };
 }

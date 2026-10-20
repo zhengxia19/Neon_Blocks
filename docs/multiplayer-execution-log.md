@@ -448,4 +448,13 @@
 - **复审**：独立只读复审 PASS（P1×0、P2×4 全部提交前修复+专测：P2-1 票据在途 leave() 僵尸连接→new WS 前守卫复查 closedIntentionally/fatal；P2-2 close-1002-only 分支假覆盖→补无 error 帧专测；P2-3 重连期票据失败零测试→补 GENERATION_STALE 韧性专测并增 onClose 通知；P2-4 致命粘滞→leave()/成功取得席位清 fatal）。复审员独立复跑 15+7 全绿、验收条款逐项核验通过。
 - **遗留观察**：O-1 N26 `BAD_STATE`/`INVALID_TARGET` 仍未入 shared 错误目录（describeError 回退 INTERNAL），N32+ 需要精确文案时再入目录；O-3 重连超时文案为客户端本地语义硬编码；O-4 close() 不清 disconnectedAt（预算从首断累计，比服务端新宽限保守，注释钉死）；O-5 WS 4003 席位替换触发自动重连，双标签页互抢为 N32 装配层决策点；O-6 REST 失败重试策略移交 N32/N34 按 UI 语义决定。
 
+## N32 — 模式入口与创建/加入 UI ✅ PASS
+
+- **范围**：新建 `src/ui/mp-entry.ts`（分流条 + 创建/加入面板 + 纯校验助手，纯 DOM 无网络）；重写 `src/app/multiplayer.ts`（NetClient 接线）；`src/main.ts` 分流条装配；`src/styles/app.css` 面板样式；新建 `tests/unit/mp-entry.test.ts` 8 例、`tests/e2e/mp-entry.spec.ts` 4 例（双 project）；`playwright.config.ts` testMatch + webServer env。
+- **实现要点**：分流条仅构建期配置 `VITE_MULTIPLAYER_API_URL` 时渲染（未配置=单机路径零变化）；单人分支必须在 `boot()` 之后渲染分流条——`mountLayout` 会 `root.textContent=''` 清空重建（首版 bug 已修+注释钉死）；面板仅需昵称+房间码，无登录/注册；本地预校验与 `shared/protocol` 同源（NICKNAME_PATTERN/ROOM_CODE 边界），服务端为最终权威；错误文案走 RestResult（describeError 中文目录）；按钮 busy 禁用防连点；teardown 关连接+移除面板。
+- **测试**：单测 8 例——正向（合法昵称/边界码 100000/999999 通过并 trim、main.ts 条件渲染结构断言、multiplayer 经 ../net 接线不直接 fetch/WS、样式 44px/16px 钉死）；反向（中文/超长/空昵称、5 位/7 位/012345/字母房间码 → 中文提示、面板无 password/login 标识）。E2E 8 例（4×chromium+mobile）——分流条可达、中文控件 role 定位、boundingBox ≥44px、聚焦无横向溢出、`input[type=password]`=0、合法加入无 Worker → 中文降级「服务器暂时无法访问」。
+- **门槛**：worker tsc=0、worker vitest 25 文件/205 全绿（无回归）；根 vitest 19 文件/328 全绿、根 tsc=0、build=0（multiplayer chunk 11.45 kB 独立、主包 35.67 kB 无网络代码）、Playwright 15/15（原 7 + 新 8）。证据 `evidence/multiplayer/N32/`。
+- **复审**：独立只读复审 PASS（P1×0、P2×0、O×7）。复审员独立复跑全部数字与证据吻合（chunk hash 亦相同）；验收 a–f 逐项核验通过（同源正则、服务端权威未削弱、默认构建主包 tree-shake 掉分流条、deploy.yml 未触碰）。
+- **遗留观察**：O-1 创建房间默认 `capacity:4/randomMode:'S1'/startLevel:1`，房主可改属 N33 大厅；O-2 加入/创建成功后仅中文提示「席位已保留」，无 WS 自动连接与大厅跳转（N33 接线 `client.connect()`）；O-3 双标签页席位互抢（N31 O-5）仍未装配处理，N33 大厅期决策；O-4 REST RATE_LIMITED 退避重试（N31 O-6）当前为手动重试（按钮恢复可用），N34 对局期再评估；O-5 分流条在单人页渲染于 boot 之后（顺序约束），若未来布局重构需保持；O-6（复审）E2E 降级用例依赖 8787 无监听（假失败非假通过，证据含端口检查）；O-7（复审）联网分支动态 import 无 .catch、href 丢弃其它 query、busy/teardown 无直接行为测试——均移交 N33 大厅装配期一并处理。
+
 
