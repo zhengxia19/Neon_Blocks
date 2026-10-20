@@ -1,0 +1,1 @@
+npx tsc --noEmit -p tsconfig.json (root, HEAD eb05fab): 无输出，exit=0（干净）

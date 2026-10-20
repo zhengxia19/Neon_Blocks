@@ -391,7 +391,7 @@
 - **复审结论**：独立只读复审 PASS（无 P1、无 P2；O1 topScorePlayerIds 隐含输入已降序前提→已改 Math.max 顺序无关+补乱序断言；O2 NaN 分数破坏全序由 N25 快照校验入约兜底（服务端每 revision 仅算一份广播，验收无威胁）；O3 arity 断言系弱代理，合看 TS 签名足够）。
 - **未解决事项**：无阻塞；N28 在 room.ts 消费 buildLeaderboard 做 dirty 批处理 ≤2Hz 发布（ScoreboardMsg.revision 统一管理，全员同 revision）。
 
-### N28 服务端排行榜 dirty 批处理与发布 ✅ PASS
+## N28 服务端排行榜 dirty 批处理与发布 ✅ PASS
 - 范围：`worker/src/room.ts` + 假时钟测试（新增 `room-scoreboard.test.ts` 10 用例；共享夹具 `room-routing-helpers.ts`）。
 - 实现：
   - 房间级单调 `#revision`：countdown/match_start/player_left/match_end/remote_snapshot 扇出/watch_target/协议 error/scoreboard 全部经 `#nextRevision()`，废除硬编码 1；不变式限定「同一连接内同 revision ⇒ 内容一致」（`shared/protocol.ts` 注释修订，复审 O-1）。
@@ -405,7 +405,7 @@
 - 遗留观察：淘汰风暴（6 人连续立即通道）最坏 6 条榜单/瞬时——受席位规模约束，可接受；`#revision` 内存态跨驱逐归零已在协议注释文档化（O-2）。
 
 
-### N29 自动观战目标纯函数 ✅ PASS
+## N29 自动观战目标纯函数 ✅ PASS
 - 范围：`worker/src/watch-target.ts`（新）+ `worker/test/watch-target.test.ts`（新 11 用例）。未触碰 room/协议/客户端。
 - 实现（方案 §6.2 精确定义）：候选=本局全体参赛者排除本人（含已淘汰者，冻结分仍参与）；规则 1 选 `score>` 本人者中最低分（「刚好更高」），同分消行数**降序**→加入顺序升序；规则 2 无更高者（独占/并列最高）→其他玩家最低分，并列消行数**升序**→加入顺序升序（两规则 tie-break 方向不同为方案原文规定）；永不选本人；观看者不在名单/仅本人/空名单→null。纯函数：无时间/随机/IO，不修改输入，joinOrder 唯一保证输入顺序无关。
 - 验收：方案 §6.2 六人例（A→B、D→B、E→C、C→F、B→E、F→A）；两人互看；两人同分；六人全同分（各选消行最少者，C 自己按 join 升序选 A）；并列最高（X/Y→Z）；淘汰者参与（淘汰高分者仍是目标、淘汰者作观看者）；规则 1 同分消行降序/join 升序；规则 2 同分消行升序/join 升序；高低分轮换 12 组×4 观看者=48 个确定性断言（每步恒式「不为本人」）；乱序不变+输入不被修改；负向 null 三例+同分不算更高。
@@ -414,7 +414,7 @@
 - 交接 N30：room.ts 将用 `match_roster`（join_order **必须唯一**，复审 O-1）+ 快照槽 score/lines 构造 `WatchCandidate[]`，仅在排行榜 revision/房间状态变化时按入站事件合并重算（≤1s 稳定、500ms 防抖属 room 侧，方案 L149），逐席位单发 `watch_target`，不修改公共排行榜。
 
 
-### N30 自动观战目标切换（随榜单发布事件重算） ✅ PASS
+## N30 自动观战目标切换（随榜单发布事件重算） ✅ PASS
 - 范围：`worker/src/room.ts`（默认环→自动目标）+ 新增 `room-watch.test.ts` 8 用例 + 适配 `room-routing.test.ts`/`room-countdown.test.ts`。
 - 实现：
   - 删除 `#buildDefaultWatchRing`；新增 `#applyAutoWatchTargets(generation)`：候选=match_roster 全体（含淘汰/断线/倒计时离席者，冻结分仍参与）、观看者=roster∩现存席位；逐候选跑 N29 `pickWatchTarget`，仅目标变化者记入 changed。
@@ -426,5 +426,16 @@
 - 旧测试适配：routing 环语义→自动目标语义（开局全零分 ids[0]→ids[1]、其余→ids[0]；leaveRoom/P2-1/P2-2 按新语义重写）；countdown 消息数 3→4（新增首个 watch_target，断言增强目标载荷）。
 - 门槛：worker tsc=0、worker vitest 25 文件/205 全绿；根 vitest 300 全绿、根 tsc=0、build=0、Playwright 7/7。证据 `evidence/multiplayer/N30/`。
 - 复审：独立只读复审 PASS（P1×0、P2×1 已在提交前修复：P2-1 驱逐+延迟开赛 watch_target 缺失洞→advanceToRunning 兜底建立+通知+专测「驱逐后延迟 600ms 开赛：假榜仍跳过、目标全量下发、入账后不重复通知、路由单流生效」；O×4）。复审员独立复跑全部数字吻合；手工推演 T2/T3/T4/T5/T6/T7 期望值逐格一致无侥幸；确认重算调用点仅 3 处、无新增定时器、revision 批次共享不违反 protocol 注释（限定单连接）、跨局清映射 6→0→6。
-- 遗留观察：O-1 手动目标在活跃对局下一次发布（≤500ms）即被自动覆盖——符合方案 §6.2.4，已文档化+T6 钉死，若需「手动钉住」属方案级决策；O-3 驱逐后首帧目标基于「1 槽+其余全零」与同刻榜单同源、≤1s 自纠（延迟开赛路径已有专测）；O-4 日志回填即本条。
+- 遗留观察：O-1 手动目标在活跃对局下一次发布（≤500ms）即被自动覆盖——符合方案 §6.2.4，已文档化+T6 钉死，若需「手动钉住」属方案级决策；O-3 驱逐后首帧目标基于「1 槽+其余全零」与同刻榜单同源、≤1s 自纠（延迟开赛路径已有专测）；O-4 日志回填即本条；N26 O6（`BAD_STATE`/`INVALID_TARGET` 未入 shared 错误目录）重新归属：N30 未接线（`setWatchTarget` 仅测试调用、无 WS/HTTP 错误面），移交 N31+ 客户端接线时一并映射入 `shared/errors.ts`。
+
+
+## G2 — 关口验收（N22–N30）✅ PASS
+
+- **基线 HEAD**：`eb05fab`（N30 之后）
+- **验收范围**：清单 §6 关口 G2——N22–N30 全部 9 项通过；限流、5Hz/2Hz、单订阅目标、统一榜单与自动观战有数据证据。
+- **完整性核对**：日志 N22–N30 九项均 ✅ PASS；提交链 `377d166..eb05fab` 恰 9 个 feat 逐项对应（另 docs(N27) 仅日志）；`evidence/multiplayer/N22..N30/` 原始输出齐备（抽查 N22/N25/N28/N30 与日志数字逐字吻合）；deploy.yml 仍仅 2 条历史提交（63c29d3、1963218）未触碰。
+- **四要素可测性**：限流=http-ratelimit（分端点窗口、4100 IP→桶封顶 4096、429+Retry-After）+room-snapshot（20/s、4KiB 字节门槛、seq 双单调、6 人×100Hz×60s 管线有界）；5Hz/2Hz=publisher 钳制封闭+scoreboard 压力 150 帧含首榜 ≤11 条、去重零广播、无常驻定时器；单订阅=routing total=90（O(N²)=540）、背压单槽、P2-1/P2-2；统一榜单=leaderboard 并列跳号+全员同 entries/revision 逐字段一致；自动观战=watch-target 11 例（§6.2 六人例+48 格轮换）+room-watch 8 例（验收 A/B、≤500ms 合并点、淘汰者参与、驱逐+延迟开赛兜底）。
+- **复跑与退出码**：worker `npx vitest run`→0（25/205）；worker `npx tsc --noEmit`→0；根 `npx vitest run`→0（17/300）；根 `npx tsc --noEmit`→0；`npm run build`→0；`npx playwright test`→0（7 passed）。证据 `evidence/multiplayer/G2/{gate-report,worker-vitest,worker-typecheck,root-vitest,root-typecheck,root-build,e2e}.txt`。
+- **复审结论**：独立只读关口复审 PASS——日志/证据/提交链三方一致，复跑数字与 N30 证据吻合，四要素逐项有测试锚点+压力数据，无关口级缺口；P2×2（G2 证据目录未入库、gate-report 引用两个 tsc 文件缺失）已在关口提交前修复（补文件+入库），O×3（N26 O6 重新归属 N31+、日志标题层级已统一、N29 O 计数粒度）留痕。
+- **未解决事项**：无关口级缺口；N26 O6 错误目录映射移交 N31+；进入 N31（P3 客户端：连接与大厅）。
 
