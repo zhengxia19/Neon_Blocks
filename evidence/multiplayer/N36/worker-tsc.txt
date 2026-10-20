@@ -1,0 +1,1 @@
+npx tsc --noEmit（worker 目录）— 无输出（0 错误），exit code 0。

@@ -1,0 +1,74 @@
+[WebServer] (node:25916) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 22 tests using 16 workers
+
+(node:25628) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:27956) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:30076) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:29528) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:33224) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:21580) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:13124) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:29988) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:29664) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:30336) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:29520) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:29208) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:31192) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:36660) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:35480) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:26908) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  -   4 [chromium] › tests\e2e\mp-lobby.spec.ts:105:3 › N33 等待大厅（双端） › 房主改设置 → 访客同步只读值；设置变更重置全员准备
+  -   6 [chromium] › tests\e2e\mp-layout.spec.ts:145:3 › N36 双棋盘响应式布局（双端实时对局） › 320×568：无横向溢出、双棋盘可见、排行榜可折叠展开
+  -  10 [chromium] › tests\e2e\mp-lobby.spec.ts:132:3 › N33 等待大厅（双端） › N34 开局装配：服务器倒计时→进行中；棋盘渲染；个人暂停禁用
+  -  11 [chromium] › tests\e2e\mp-layout.spec.ts:107:3 › N36 双棋盘响应式布局（双端实时对局） › 390×844：对手缩略条置顶不遮挡、触屏按键可见、无横向溢出
+  -  14 [chromium] › tests\e2e\mp-layout.spec.ts:78:3 › N36 双棋盘响应式布局（双端实时对局） › 桌面 1280：严格 2 Canvas、双棋盘无重叠、排行榜列就位、无横向溢出
+  -  15 [chromium] › tests\e2e\mp-lobby.spec.ts:71:3 › N33 等待大厅（双端） › 加入 → 双端席位同步；访客只读；准备后全员准备才可开局
+  -  13 [chromium] › tests\e2e\mp-lobby.spec.ts:56:3 › N33 等待大厅（双端） › 创建房间 → 大厅：6 位房间码、席位视图、房主控件
+  ok  8 [chromium] › tests\e2e\mp-entry.spec.ts:16:1 › 入口面板：中文控件齐备、无登录/密码字段 (574ms)
+  ok 16 [chromium] › tests\e2e\smoke.spec.ts:9:1 › page loads and body is visible (463ms)
+  ok 12 [chromium] › tests\e2e\mp-entry.spec.ts:26:1 › 入口面板：输入与按钮触控目标 ≥44px（移动端输入不卡操作） (595ms)
+  ok  3 [chromium] › tests\e2e\mp-entry.spec.ts:7:1 › 首页分流条可见且联网链接可达 (734ms)
+  ok  9 [chromium] › tests\e2e\desktop.spec.ts:101:1 › desktop loop: restart confirm cancel keeps state (693ms)
+  ok  2 [chromium] › tests\e2e\desktop.spec.ts:34:1 › desktop loop: ready → start → move/rotate → hard drop scores → pause → resume → restart (800ms)
+  ok  7 [chromium] › tests\e2e\mp-entry.spec.ts:41:1 › 本地预校验中文提示 → 合法输入走 NetClient（无服务器时中文降级） (683ms)
+(node:25260) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:30288) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok  1 [chromium] › tests\e2e\desktop.spec.ts:120:1 › settings sound/ghost persist across reload (825ms)
+(node:18344) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:29928) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:29380) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:37968) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok  5 [mobile-chrome] › tests\e2e\mobile.spec.ts:26:1 › mobile touch loop at 390×844: 44px targets, no overflow, all actions (1.3s)
+  ok 19 [mobile-chrome] › tests\e2e\mp-entry.spec.ts:16:1 › 入口面板：中文控件齐备、无登录/密码字段 (272ms)
+  ok 21 [mobile-chrome] › tests\e2e\mp-entry.spec.ts:26:1 › 入口面板：输入与按钮触控目标 ≥44px（移动端输入不卡操作） (324ms)
+  ok 18 [mobile-chrome] › tests\e2e\mp-entry.spec.ts:7:1 › 首页分流条可见且联网链接可达 (436ms)
+  ok 22 [mobile-chrome] › tests\e2e\smoke.spec.ts:9:1 › page loads and body is visible (283ms)
+  ok 20 [mobile-chrome] › tests\e2e\mp-entry.spec.ts:41:1 › 本地预校验中文提示 → 合法输入走 NetClient（无服务器时中文降级） (434ms)
+  ok 17 [mobile-chrome] › tests\e2e\mobile.spec.ts:81:1 › 320×640 small viewport: no horizontal overflow before and during play (618ms)
+
+  7 skipped
+  15 passed (3.9s)

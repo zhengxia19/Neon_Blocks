@@ -10,6 +10,10 @@ import { NetClient } from '../net';
 import { bootMatch, computeClockOffset, countdownLabel, type MatchHandle } from './match';
 import { renderLobby, type LobbyController } from '../ui/lobby';
 import { renderMultiplayerEntry, type EntryController } from '../ui/mp-entry';
+import { mountMultiplayerLayout } from '../ui/multiplayer-layout';
+
+// N36：模块级暴露布局装配函数——E2E 可在无 Worker 时直接挂载双棋盘骨架做布局断言。
+(window as unknown as Record<string, unknown>).__NEON_BLOCKS_MP_LAYOUT__ = mountMultiplayerLayout;
 
 /** 联网装配句柄（连接与 teardown）。 */
 export interface MultiplayerHandle {

@@ -9,6 +9,7 @@
 import './styles/tokens.css';
 import './styles/app.css';
 import './styles/responsive.css';
+import './styles/multiplayer.css';
 
 import { GameEngine } from './game/engine';
 import type { PieceType } from './game/types';

@@ -34,6 +34,24 @@ async function joinRoom(page: Page, nickname: string, code: string): Promise<voi
   await expect(page.locator('#mp-lobby')).toBeVisible({ timeout: LOBBY_TIMEOUT });
 }
 
+// 双端准备：ready 点击偶发丢失（大厅重渲染竞态）时补一次，再确认开局解禁。
+// ready 单向：成功后按钮禁用，补点前必须 isEnabled 守卫，否则 actionability 挂死。
+async function readyBoth(a: Page, b: Page): Promise<void> {
+  const clickReady = async (page: Page): Promise<void> => {
+    const btn = page.locator('#mp-ready');
+    if (await btn.isEnabled()) await btn.click();
+  };
+  await clickReady(a);
+  await clickReady(b);
+  try {
+    await expect(a.locator('#mp-start')).toBeEnabled({ timeout: 3000 });
+  } catch {
+    await clickReady(a);
+    await clickReady(b);
+    await expect(a.locator('#mp-start')).toBeEnabled({ timeout: LOBBY_TIMEOUT });
+  }
+}
+
 test.describe('N33 等待大厅（双端）', () => {
   test('创建房间 → 大厅：6 位房间码、席位视图、房主控件', async ({ page, request }) => {
     test.skip(!(await workerUp(request)), 'Worker(8787) 未运行');
@@ -121,8 +139,7 @@ test.describe('N33 等待大厅（双端）', () => {
       await createRoom(a, 'host01');
       const code = (await a.locator('#mp-room-code-value').textContent()) as string;
       await joinRoom(b, 'guest02', code);
-      await a.click('#mp-ready');
-      await b.click('#mp-ready');
+      await readyBoth(a, b);
       await a.click('#mp-start');
       // 服务器 startAt 驱动的预倒计时（3/2/1 文案，双端各自校准）。
       await expect(a.locator('#mp-pre-countdown')).toContainText(/即将开始：[123]/, { timeout: LOBBY_TIMEOUT });

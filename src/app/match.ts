@@ -11,11 +11,13 @@
 import { GameEngine } from '../game/engine';
 import { createSeededRng } from '../game/seeded-rng';
 import type { MatchStartMsg } from '../../shared/protocol';
-import { mountLayout, type LayoutRefs } from '../ui/layout';
+import { mountMultiplayerLayout, type MultiplayerLayoutRefs } from '../ui/multiplayer-layout';
 import { BoardRenderer } from '../ui/renderer';
 import { EffectsController } from '../ui/effects';
 import { createHud } from '../ui/hud';
 import { KeyboardController } from '../input/keyboard';
+import { RepeatController } from '../input/repeat';
+import { createTouchControls } from '../input/touch';
 
 /** 掉帧/后台恢复的单帧推进封顶（与单人主循环 T054 同值）。 */
 export const MAX_CATCHUP_MS = 250;
@@ -56,7 +58,8 @@ export function bootMatch(
   deps: { now?: () => number } = {},
 ): MatchHandle {
   const wallNow = deps.now ?? ((): number => Date.now());
-  const refs: LayoutRefs = mountLayout(root);
+  // N36：联网装配使用双棋盘布局（本人棋盘与单人完全一致 + 对手棋盘/排行榜槽）。
+  const refs: MultiplayerLayoutRefs = mountMultiplayerLayout(root);
 
   // 个人暂停/重开禁用：隐藏暂停按钮并禁用（键盘 Esc 亦空操作）。
   refs.pauseButton.hidden = true;
@@ -95,6 +98,27 @@ export function bootMatch(
   });
   keyboard.attach(window);
 
+  // N36：触屏按键与单人同一套装配（RepeatController 共享节奏），手机可操作。
+  const touchRepeat = new RepeatController({
+    move: (direction) => engine.move(direction),
+    softDrop: () => engine.softDrop(),
+  });
+  const touch = createTouchControls(refs.touchControls, {
+    repeat: touchRepeat,
+    actions: {
+      rotate: (direction) => engine.rotate(direction),
+      hardDrop: () => engine.hardDrop(),
+      hold: () => engine.hold(),
+    },
+  });
+
+  // N36：窗口尺寸变化同步本人棋盘 backing store（对手棋盘随 RemoteBoard.resize
+  // 在 N38 接线）；BoardRenderer.resize 幂等，同尺寸不写 canvas.width。
+  const onResize = (): void => {
+    renderer.resize();
+  };
+  window.addEventListener('resize', onResize);
+
   let rafId = 0;
   let lastFrameMs = performance.now();
   let started = false;
@@ -108,6 +132,11 @@ export function bootMatch(
     rafId = requestAnimationFrame(frame);
     const dtMs = clampFrameDelta(nowMs - lastFrameMs);
     lastFrameMs = nowMs;
+
+    // 长按节奏推进（与单人主循环同构）：键盘 ↓ 与触屏 ↓ 的软降节奏
+    // 由 update(dt) 累加驱动（RepeatController 无独立计时器）。
+    keyboard.update(dtMs);
+    touchRepeat.update(dtMs);
 
     // 开局判定：校准墙钟到达 startAt 即启动（不依赖隐藏页里停摆的 rAF 计数）。
     if (!started && wallNow() + clockOffset >= match.startAt) {
@@ -149,7 +178,11 @@ export function bootMatch(
 
   // 后台冻结防护：隐藏/失焦不暂停服务端比赛，只释放输入并重置时间戳；
   // 恢复后由封顶 dt 单帧续跑，继续/淘汰以服务器 room_state 为准。
-  const releaseInputs = (): void => keyboard.releaseAll();
+  const releaseInputs = (): void => {
+    keyboard.releaseAll();
+    touchRepeat.releaseAll();
+    touch.releaseAll();
+  };
   const onVisibilityChange = (): void => {
     if (!document.hidden) lastFrameMs = performance.now();
     releaseInputs();
@@ -167,7 +200,9 @@ export function bootMatch(
       cancelAnimationFrame(rafId);
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('blur', onBlur);
+      window.removeEventListener('resize', onResize);
       keyboard.dispose();
+      touch.dispose();
     },
   };
 }

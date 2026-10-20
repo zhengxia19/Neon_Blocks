@@ -1,0 +1,130 @@
+/* Neon Blocks — 联网对局双棋盘与排行榜样式（方案 §6.1，任务 N36）。
+   仅作用于 .mp-mode（联网装配 root 类），单人样式零影响。
+   桌面：第 4 列对手棋盘（本人 300px 的 60%：180×360）+ 第 5 列排行榜；
+   手机（<768px）：对手棋盘缩略条置顶（order:-1 整行），本人游戏区与
+   触屏按键保持优先空间，排行榜 details 可折叠但一键展开全部玩家。
+   全页严格 2 个 Canvas；320/390/1280 断点无横向溢出（E2E 钉死；
+   768～1130px 中间视口带为观察项，见执行日志 N36 O-2）。 */
+
+/* ── 桌面基准（≥768px 才启用 5 列；<768px 回落单人 3 列 + 整行面板） ───── */
+@media (min-width: 768px) {
+  .mp-mode .playfield {
+    /* 左栏/右栏收窄到 200px 上限，为对手棋盘与排行榜腾出列宽（1280 视口不溢出） */
+    grid-template-columns: minmax(170px, 200px) auto minmax(170px, 200px) auto minmax(190px, 230px);
+  }
+}
+
+.panel-opponent {
+  align-items: stretch;
+}
+
+.opponent-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.opponent-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.opponent-canvas {
+  display: block;
+  width: 180px;
+  height: 360px; /* 本人 300×600 的 60%（方案 §6.1：55%～70%） */
+  background: var(--board);
+  border-radius: 8px;
+}
+
+.panel-leaderboard {
+  align-items: stretch;
+}
+
+.leaderboard-details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.leaderboard-summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  color: var(--muted);
+  user-select: none;
+}
+
+.leaderboard-slot {
+  min-height: 120px;
+}
+
+/* ── 手机 <768px：本人游戏区与触屏按键优先，对手棋盘缩略置顶 ───────────── */
+@media (max-width: 767.98px) {
+  .mp-mode .playfield {
+    gap: 8px; /* 收紧列间距，把纵向空间让给触控区 */
+  }
+
+  .mp-mode .panel-opponent {
+    grid-column: 1 / -1;
+    order: -1; /* 缩略条排在本人棋盘上方，不遮挡操作区 */
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      'title title'
+      'canvas meta'
+      'canvas name';
+    align-items: center;
+    column-gap: 10px;
+    row-gap: 2px;
+    padding: 6px 10px;
+  }
+
+  .mp-mode .panel-opponent .panel-title {
+    grid-area: title;
+  }
+
+  .mp-mode .opponent-canvas {
+    grid-area: canvas;
+    width: 48px;
+    height: 96px; /* 保持 1:2 定比缩略（320×568 首屏预算内） */
+  }
+
+  .mp-mode .opponent-meta {
+    grid-area: meta;
+    font-size: 12px;
+  }
+
+  .mp-mode .opponent-name {
+    grid-area: name;
+    font-size: 14px;
+  }
+
+  .mp-mode .panel-leaderboard {
+    grid-column: 1 / -1;
+    padding: 4px 10px 8px;
+  }
+
+  /* 手机联网：得分/最高分/等级已在顶栏 mini 条（或排行榜）呈现，
+     侧栏只保留暂存与下一个预览，压缩行高把空间让给触控区。 */
+  .mp-mode .panel-left .stat-block:has(#score-value),
+  .mp-mode .panel-left .stat-block:has(#best-value),
+  .mp-mode .panel-right .stat-block:has(#level-value) {
+    display: none;
+  }
+
+  /* 触屏按键优先：本人棋盘让出「头部 + 对手缩略条 + 排行榜摘要行 + 触控区」
+     的高度预算（440px），保证 390×844 / 320×568 首屏内触控区完整可见（E2E 钉死）。 */
+  .mp-mode .board-canvas {
+    max-height: calc(100vh - 440px);
+  }
+}

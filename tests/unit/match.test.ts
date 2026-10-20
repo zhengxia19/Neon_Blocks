@@ -60,6 +60,10 @@ describe('N34 装配结构断言', () => {
     expect(SRC.match).not.toMatch(/\.togglePause\(/);
     expect(SRC.match).not.toMatch(/\.restart\(/);
     expect(SRC.match).toContain('refs.pauseButton.disabled = true');
+    // N36：触屏按键装配 + 长按节奏每帧推进（与单人主循环同构）。
+    expect(SRC.match).toContain('createTouchControls(refs.touchControls');
+    expect(SRC.match).toContain('keyboard.update(dtMs)');
+    expect(SRC.match).toContain('touchRepeat.update(dtMs)');
   });
 
   it('正向：match.ts 无网络代码；multiplayer 以 room_state.serverTime 校准并装配对局', () => {
