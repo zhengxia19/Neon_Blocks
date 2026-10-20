@@ -2103,6 +2103,18 @@ export class RoomDO extends DurableObject<Env> {
         return;
       }
       case 'start': {
+        // N39-a：终局阶段收到 start = 房主下一局触发（FINISHED→LOBBY，全员重新
+        // 准备）。§7.2 C→S 白名单无独立下一局消息，语义由服务端按房间阶段裁决；
+        // 非房主 → NOT_HOST，非终局竞态 → BAD_STATE 映射目录 NOT_IN_GAME。
+        if (this.#readConfig()?.state === 'FINISHED') {
+          const result = this.nextRound(att.playerId);
+          if (result.ok) {
+            this.#sendRoomState();
+          } else {
+            this.#sendProtocolError(ws, result.error === 'BAD_STATE' ? 'NOT_IN_GAME' : result.error);
+          }
+          return;
+        }
         const result = this.startGame(att.playerId);
         // N33：开局失败定向回 error（PLAYERS_NOT_READY 复用目录 NOT_READY 文案；
         // 成功路径的 countdown 广播在 startGame 内原子段完成）。
