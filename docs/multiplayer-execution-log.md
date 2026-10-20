@@ -439,3 +439,13 @@
 - **复审结论**：独立只读关口复审 PASS——日志/证据/提交链三方一致，复跑数字与 N30 证据吻合，四要素逐项有测试锚点+压力数据，无关口级缺口；P2×2（G2 证据目录未入库、gate-report 引用两个 tsc 文件缺失）已在关口提交前修复（补文件+入库），O×3（N26 O6 重新归属 N31+、日志标题层级已统一、N29 O 计数粒度）留痕。
 - **未解决事项**：无关口级缺口；N26 O6 错误目录映射移交 N31+；进入 N31（P3 客户端：连接与大厅）。
 
+## N31 — 联网 API/WS 客户端与生命周期 ✅ PASS
+
+- **范围**：新建 `src/net/client.ts`（NetClient：REST create/join/ticket + WS 连接/发送/断开/退避重连/版本处理/sessionStorage 席位凭据/中文提示）；`src/net/index.ts` 增导出；新建 `tests/unit/net-client.test.ts` 20 例。
+- **实现要点**：单飞 `#connectPromise` 首个 await 前同步置位（并发 connect 复用同一次握手）；重连等待期 connect() 早退不并发；握手 URL 仅含一次性票据（`?ticket=`），seatToken 只进 POST body 与 sessionStorage，全文无日志；退避 500ms×2ⁿ 封顶 8000ms，预算从首断墙钟累计（仅 open 重置），累计+下一次 delay>30s 即放弃并中文提示；版本不匹配（error 帧/v≠1/close 1002）致命不重连；S→C 轻量校验 v 精确 + type ∈ SERVER_MESSAGE_TYPES；`send` 自动补连接内单调 seq；单人无自启动副作用。
+- **测试**：20 例全绿——正向（凭据落盘、URL 精确等值不含 seatToken、退避 499/500 精确到点、预算 ctor=7 后放弃零残留定时器、seq 单调、主动 close 不重连、leave 清凭据）；反向（ROOM_FULL 中文不落盘、无凭据/401 不建连、v≠1 致命不重连、未知 type 静默忽略）。
+- **门槛**：worker tsc=0、worker vitest 25 文件/205 全绿（无回归）；根 vitest 18 文件/320 全绿、根 tsc=0、build=0、Playwright 7/7。证据 `evidence/multiplayer/N31/`。
+- **复审**：独立只读复审 PASS（P1×0、P2×4 全部提交前修复+专测：P2-1 票据在途 leave() 僵尸连接→new WS 前守卫复查 closedIntentionally/fatal；P2-2 close-1002-only 分支假覆盖→补无 error 帧专测；P2-3 重连期票据失败零测试→补 GENERATION_STALE 韧性专测并增 onClose 通知；P2-4 致命粘滞→leave()/成功取得席位清 fatal）。复审员独立复跑 15+7 全绿、验收条款逐项核验通过。
+- **遗留观察**：O-1 N26 `BAD_STATE`/`INVALID_TARGET` 仍未入 shared 错误目录（describeError 回退 INTERNAL），N32+ 需要精确文案时再入目录；O-3 重连超时文案为客户端本地语义硬编码；O-4 close() 不清 disconnectedAt（预算从首断累计，比服务端新宽限保守，注释钉死）；O-5 WS 4003 席位替换触发自动重连，双标签页互抢为 N32 装配层决策点；O-6 REST 失败重试策略移交 N32/N34 按 UI 语义决定。
+
+

@@ -1,0 +1,62 @@
+N31 验收报告 — 联网 API/WS 客户端与生命周期（src/net/client.ts + tests/unit/net-client.test.ts）
+
+关口（全部通过，原始输出见本目录）：
+- root vitest：18 文件 / 320 测试（新增 net-client.test.ts 20 例）→ root-vitest.txt
+- root tsc --noEmit：exit 0（空输出）→ root-typecheck.txt
+- root vite build：exit 0 → root-build.txt
+- worker vitest（worker 目录内）：25 文件 / 205 测试（无回归）→ worker-vitest.txt
+- worker tsc --noEmit：exit 0 → worker-typecheck.txt
+- Playwright E2E：7/7 → e2e-playwright.txt
+
+验收条款 → 测试钉死：
+1. 「仅传一次性短期票据给 WSS 握手；不向 URL 泄露长令牌」
+   - 正向：握手 URL 精确等于 ws://…/ws/842131?ticket=tk1；断言 URL 不含 seatToken；
+     seatToken 仅出现在 POST /ticket 请求体；client.ts 全文无 console/日志。
+   - 每次重连重新换取新票据（4 次连接 ⇒ 4 次 /ticket 调用，票据互不相同）。
+2. 「断线/恢复不重入并发连接」
+   - 并发 Promise.all([connect, connect]) ⇒ 仅 1 条 WS（#connectPromise 首个 await 前同步置位）；
+   - 重连等待期 connect() ⇒ 不并发第二条，退避到点后才开新连接；
+   - 陈旧连接迟到帧/迟到 close 被丢弃（#ws 身份核验）；
+   - P2-1：票据 POST 在途时 leave() ⇒ 守卫拦截，不构造僵尸连接（专测 ctorCount=0）。
+3. 「指数退避重连（最大等待不得侵蚀 30 秒重连宽限）」
+   - 退避序列 500/1000/2000ms 精确到点（499 不触发、500 触发）；
+   - 单次封顶 RECONNECT_MAX_DELAY_MS=8000 < DISCONNECT_GRACE_MS=30000；
+   - 累计预算从首断墙钟起算（仅 open 重置）：500+1000+2000+4000+8000+8000=23.5s 内共 6 次重连；
+     下一次 8000 ⇒ 31.5s > 30s ⇒ 放弃：中文提示「连接已断开，重连超时，请重新加入房间。」、
+     无残留定时器（getTimerCount=0）、放弃后不再重连（ctor=7 钉死）。
+   - P2-3：重连期票据失败（GENERATION_STALE 例）⇒ onClose 通知装配层且退避继续、
+     下一次尝试成功（韧性路径专测）。
+4. 「协议版本处理」
+   - error(PROTOCOL_VERSION) 与 v≠1 消息帧 ⇒ 致命中文提示「协议版本不匹配，请刷新页面后重试。」；
+   - P2-2：无 error 帧、仅 close(1002) ⇒ 冻结契约分支真实执行：致命且不重连（专测）；
+   - 致命后 connect() 早退；P2-4：leave()/成功 create+join 清除致命粘滞，同实例可重新加入（专测）。
+5. 「sessionStorage 席位凭据」
+   - createRoom 成功 ⇒ CREDENTIAL_KEY 落盘（含 seatToken）；
+   - joinRoom 409 ROOM_FULL ⇒ 中文「房间已满员。」且不落盘（反向）；
+   - leave() ⇒ 清除凭据并断开。
+6. 「异常中文提示」
+   - 无凭据 connect ⇒ 「席位凭据无效，请重新加入房间。」且不建连（反向）；
+   - ticket 401 ⇒ 同上中文提示且不建连（反向）；
+   - REST/WS 错误码全部经 shared/errors.ts describeError 映射中文；
+     例外：重连超时为客户端本地语义，文案「连接已断开，重连超时，请重新加入房间。」硬编码
+     （码 INTERNAL 在目录内，消息为装配层专用，见 O-3）。
+7. 「单人不连接」
+   - 仅构造 NetClient ⇒ WebSocket 构造计数 0（无自启动副作用）；
+     main.ts 联网分支仍经动态 import（net-boundary.test.ts 既有守护，本轮复跑 7 例通过）。
+8. send：自动补连接内单调 seq 与 v=1；未 open 返回 false（publisher 侧决定丢弃/排队）。
+9. S→C 轻量校验（O-4 本轮完成）：v 精确核验 + type 必须在 SERVER_MESSAGE_TYPES 白名单，
+   未知类型静默忽略、连接保持（专测）；结构级校验由服务端权威保证，装配层按需再验。
+
+复审闭环：独立只读复审 PASS（P1×0、P2×4 全部提交前修复+专测：P2-1 僵尸连接守卫、
+P2-2 close-1002-only 分支真实执行、P2-3 重连期票据失败韧性与 onClose 通知、
+P2-4 致命粘滞清除；O-4 白名单顺带完成）。
+
+遗留观察（O）：
+- O-1：N26 setWatchTarget 错误码（BAD_STATE/INVALID_TARGET）不在 ERROR_CODES 目录内，
+  describeError 回退 INTERNAL 中文；待 N32+ 装配层需要精确文案时再入目录（协议变更需复审）。
+- O-2：重连成功后 seq 不重置（跨连接单调）；服务端按连接内单调校验，兼容且更保守。
+- O-3：重连超时文案硬编码于 client.ts（客户端本地语义，非服务端错误码透传）。
+- O-4：close() 不清 disconnectedAt——随后 connect 的退避预算仍从首断起算，
+  比服务端新宽限更保守（安全方向），已在代码注释钉死。
+- O-5：WS close 4003（席位替换）会触发自动重连，双标签页可能互抢席位——N32 装配层决策点。
+- O-6：REST 失败重试策略（如 RATE_LIMITED 退避）留给 N32/N34 装配层按 UI 语义决定。

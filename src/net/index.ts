@@ -37,6 +37,27 @@ export {
   SnapshotPublisher,
 } from './publisher';
 export type { PublishReject, PublishResult, PublisherOptions } from './publisher';
+export {
+  CREDENTIAL_KEY,
+  NetClient,
+  RECONNECT_BASE_MS,
+  RECONNECT_MAX_DELAY_MS,
+  clearCredential,
+  loadCredential,
+  saveCredential,
+} from './client';
+export type {
+  CredentialStore,
+  FatalInfo,
+  NetClientOptions,
+  RestFail,
+  RestOk,
+  RestResult,
+  SeatCredential,
+  SeatInfo,
+  WebSocketCtor,
+  WebSocketLike,
+} from './client';
 export type {
   ActivePieceSnapshot,
   ClientMessage,
