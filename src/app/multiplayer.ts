@@ -7,6 +7,7 @@
  */
 import { PROTOCOL_VERSION, type ServerMessage } from '../../shared/protocol';
 import { NetClient } from '../net';
+import { bootMatch, computeClockOffset, countdownLabel, type MatchHandle } from './match';
 import { renderLobby, type LobbyController } from '../ui/lobby';
 import { renderMultiplayerEntry, type EntryController } from '../ui/mp-entry';
 
@@ -24,14 +25,44 @@ export interface MultiplayerHandle {
 export function bootMultiplayer(root: HTMLElement, apiBaseUrl: string): MultiplayerHandle {
   let entry: EntryController | null = null;
   let lobby: LobbyController | null = null;
+  let match: MatchHandle | null = null;
   let myPlayerId = '';
   let leftIntentionally = false;
+  // N34：服务器墙钟偏差（最近一次 room_state.serverTime 校准）。
+  let clockOffset = 0;
+  // N34：预倒计时遮罩（countdown→match_start 之间；只依赖校准墙钟显示）。
+  let preCountdownEl: HTMLElement | null = null;
+  let preCountdownTimer: number | null = null;
+
+  const clearPreCountdown = (): void => {
+    if (preCountdownTimer !== null) {
+      window.clearInterval(preCountdownTimer);
+      preCountdownTimer = null;
+    }
+    preCountdownEl?.remove();
+    preCountdownEl = null;
+  };
+
+  const showPreCountdown = (startAt: number): void => {
+    if (preCountdownEl !== null) return;
+    preCountdownEl = document.createElement('div');
+    preCountdownEl.id = 'mp-pre-countdown';
+    preCountdownEl.setAttribute('role', 'status');
+    root.appendChild(preCountdownEl);
+    const tick = (): void => {
+      const label = countdownLabel(startAt - (Date.now() + clockOffset));
+      preCountdownEl!.textContent = label === 'GO' ? '即将开始……' : `即将开始：${label}`;
+    };
+    tick();
+    preCountdownTimer = window.setInterval(tick, 200);
+  };
 
   const client = new NetClient({
     apiBaseUrl,
     onMessage: (msg: ServerMessage): void => {
       switch (msg.type) {
         case 'room_state':
+          clockOffset = computeClockOffset(msg.serverTime, Date.now());
           lobby?.update(msg);
           break;
         case 'player_joined':
@@ -42,11 +73,17 @@ export function bootMultiplayer(root: HTMLElement, apiBaseUrl: string): Multipla
           break;
         case 'countdown':
           lobby?.showMessage('info', '比赛即将开始……');
+          showPreCountdown(msg.startAt);
           break;
-        case 'match_start':
-          // N34 起接入对局界面；大厅先给出阶段提示，参数已全员锁定。
-          lobby?.showMessage('info', '比赛开始！对局界面即将接入。');
+        case 'match_start': {
+          // N34：按服务器种子/等级装配本地对局，开局时刻由校准墙钟判定。
+          if (match !== null) break; // 同局重传防重复装配
+          clearPreCountdown();
+          lobby?.destroy();
+          lobby = null;
+          match = bootMatch(root, msg, clockOffset);
           break;
+        }
         case 'error':
           lobby?.showMessage('error', msg.message);
           break;
@@ -88,6 +125,7 @@ export function bootMultiplayer(root: HTMLElement, apiBaseUrl: string): Multipla
         leftIntentionally = true;
         client.leave();
         leftIntentionally = false;
+        clearPreCountdown();
         lobby?.destroy();
         lobby = null;
         entry = renderMultiplayerEntry(root, entryHandlers);
@@ -140,8 +178,10 @@ export function bootMultiplayer(root: HTMLElement, apiBaseUrl: string): Multipla
       if (tornDown) return;
       tornDown = true;
       client.close();
+      clearPreCountdown();
       entry?.destroy();
       lobby?.destroy();
+      match?.destroy();
     },
   };
 }

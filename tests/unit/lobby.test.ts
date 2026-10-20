@@ -111,7 +111,8 @@ describe('N33 大厅装配结构（纯 DOM、无网络；接线经 NetClient）'
   it('正向：multiplayer.ts 接线——room_state 驱动大厅、动作经 client.send、teardown 清理', () => {
     const mp = SRC('app/multiplayer.ts');
     expect(mp).toMatch(/from\s+['"]\.\.\/ui\/lobby['"]/);
-    expect(mp).toMatch(/case 'room_state':[\s\S]{0,80}lobby\?\.update\(msg\)/);
+    // N34 起 room_state 先做墙钟校准再驱动大厅（校准行在 update 之前）。
+    expect(mp).toMatch(/case 'room_state':\s*clockOffset = computeClockOffset\(msg\.serverTime, Date\.now\(\)\);\s*lobby\?\.update\(msg\)/);
     for (const t of ["type: 'ready'", "type: 'start'", "type: 'leave'", "type: 'settings_update'"]) {
       expect(mp).toContain(t);
     }

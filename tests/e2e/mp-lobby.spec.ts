@@ -1,6 +1,6 @@
-// N33：等待大厅 E2E（需本机 Worker 8787；未运行时整组跳过，CI 不受影响）。
+// N33/N34：等待大厅与开局装配 E2E（需本机 Worker 8787；未运行时整组跳过，CI 不受影响）。
 // 覆盖：创建→大厅、加入→双端席位同步、房主设置同步与访客只读、
-// 准备门槛（全员准备前开局禁用）、开局进入倒计时。
+// 准备门槛（全员准备前开局禁用）、开局→本地对局装配（倒计时/进行中/暂停禁用）。
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 
 const API = process.env.VITE_MULTIPLAYER_API_URL ?? 'http://127.0.0.1:8787';
@@ -74,10 +74,10 @@ test.describe('N33 等待大厅（双端）', () => {
       await b.click('#mp-ready');
       await expect(a.locator('#mp-seat-list')).toContainText('guest02 · 已准备');
       await expect(a.locator('#mp-start')).toBeEnabled();
-      // 开局：双端进入倒计时/进行中阶段。
+      // 开局：预倒计时遮罩先行（服务器 startAt 校准墙钟驱动），随后装配对局。
       await a.click('#mp-start');
-      await expect(a.locator('#mp-phase')).toContainText(/即将开始|比赛进行中/);
-      await expect(b.locator('#mp-phase')).toContainText(/即将开始|比赛进行中/);
+      await expect(a.locator('#mp-pre-countdown')).toContainText(/即将开始：[123]/, { timeout: LOBBY_TIMEOUT });
+      await expect(b.locator('#mp-pre-countdown')).toContainText(/即将开始：[123]/, { timeout: LOBBY_TIMEOUT });
     } finally {
       await ctxA.close();
       await ctxB.close();
@@ -105,6 +105,42 @@ test.describe('N33 等待大厅（双端）', () => {
       // 设置变更重置准备状态（服务端裁决，双端视图一致）。
       await expect(a.locator('#mp-seat-list')).toContainText('未准备');
       await expect(b.locator('#mp-seat-list')).toContainText('未准备');
+    } finally {
+      await ctxA.close();
+      await ctxB.close();
+    }
+  });
+
+  test('N34 开局装配：服务器倒计时→进行中；棋盘渲染；个人暂停禁用', async ({ browser, request }) => {
+    test.skip(!(await workerUp(request)), 'Worker(8787) 未运行');
+    const ctxA: BrowserContext = await browser.newContext();
+    const ctxB: BrowserContext = await browser.newContext();
+    const a = await ctxA.newPage();
+    const b = await ctxB.newPage();
+    try {
+      await createRoom(a, 'host01');
+      const code = (await a.locator('#mp-room-code-value').textContent()) as string;
+      await joinRoom(b, 'guest02', code);
+      await a.click('#mp-ready');
+      await b.click('#mp-ready');
+      await a.click('#mp-start');
+      // 服务器 startAt 驱动的预倒计时（3/2/1 文案，双端各自校准）。
+      await expect(a.locator('#mp-pre-countdown')).toContainText(/即将开始：[123]/, { timeout: LOBBY_TIMEOUT });
+      await expect(b.locator('#mp-pre-countdown')).toContainText(/即将开始：[123]/, { timeout: LOBBY_TIMEOUT });
+      // 到点开局：状态行切换为进行中，棋盘画布就位。
+      await expect(a.locator('#mp-match-status')).toHaveText('比赛进行中', { timeout: 8000 });
+      await expect(b.locator('#mp-match-status')).toHaveText('比赛进行中', { timeout: 8000 });
+      await expect(a.locator('#board-canvas')).toBeVisible();
+      await expect(b.locator('#board-canvas')).toBeVisible();
+      // 个人暂停禁用：暂停按钮隐藏；Esc 不产生暂停（状态行不变、无暂停遮罩）。
+      await expect(a.locator('#btn-pause')).toBeHidden();
+      await a.keyboard.press('Escape');
+      await b.keyboard.press('Escape');
+      await a.waitForTimeout(600);
+      await expect(a.locator('#mp-match-status')).toHaveText('比赛进行中');
+      await expect(b.locator('#mp-match-status')).toHaveText('比赛进行中');
+      await expect(a.locator('#overlay-root')).not.toContainText('已暂停');
+      await expect(b.locator('#overlay-root')).not.toContainText('已暂停');
     } finally {
       await ctxA.close();
       await ctxB.close();

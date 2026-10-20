@@ -467,4 +467,14 @@
 - **复审**：独立只读复审 PASS（P1×0、P2×1、O×6）；复跑数字与证据逐项吻合（root 20/337、worker 26/215、tsc 0/0、build 0、chunk 17.91 kB）。P2（重连接管不向其他席位广播 room_state，席位列表长期显示「连接中断」）已合入前修复：attach 首帧改走 `#sendRoomState()` 全量广播+新增专测（worker 215→216），修复后大厅 E2E 3/3 复验通过。
 - **遗留观察**：O-1 双标签页同席位互抢（4003→自动重连）大厅期维持现状，N34 对局装配期决策；O-2 `BAD_CONFIG` 目前仅 DO 直调可达（信封先行）；O-3 attach 首帧依赖 workerd 缓冲（dev 路径可接受，生产 N44 前复核）；O-4 nextRound 的 WS 触发留 N39；O-5（N32 O-7）动态 import 无 .catch 仍未处理，N34 装配期处理；O-6（复审）协议 `customSeed?: string` 无 null，房主无法经 WS 清空种子（S3→S1→S3 旧种子留存），协议冻结留档；O-7（复审）enterLobby connect 失败不清已保存凭据，再点创建泄漏旧席位至闲置回收（客户端边缘场景，N34 装配期评估）。
 
+## N34 — 联网本地比赛初始化与时钟 ✅ PASS
+
+- **范围**：新建 `src/app/match.ts`（对局装配：服务器种子/等级构造引擎、校准墙钟开局判定、封顶 dt、暂停禁用、后台冻结防护）；`src/app/multiplayer.ts` 接线（room_state 墙钟校准、countdown 预倒计时、match_start 装配、teardown 清理）；`src/main.ts` 最小接线（`__NEON_BLOCKS_MP__` 句柄 + 动态 import `.catch` 回退单人装配，闭环 N32 O-7）；新建 `tests/unit/match.test.ts` 9 例；`tests/e2e/mp-lobby.spec.ts` 增至 4 例（新增开局装配用例）。
+- **实现要点**：`computeClockOffset(serverTime, clientNow)` 由最近 room_state 校准；开局判定 `wallNow()+offset >= startAt` 只依赖墙钟，不依赖 rAF 可见帧；服务端 `match_start` 于 startAt 到点才广播（N17），3-2-1 展示由大厅阶段 `#mp-pre-countdown`（200ms 校准 tick）承担，装配首帧即切「比赛进行中」；`clampFrameDelta` 单帧封顶 250ms——后台 rAF 停摆恢复后不补跑积压帧，继续/淘汰由服务器 room_state 决定（结果 UI 属 N39）；个人暂停/重开禁用：`#btn-pause` hidden+disabled、Esc/Enter 空操作、源码级无 `togglePause(`/`.restart(`；引擎 `new GameEngine(createSeededRng(seatSeed), undefined, startLevel)`。
+- **测试**：根 9 例——正向（偏差符号/量级、标签 3000→'3'/1→'1'/0→'GO'、封顶 5000→250、种子注入、暂停禁用、预倒计时接线顺序、main 句柄与 .catch 回退）；反向（match.ts 无 fetch/WebSocket/NetClient、单人分支仍 boot()、engine 构造签名未变）。E2E 4 例（实时 Worker）——新增：预倒计时 3/2/1 双端文案、到点「比赛进行中」+画布可见、暂停按钮隐藏、Esc 无暂停遮罩。
+- **门槛**：worker tsc=0、worker vitest 26 文件/216 全绿（服务端零改动）；根 vitest 21 文件/346 全绿、根 tsc=0、build=0（multiplayer chunk 20.24 kB）、Playwright 无 Worker 15 通过/4 跳过 + 本机 Worker 大厅/对局 4 通过（合计 19/19）。证据 `evidence/multiplayer/N34/`。
+- **修复回归**：首版把倒计时遮罩放 match.ts——服务端 match_start 到点才广播，装配时倒计时已走完且 `lastLabel===''` 使状态行永不切换（E2E 捕获「对局初始化」卡死）；改为大厅阶段预倒计时 + `statusShown` 首帧切换。N33 结构正则同步容纳校准行。
+- **复审**：独立只读复审 PASS（P1×0、P2×1、O×8）；复跑数字与证据逐项吻合（root 21/346、worker 26/216、tsc 0/0、build 0、chunk 20.24 kB 哈希一致）。P2（日志 O-1 括注「对局期重连由 room_state 重建」超前于实现：bootMatch 后 room_state 分支仅 lobby?.update，attach 不重发 match_start，对局期重连暂不重建本地对局）为措辞修正，已合入前更正；代码缺口本身属 N39/N40 范围。
+- **遗留观察**：O-1 双标签页互抢仍维持 4003→自动重连语义（对局期重连暂不重建本地对局——room_state 仅驱动大厅、attach 不重发 match_start，N39 起由 room_state 驱动继续/淘汰）；O-2 预倒计时用 setInterval（仅显示用途，开局判定不依赖它）；O-3 对局期断线本地不冻结棋盘仅提示（服务端宽限裁决），N39 加「同步中断」遮罩；O-4 HUD best 显示 0（联网局不计个人最高分，N37 排行榜接管）；O-5（复审）`#mp-pre-countdown` 无样式（默认流式文本），N36 布局任务统一样式；O-6 REST RATE_LIMITED 维持手动重试（对局期无额外 REST 调用，票据失败走 NetClient 中文提示路径）——闭环 N31 O-6/N32 O-4；O-7 enterLobby connect 失败保留已存凭据不清除（席位由闲置 TTL 回收、刷新可恢复）——闭环 N32 O-7/N33 O-7；O-8（复审）墙钟偏差为单向采样未做 RTT 补偿（开局受 match_start 到达门控，可接受）；O-9（复审）`match!==null` 守卫忽略第二个 match_start，下一局重建装配属 N39；O-10（复审）teardown 未清 `__NEON_BLOCKS_MP__`、COUNTDOWN 期 fatal 断连预倒计时滞留——N39 断连遮罩一并处理。
+
 

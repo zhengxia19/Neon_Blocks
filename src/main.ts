@@ -345,9 +345,19 @@ if (appRoot !== null) {
       renderModeSwitch(appRoot, mode);
     }
     const apiUrl = configuredApiUrl;
-    void import('./app/multiplayer').then((mp) => {
-      mpHandle = mp.bootMultiplayer(appRoot, apiUrl);
-    });
+    void import('./app/multiplayer')
+      .then((mp) => {
+        mpHandle = mp.bootMultiplayer(appRoot, apiUrl);
+        // N34：E2E/调试只读句柄（联网装配；单人句柄仍为 __NEON_BLOCKS__）。
+        window.__NEON_BLOCKS_MP__ = mpHandle;
+      })
+      .catch(() => {
+        // 联网装配失败不留白：回退单人装配并中文提示（复审 N32 O-7）。
+        handle = boot(appRoot);
+        if (configuredApiUrl !== '') {
+          renderModeSwitch(appRoot, 'single');
+        }
+      });
   } else {
     handle = boot(appRoot);
     if (configuredApiUrl !== '') {
@@ -360,6 +370,7 @@ if (appRoot !== null) {
 declare global {
   interface Window {
     __NEON_BLOCKS__?: AppHandle;
+    __NEON_BLOCKS_MP__?: MultiplayerHandle;
   }
 }
 window.__NEON_BLOCKS__ = handle ?? undefined;
