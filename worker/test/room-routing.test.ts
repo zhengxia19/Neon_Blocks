@@ -1,5 +1,6 @@
-// N26：服务端单目标快照路由——默认环订阅、仅向观察该玩家的连接投递、
-// 切换目标即时补发最后一帧、扇出 O(N) 非 O(N²)、订阅随席位/局清理。
+// N26：服务端单目标快照路由——自动目标订阅（N30 起为 N29 算法，开局全零分
+// 时 ids[0]→ids[1]、其余→ids[0]）、仅向观察该玩家的连接投递、切换目标即时
+// 补发最后一帧、扇出 O(N) 非 O(N²)、订阅随席位/局清理。
 import { describe, expect, it, vi } from 'vitest';
 import type { CreateRoomRequest } from '../../shared/protocol';
 import { RoomDO } from '../src/room';
@@ -83,19 +84,19 @@ function remoteSnaps(state: WsState): Record<string, unknown>[] {
 }
 
 describe('N26 单目标快照路由', () => {
-  it('默认环订阅：快照只投递给观察该玩家的席位，其余零收流', async () => {
+  it('自动目标订阅：快照只投递给观察该玩家的席位，其余零收流', async () => {
     const { room, ids, states, sockets } = await runningMatch(6);
-    // 默认环：ids[i] 观察 ids[i+1]（环形）→ ids[0] 的观察者只有 ids[5]。
+    // 开局全零分（N29 规则 2）：ids[0] 观察 ids[1]，ids[1..5] 均观察 ids[0]。
     room.webSocketMessage(sockets.get(ids[0]) as never, snapMsg(1));
-    expect(remoteSnaps(states.get(ids[5]) as WsState).length).toBe(1);
-    expect(remoteSnaps(states.get(ids[5]) as WsState)[0]).toMatchObject({
-      v: 1,
-      type: 'remote_snapshot',
-      targetPlayerId: ids[0],
-    });
-    for (let i = 0; i < 5; i += 1) {
-      expect(remoteSnaps(states.get(ids[i]) as WsState).length).toBe(0);
+    for (let i = 1; i < 6; i += 1) {
+      expect(remoteSnaps(states.get(ids[i]) as WsState).length).toBe(1);
+      expect(remoteSnaps(states.get(ids[i]) as WsState)[0]).toMatchObject({
+        v: 1,
+        type: 'remote_snapshot',
+        targetPlayerId: ids[0],
+      });
     }
+    expect(remoteSnaps(states.get(ids[0]) as WsState).length).toBe(0); // 其目标为 ids[1]
     void room;
     vi.useRealTimers();
   });
@@ -109,9 +110,10 @@ describe('N26 单目标快照路由', () => {
     for (let i = 0; i < 6; i += 1) {
       const snaps = remoteSnaps(states.get(ids[i]) as WsState);
       total += snaps.length;
-      // 每席位至多一条目标流：全部帧来自其默认目标 ids[(i+1)%6]。
+      // 每席位至多一条目标流：全部帧来自其自动目标（开局全零分：ids[0]→ids[1]，其余→ids[0]）。
       expect(snaps.length).toBe(15);
-      for (const m of snaps) expect(m.targetPlayerId).toBe(ids[(i + 1) % 6]);
+      const expectedTarget = i === 0 ? ids[1] : ids[0];
+      for (const m of snaps) expect(m.targetPlayerId).toBe(expectedTarget);
     }
     expect(total).toBe(6 * 15); // 若 O(N²) 全发则为 6×6×15=540
     vi.useRealTimers();
@@ -120,9 +122,11 @@ describe('N26 单目标快照路由', () => {
   it('切换目标：即时补发 watch_target + 目标最后一帧，旧目标流即停', async () => {
     const { room, ids, states, sockets } = await runningMatch(6);
     for (const seq of [1, 2, 3]) room.webSocketMessage(sockets.get(ids[0]) as never, snapMsg(seq));
+    // ids[2] 的自动目标本就是 ids[0]：清空记录后手动切换（同目标仍即时下发）。
+    const st2 = states.get(ids[2]) as WsState;
+    st2.sent.length = 0;
     const res = room.setWatchTarget(ids[2], ids[0]);
     expect(res.ok).toBe(true);
-    const st2 = states.get(ids[2]) as WsState;
     const msgs = parsed(st2);
     expect(msgs[0]).toMatchObject({ type: 'watch_target', targetPlayerId: ids[0] });
     expect(msgs[1]).toMatchObject({
@@ -130,11 +134,11 @@ describe('N26 单目标快照路由', () => {
       targetPlayerId: ids[0],
       snapshot: { seq: 3, score: 300 }, // 最后一帧即时补发
     });
-    // 新目标后续帧双观察者（ids[2] 与默认观察者 ids[5]）同收；旧目标 ids[3] 的帧不再进 ids[2]。
+    // 新目标后续帧多观察者（ids[1..5] 均观察 ids[0]）同收；旧目标 ids[3] 的帧不再进 ids[2]。
     room.webSocketMessage(sockets.get(ids[0]) as never, snapMsg(4));
     room.webSocketMessage(sockets.get(ids[3]) as never, snapMsg(1));
     expect(remoteSnaps(st2).map((m) => m.targetPlayerId)).toEqual([ids[0], ids[0]]);
-    // ids[5] 默认观察 ids[0]：seq1..3（切换前）+ seq4（切换后）共 4 帧。
+    // ids[5] 自动观察 ids[0]：seq1..3（切换前）+ seq4（切换后）共 4 帧。
     expect(remoteSnaps(states.get(ids[5]) as WsState).length).toBe(4);
     vi.useRealTimers();
   });
@@ -159,10 +163,11 @@ describe('N26 单目标快照路由', () => {
       ok: false,
       error: 'INVALID_TARGET',
     });
-    // 订阅未变：ids[0] 的快照仍只进 ids[5]。
+    // 订阅未变：ids[0] 的快照仍只进其自动观察者（ids[1..5]），ids[0] 自身零收流。
     room.webSocketMessage(sockets.get(ids[0]) as never, snapMsg(1));
     expect(remoteSnaps(states.get(ids[5]) as WsState).length).toBe(1);
-    expect(remoteSnaps(states.get(ids[1]) as WsState).length).toBe(0);
+    expect(remoteSnaps(states.get(ids[2]) as WsState).length).toBe(1);
+    expect(remoteSnaps(states.get(ids[0]) as WsState).length).toBe(0);
     vi.useRealTimers();
     const lobby = new RoomDO(makeFakeCtx().ctx as never, {} as never);
     expect(lobby.setWatchTarget('p1', 'p2')).toEqual({ ok: false, error: 'BAD_STATE' });
@@ -214,9 +219,12 @@ describe('N26 单目标快照路由', () => {
     expect(room.pipelineStats().watchTargets).toBe(5);
     for (const st of states.values()) st.sent.length = 0;
     room.webSocketMessage(sockets.get(ids[0]) as never, snapMsg(1));
-    for (const id of ids) {
-      expect(remoteSnaps(states.get(id) as WsState).length).toBe(0);
+    // ids[1..4] 自动观察 ids[0]；ids[0]（目标 ids[1]）与已离席 ids[5] 零收流。
+    for (let i = 1; i <= 4; i += 1) {
+      expect(remoteSnaps(states.get(ids[i]) as WsState).length).toBe(1);
     }
+    expect(remoteSnaps(states.get(ids[0]) as WsState).length).toBe(0);
+    expect(remoteSnaps(states.get(ids[5]) as WsState).length).toBe(0);
     vi.useRealTimers();
   });
 

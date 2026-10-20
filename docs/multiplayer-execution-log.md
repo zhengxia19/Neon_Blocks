@@ -413,3 +413,18 @@
 - 复审：独立只读复审 PASS（P1×0、P2×1：根目录临时条目文件不入库——已按流程在提交前删除并移入执行日志；O×4）。复审员独立推演轮换 12 组×4 观看者=48 断言逐格一致，无侥幸通过；确认两规则消行 tie-break 方向（降序/升序）与方案 L147/L148 一致、严格 `>` 语义、纯函数无副作用。
 - 交接 N30：room.ts 将用 `match_roster`（join_order **必须唯一**，复审 O-1）+ 快照槽 score/lines 构造 `WatchCandidate[]`，仅在排行榜 revision/房间状态变化时按入站事件合并重算（≤1s 稳定、500ms 防抖属 room 侧，方案 L149），逐席位单发 `watch_target`，不修改公共排行榜。
 
+
+### N30 自动观战目标切换（随榜单发布事件重算） ✅ PASS
+- 范围：`worker/src/room.ts`（默认环→自动目标）+ 新增 `room-watch.test.ts` 8 用例 + 适配 `room-routing.test.ts`/`room-countdown.test.ts`。
+- 实现：
+  - 删除 `#buildDefaultWatchRing`；新增 `#applyAutoWatchTargets(generation)`：候选=match_roster 全体（含淘汰/断线/倒计时离席者，冻结分仍参与）、观看者=roster∩现存席位；逐候选跑 N29 `pickWatchTarget`，仅目标变化者记入 changed。
+  - 重算钩子挂在 `#flushScoreboard` 成功广播之后（唯一发布点）：复用已读名单/槽，**不新增定时器**（复用 `#sbTimer` ≤500ms 合并窗 ⇒ 切换 ≤1s 稳定）；dedupe/守卫早退路径不重估（数据未变⇒目标不变）。
+  - `#notifyWatchTargets`：changed 非空才发；整批共享一个 `#nextRevision()`；逐观看者单发 `watch_target`（公共排行榜 entries 不因目标而变）；切换即 `#outSlots.delete(connId)` 弃旧目标待补帧；目标已有本局最新帧则紧随补发（经背压单槽）。
+  - `advanceToRunning` 不再预置环：首榜发布即触发重估+全员通知；驱逐惰性重建（`#ingestSnapshot`/`setWatchTarget` 空映射路径）改为**先于** dirty/flush 的静默重算（防 flush 把全席位判为变化而补发重复帧）；手动 `setWatchTarget`=临时覆盖，下一次发布被自动重估覆盖（文档化）。
+  - 复审 P2-1 修复：驱逐+延迟开赛（`advanceToRunning(now≥startAt+500)`、槽全空）首榜被 N28 空槽守卫跳过⇒钩子不跑——flush 后若映射仍空则直接建立自动目标并通知（全零基线，随快照入账自纠）；复审 O-2 修复：flush 钩子加 RUNNING 门控（终局最终榜发布后不再发 watch_target/补帧）。
+- 验收：A/B/C 各看不同对象（A→B、B→C、C→A）时三份 scoreboard entries JSON 逐字段一致（验收 A）；旧目标排队帧即弃（outSlots 1→0）+ 旧目标后续帧不入流、新目标帧入流（验收 B）；切换恰在事件后 500ms 合并点到达（499ms 未到/500ms 到，≤1s）且全程 `getTimerCount()≤1` 无常驻定时器；淘汰者仍可为目标（冻结最后一帧 seq1 补发实测）与观看者（仍收 watch_target）；淘汰者新快照被 N25 拒收⇒观看者保持冻结帧；手动覆盖被下一次发布覆盖；entries 去重/陈旧 seq 丢弃⇒不重估不通知。
+- 旧测试适配：routing 环语义→自动目标语义（开局全零分 ids[0]→ids[1]、其余→ids[0]；leaveRoom/P2-1/P2-2 按新语义重写）；countdown 消息数 3→4（新增首个 watch_target，断言增强目标载荷）。
+- 门槛：worker tsc=0、worker vitest 25 文件/205 全绿；根 vitest 300 全绿、根 tsc=0、build=0、Playwright 7/7。证据 `evidence/multiplayer/N30/`。
+- 复审：独立只读复审 PASS（P1×0、P2×1 已在提交前修复：P2-1 驱逐+延迟开赛 watch_target 缺失洞→advanceToRunning 兜底建立+通知+专测「驱逐后延迟 600ms 开赛：假榜仍跳过、目标全量下发、入账后不重复通知、路由单流生效」；O×4）。复审员独立复跑全部数字吻合；手工推演 T2/T3/T4/T5/T6/T7 期望值逐格一致无侥幸；确认重算调用点仅 3 处、无新增定时器、revision 批次共享不违反 protocol 注释（限定单连接）、跨局清映射 6→0→6。
+- 遗留观察：O-1 手动目标在活跃对局下一次发布（≤500ms）即被自动覆盖——符合方案 §6.2.4，已文档化+T6 钉死，若需「手动钉住」属方案级决策；O-3 驱逐后首帧目标基于「1 槽+其余全零」与同刻榜单同源、≤1s 自纠（延迟开赛路径已有专测）；O-4 日志回填即本条。
+

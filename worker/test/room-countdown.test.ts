@@ -181,7 +181,7 @@ describe('N16 COUNTDOWN→RUNNING 临界时刻与提前开始拒绝', () => {
     room.advanceToRunning(res.match.startAt);
     for (const [index, id] of all.entries()) {
       const msgs = states.get(id)!.sent.map((m) => JSON.parse(m) as Record<string, unknown>);
-      expect(msgs.length).toBe(3); // countdown + match_start + N28 首榜
+      expect(msgs.length).toBe(4); // countdown + match_start + N28 首榜 + N30 自动目标
       expect(msgs[1]).toEqual({
         v: 1,
         type: 'match_start',
@@ -195,6 +195,13 @@ describe('N16 COUNTDOWN→RUNNING 临界时刻与提前开始拒绝', () => {
         startLevel: 2,
       });
       expect(msgs[2]).toMatchObject({ type: 'scoreboard' });
+      // N30：首榜发布同事件下发自动目标（全零分：host→guests[0]，其余→host）。
+      expect(msgs[3]).toEqual({
+        v: 1,
+        type: 'watch_target',
+        revision: expect.any(Number),
+        targetPlayerId: index === 0 ? all[1] : all[0],
+      });
     }
   });
 
