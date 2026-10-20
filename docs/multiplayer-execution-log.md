@@ -477,4 +477,14 @@
 - **复审**：独立只读复审 PASS（P1×0、P2×1、O×8）；复跑数字与证据逐项吻合（root 21/346、worker 26/216、tsc 0/0、build 0、chunk 20.24 kB 哈希一致）。P2（日志 O-1 括注「对局期重连由 room_state 重建」超前于实现：bootMatch 后 room_state 分支仅 lobby?.update，attach 不重发 match_start，对局期重连暂不重建本地对局）为措辞修正，已合入前更正；代码缺口本身属 N39/N40 范围。
 - **遗留观察**：O-1 双标签页互抢仍维持 4003→自动重连语义（对局期重连暂不重建本地对局——room_state 仅驱动大厅、attach 不重发 match_start，N39 起由 room_state 驱动继续/淘汰）；O-2 预倒计时用 setInterval（仅显示用途，开局判定不依赖它）；O-3 对局期断线本地不冻结棋盘仅提示（服务端宽限裁决），N39 加「同步中断」遮罩；O-4 HUD best 显示 0（联网局不计个人最高分，N37 排行榜接管）；O-5（复审）`#mp-pre-countdown` 无样式（默认流式文本），N36 布局任务统一样式；O-6 REST RATE_LIMITED 维持手动重试（对局期无额外 REST 调用，票据失败走 NetClient 中文提示路径）——闭环 N31 O-6/N32 O-4；O-7 enterLobby connect 失败保留已存凭据不清除（席位由闲置 TTL 回收、刷新可恢复）——闭环 N32 O-7/N33 O-7；O-8（复审）墙钟偏差为单向采样未做 RTT 补偿（开局受 match_start 到达门控，可接受）；O-9（复审）`match!==null` 守卫忽略第二个 match_start，下一局重建装配属 N39；O-10（复审）teardown 未清 `__NEON_BLOCKS_MP__`、COUNTDOWN 期 fatal 断连预倒计时滞留——N39 断连遮罩一并处理。
 
+## N35 — 独立远程棋盘渲染 ✅ PASS
+
+- **范围**：新建 `src/ui/remote-board.ts`（RemoteBoard + 纯函数 `snapshotToView`/`shouldDraw`）；`src/ui/renderer.ts` 小幅抽取 `overlayNotice`（当前帧上叠加中文提示，不清底帧）；新建 `tests/unit/remote-board.test.ts` 9 例。服务端/shared 零改动。
+- **实现要点**：只用 `remote_snapshot`（SnapshotPayload）绘制——远程侧不构造引擎实例、无音效、无每帧网络、无自驱循环；复用 `BoardRenderer` 同一格绘制路径与色板保证视觉延续；`ghostEnabled:false`、不接特效层；seq 严格递增才重绘（无新帧不重复绘制）；`freeze()` 淘汰者冻结最后画面；`setDisconnected()` 幂等叠加「同步中断」（新快照到达即清除，不残影假画面）；`resetForTarget()` 切换目标/新一局复位不清 Canvas（防闪白）；`resize()` 透传后按缓存视图重绘最后画面；初始空帧底色+网格。
+- **测试**：9 例——正向（24×10 解码字母→类型/`.`→null、t/r/x/y→type/rotation/x/y、score/lines/level/status 直通、active:null 与 gameover 直通、严格递增判定、resetForTarget 复位不重绘、resize 透传重绘+遮罩补画）；反向（未知字符按空不炸帧、同 seq/乱序/冻结不重绘、无 GameEngine/SoundManager/fetch/WebSocket/rAF/setInterval）；结构（复用 BoardRenderer、ghostEnabled:false、overlayNotice 接线）。
+- **门槛**：根 vitest 22 文件/355 全绿、根 tsc=0、build=0；worker 26/216、worker tsc=0（零改动）；Playwright 无 Worker 15 通过/4 跳过（无回归）。E2E 连接装配属 N38（清单范围）。证据 `evidence/multiplayer/N35/`。
+- **修复回归**：remote-board.ts 头注释含 `GameEngine`/`WebSocket` 字面量触发反向断言——改注释措辞（保持断言严格），与 N34 同类教训。
+- **复审**：独立只读复审 PASS（P1×0、P2×2、O×6）；复跑数字与证据逐项吻合（root 22/353、worker 26/216、tsc 0/0、build 哈希与 N34 一致→remote-board 未入包自洽）。P2-1 缺目标切换/新一局复位入口、P2-2 缺 resize 透传（N36 响应式必触发空白）——均已在关闭前修复（`resetForTarget()` 复位不清 Canvas、`resize()` 按 `#lastView` 缓存重绘+断线态重贴遮罩），补 2 例结构断言后复跑 355 全绿。
+- **遗留观察**：O-1 `RemoteBoard` 尚无调用方，N38 联网装配接线；O-2 `overlayNotice` 字体固定 16px system-ui（小棋盘上可能偏大），N36 布局后按尺寸自适应；O-3 快照不含预览/Hold——远程视图仅棋盘（符合协议冻结），如需远程预览须 N44 前评估协议扩展；O-4 断线遮罩触发方（watch_target 对端断线判定）由 N38 装配决定；O-5（复审）`r as Rotation` 未校验断言（validateSnapshot 路径有保证）、`overlayNotice` 不 save/restore ctx（现无交叉污染）、行长不校验（服务端已把关）——均防御面可接受；O-6（复审）freeze 后 `setDisconnected()` 仍可叠加遮罩——「已淘汰且目标断线」显示语义由 N38 装配决定。
+
 

@@ -174,6 +174,22 @@ export class BoardRenderer {
     }
   }
 
+  /**
+   * N35 小幅抽取：在当前帧之上叠加中文提示（远程棋盘「同步中断」等）。
+   * 不清空底层帧、不进入 render 主路径；同一文本重复调用只画一次由调用方保证。
+   */
+  overlayNotice(text: string): void {
+    const ctx = this.#ctx;
+    ctx.setTransform(this.#dpr, 0, 0, this.#dpr, 0, 0);
+    ctx.fillStyle = 'rgba(11, 16, 34, 0.72)';
+    ctx.fillRect(0, 0, this.#cssWidth, this.#cssHeight);
+    ctx.fillStyle = '#EAF0FF';
+    ctx.font = '600 16px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, this.#cssWidth / 2, this.#cssHeight / 2);
+  }
+
   /** 硬降光尾列：取上一帧活动块（落地前的方块）占用列。 */
   #hardDropCols(): number[] {
     const prev = this.#prevActive;
