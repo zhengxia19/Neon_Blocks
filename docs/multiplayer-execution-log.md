@@ -591,3 +591,11 @@
 - 接受项/风险：DO 行随历史房间码不删除（≈41KB/个，现实规模内监控）；IP 桶单 isolate ⇒ N44 固化 zone 级 Rate Limiting Rules；ticket 在 WS URL 进自动日志（30s TTL 单次消费）；workers_dev 生产关闭。
 - 回归：worker tsc 0 / vitest 223/223；root tsc 0 / 412/412 / build；E2E mp（worker 在线）14 passed；abuse 复跑 exit 0（watcher 2/s、重连 2064ms）。
 - 独立复审：PASS（无 P1；3 个 P2 已修：补本条目、还原被复跑覆盖的 N41 截图×5 与 N42 abuse-metrics.json、README 预算表标注天花板/实测双口径并修正引注漂移与保活措辞）。
+
+## 关口 G4 验收（2026-10-21）
+- 判定 PASS：N41（30e530b）、N42（2aab79f+eb1c2db）、N43（f915bc9）均通过独立复审并关闭。
+- 单机全量回归（evidence/multiplayer/G4/）：root tsc 0 / vitest 412/412 / build 通过；worker tsc 0 / vitest 223/223；Playwright 全量（无 worker、干净 Vite）15 passed / 17 skipped，与基线一致。
+- 跨网/多客户端稳定性：N42 soak 600s×6（0.80Hz/连接、max 1168B、p95 16.7ms、断线自动恢复）+ abuse 五场景达标（N43 小修后复跑 exit 0）；真实公网跨网按清单属 N44 预发阶段。
+- Cloudflare 预算复审：免费账户可上线，最紧约束 DO SQLite Rows read（天花板 ≈55 局/天 / 实测 ≈300 局/天）；回滚条件与 N44 部署清单固化于 N43/README.md。
+- 遗留观察带入 N44：快照读缓存（可选降载）、zone 级 Rate Limiting Rules、workers_dev:false、生产 ALLOWED_ORIGINS、N40/N41 观察项预发复核。
+- 下一步 N44（G5）：Cloudflare 预发 Worker/DO 先行，生产发布须单独授权。

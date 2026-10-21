@@ -1,0 +1,86 @@
+[WebServer] (node:40300) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 32 tests using 16 workers
+
+(node:26356) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:8364) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:35560) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:31524) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:1804) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:34684) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:9788) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:10416) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:6212) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:23692) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:36148) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3768) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:35568) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:30848) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:27256) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:18932) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  -   1 [chromium] › tests\e2e\mp-layout.spec.ts:78:3 › N36 双棋盘响应式布局（双端实时对局） › 桌面 1280：严格 2 Canvas、双棋盘无重叠、排行榜列就位、无横向溢出
+  -   4 [chromium] › tests\e2e\mp-lobby.spec.ts:71:3 › N33 等待大厅（双端） › 加入 → 双端席位同步；访客只读；准备后全员准备才可开局
+  -  17 [chromium] › tests\e2e\mp-matrix.spec.ts:85:5 › N41 3 人功能矩阵 › 建房→准备→开赛→双棋盘→榜单一致→观战→结算→离房
+  -   7 [chromium] › tests\e2e\mp-boards.spec.ts:72:3 › N38 双棋盘与排行榜连接（三人局） › 两棋盘无第三块；目标切换 <1s；不同观看者不同目标；补帧；榜单全员一致不乱序
+  -  19 [chromium] › tests\e2e\mp-matrix.spec.ts:85:5 › N41 5 人功能矩阵 › 建房→准备→开赛→双棋盘→榜单一致→观战→结算→离房
+  -   6 [chromium] › tests\e2e\mp-layout.spec.ts:145:3 › N36 双棋盘响应式布局（双端实时对局） › 320×568：无横向溢出、双棋盘可见、排行榜可折叠展开
+  -  18 [chromium] › tests\e2e\mp-matrix.spec.ts:85:5 › N41 4 人功能矩阵 › 建房→准备→开赛→双棋盘→榜单一致→观战→结算→离房
+  -  20 [chromium] › tests\e2e\mp-matrix.spec.ts:85:5 › N41 6 人功能矩阵 › 建房→准备→开赛→双棋盘→榜单一致→观战→结算→离房
+  -  21 [chromium] › tests\e2e\mp-resilience.spec.ts:72:3 › N40 失焦、刷新与断网恢复 › 失焦不停时钟；对局期刷新自动重连重建（seq 高水位续起）
+  -   5 [chromium] › tests\e2e\mp-lobby.spec.ts:132:3 › N33 等待大厅（双端） › N34 开局装配：服务器倒计时→进行中；棋盘渲染；个人暂停禁用
+  -  23 [chromium] › tests\e2e\mp-resilience.spec.ts:188:3 › N40 失焦、刷新与断网恢复 › 大厅期刷新：自动重连回同一房间（无入口面板）
+  -  22 [chromium] › tests\e2e\mp-resilience.spec.ts:128:3 › N40 失焦、刷新与断网恢复 › 断网：遮罩+冻结、服务端榜单「连接中断」、网络恢复退避内重连解冻续跑
+  -  25 [chromium] › tests\e2e\mp-results.spec.ts:65:3 › N39-b 淘汰、结果与下一局（双人局） › 剩余时间展示；只剩 1 人即时结束；两端同结果；房主专属下一局闭环
+  -  12 [chromium] › tests\e2e\mp-lobby.spec.ts:105:3 › N33 等待大厅（双端） › 房主改设置 → 访客同步只读值；设置变更重置全员准备
+  -  15 [chromium] › tests\e2e\mp-matrix.spec.ts:85:5 › N41 2 人功能矩阵 › 建房→准备→开赛→双棋盘→榜单一致→观战→结算→离房
+  -  14 [chromium] › tests\e2e\mp-layout.spec.ts:107:3 › N36 双棋盘响应式布局（双端实时对局） › 390×844：对手缩略条置顶不遮挡、触屏按键可见、无横向溢出
+  -  13 [chromium] › tests\e2e\mp-lobby.spec.ts:56:3 › N33 等待大厅（双端） › 创建房间 → 大厅：6 位房间码、席位视图、房主控件
+  ok 24 [chromium] › tests\e2e\smoke.spec.ts:9:1 › page loads and body is visible (457ms)
+  ok  3 [chromium] › tests\e2e\mp-entry.spec.ts:7:1 › 首页分流条可见且联网链接可达 (690ms)
+  ok  9 [chromium] › tests\e2e\mp-entry.spec.ts:16:1 › 入口面板：中文控件齐备、无登录/密码字段 (590ms)
+  ok 10 [chromium] › tests\e2e\mp-entry.spec.ts:26:1 › 入口面板：输入与按钮触控目标 ≥44px（移动端输入不卡操作） (556ms)
+  ok  2 [chromium] › tests\e2e\desktop.spec.ts:120:1 › settings sound/ghost persist across reload (822ms)
+  ok 11 [chromium] › tests\e2e\mp-entry.spec.ts:41:1 › 本地预校验中文提示 → 合法输入走 NetClient（无服务器时中文降级） (670ms)
+  ok 16 [chromium] › tests\e2e\desktop.spec.ts:101:1 › desktop loop: restart confirm cancel keeps state (633ms)
+(node:12156) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok  8 [chromium] › tests\e2e\desktop.spec.ts:34:1 › desktop loop: ready → start → move/rotate → hard drop scores → pause → resume → restart (853ms)
+(node:3268) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:5372) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:17476) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:21948) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:9060) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:39020) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok 27 [mobile-chrome] › tests\e2e\mp-entry.spec.ts:16:1 › 入口面板：中文控件齐备、无登录/密码字段 (319ms)
+  ok 32 [mobile-chrome] › tests\e2e\smoke.spec.ts:9:1 › page loads and body is visible (313ms)
+  ok 30 [mobile-chrome] › tests\e2e\mp-entry.spec.ts:26:1 › 入口面板：输入与按钮触控目标 ≥44px（移动端输入不卡操作） (357ms)
+  ok 29 [mobile-chrome] › tests\e2e\mp-entry.spec.ts:7:1 › 首页分流条可见且联网链接可达 (480ms)
+  ok 31 [mobile-chrome] › tests\e2e\mp-entry.spec.ts:41:1 › 本地预校验中文提示 → 合法输入走 NetClient（无服务器时中文降级） (475ms)
+  ok 26 [mobile-chrome] › tests\e2e\mobile.spec.ts:81:1 › 320×640 small viewport: no horizontal overflow before and during play (761ms)
+  ok 28 [mobile-chrome] › tests\e2e\mobile.spec.ts:26:1 › mobile touch loop at 390×844: 44px targets, no overflow, all actions (1.1s)
+
+  17 skipped
+  15 passed (4.8s)
