@@ -6,8 +6,15 @@
   "main": "src/index.ts",
   // 显式兼容日期（清单 N08 要求；不使用隐式默认）
   "compatibility_date": "2026-10-01",
-  // 公开 API 原点：workers.dev 子域名（正式路由/自定义域属 N44 部署阶段）
-  "workers_dev": true,
+  // N44 生产路由：自定义域（zone notesofxia.cn， proxied AAAA 占位记录）；
+  // workers_dev 关闭 ⇒ 公网入口仅自定义域，zone 级 Rate Limiting Rules 可生效。
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "neon-api.notesofxia.cn",
+      "custom_domain": true
+    }
+  ],
   "durable_objects": {
     "bindings": [
       {

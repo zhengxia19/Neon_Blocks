@@ -1,0 +1,30 @@
+N44 zone Rate Limiting Rules（notesofxia.cn, ruleset 765e97a734984e74a2a6e70a34c2e0a1, rule bcd066b40b304e05a417b0f4f17079d2）
+创建：PUT /zones/324ed00a5777f164e33920fee5992209/rulesets/phases/http_ratelimit/entrypoint
+请求体：{"description":"Neon Blocks API rate limit (N44)","rules":[{"action":"block","expression":"(http.host eq \"neon-api.notesofxia.cn\")","description":"per-IP 50 req/10s, block 10s (free plan caps)","ratelimit":{"characteristics":["cf.colo.id","ip.src"],"period":10,"requests_per_period":50,"mitigation_timeout":10}}]}
+Free 计划约束（实测错误信息）：period 仅允许 10；mitigation_timeout 仅允许 10；characteristics 必含 cf.colo.id。
+响应（success:true）：
+{
+  "result": {
+    "id": "765e97a734984e74a2a6e70a34c2e0a1",
+    "kind": "zone",
+    "phase": "http_ratelimit",
+    "rules": [
+      {
+        "action": "block",
+        "enabled": true,
+        "expression": "(http.host eq \"neon-api.notesofxia.cn\")",
+        "id": "bcd066b40b304e05a417b0f4f17079d2",
+        "ratelimit": {
+          "characteristics": ["cf.colo.id", "ip.src"],
+          "mitigation_timeout": 10,
+          "period": 10,
+          "requests_per_period": 50
+        }
+      }
+    ],
+    "source": "rate_limit"
+  },
+  "success": true
+}
+负向验证（ratelimit-flood-test.txt）：顺序 80 次 GET /api/health → codes: 200x50 429x30，first429Index=50（阈值 50/10s 精确生效）。
+说明：50 req/10s ≈ 300 req/min，远高于正常用户 REST 速率（每局 <20 次）；WS 升级仅计 1 次。

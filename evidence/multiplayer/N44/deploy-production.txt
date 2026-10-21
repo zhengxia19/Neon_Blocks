@@ -1,0 +1,24 @@
+
+ ⛅️ wrangler 4.151.2 (update available 4.151.3)
+───────────────────────────────────────────────
+Total Upload: 110.81 KiB / gzip: 27.81 KiB
+Worker Startup Time: 2 ms
+Your Worker has access to the following bindings:
+Binding                                                             Resource                  
+env.ROOM_DO (RoomDO)                                                Durable Object            
+env.ALLOWED_ORIGINS ("https://zhengxia19.github.io")                Environment Variable      
+env.CREATE_RATE_LIMIT_PER_MIN ("30")                                Environment Variable      
+env.JOIN_RATE_LIMIT_PER_MIN ("30")                                  Environment Variable      
+env.TICKET_RATE_LIMIT_PER_MIN ("60")                                Environment Variable      
+env.CODE_PROBE_LIMIT_PER_MIN ("20")                                 Environment Variable      
+env.PUBLIC_CREATE_ENABLED ("true")                                  Environment Variable      
+
+Uploaded neon-blocks-room-api (6.10 sec)
+▲ [WARNING] Because your 'workers.dev' route is disabled and your 'preview_urls' setting is not in your wrangler.jsonc, Preview URLs will be disabled for this deployment by default.
+
+  To override this setting, you can enable Preview URLs by explicitly setting 'preview_urls = true' in your wrangler.jsonc.
+
+
+Deployed neon-blocks-room-api triggers (3.71 sec)
+  neon-api.notesofxia.cn (custom domain)
+Current Version ID: 5c8f8d9e-5c0b-4d21-b1e7-3dce46809363
