@@ -1,0 +1,103 @@
+{
+  "startedAt": "2026-10-21T03:10:12.554Z",
+  "api": "http://127.0.0.1:8787",
+  "scenarios": {
+    "flood100Hz": {
+      "floodSent": 389,
+      "floodWindowMs": 6001,
+      "watcherTargetIsFlood": true,
+      "watcherFramesFromFlood": 12,
+      "watcherFramesPerSec": 2,
+      "floodConnAlive": true,
+      "watcherMaxMsgBytes": 701,
+      "serverInboundCapPerSec": 20
+    },
+    "dupLateSeq": {
+      "dupSeqSent": 2,
+      "dupSeqReceived": 1,
+      "lateSeqSent": 1,
+      "lateSeqReceived": 0,
+      "pubConnAlive": true
+    },
+    "invalidMessages": {
+      "probes": [
+        {
+          "label": "unknown_type",
+          "bytes": 30,
+          "errors": [
+            {
+              "code": "UNKNOWN_TYPE",
+              "retryable": false
+            }
+          ],
+          "connAlive": true
+        },
+        {
+          "label": "forbidden_field",
+          "bytes": 45,
+          "errors": [
+            {
+              "code": "FORBIDDEN_FIELD",
+              "retryable": false
+            }
+          ],
+          "connAlive": true
+        },
+        {
+          "label": "oversized_4k",
+          "bytes": 3079,
+          "errors": [
+            {
+              "code": "BAD_SNAPSHOT",
+              "retryable": true
+            }
+          ],
+          "connAlive": true
+        },
+        {
+          "label": "bad_json",
+          "bytes": 9,
+          "errors": [
+            {
+              "code": "BAD_MESSAGE",
+              "retryable": true
+            }
+          ],
+          "connAlive": true
+        },
+        {
+          "label": "wrong_version",
+          "bytes": 57,
+          "errors": [
+            {
+              "code": "PROTOCOL_VERSION",
+              "retryable": false
+            }
+          ],
+          "connAlive": false
+        }
+      ],
+      "finalConnAlive": false
+    },
+    "slowClient": {
+      "handshakeOk": true,
+      "pauseSec": 60,
+      "pubFramesOfferedDuringPause": 992,
+      "resumeReceivedFrames": 262,
+      "resumeOldestSeq": 3,
+      "resumeNewestSeq": 1009,
+      "latestPublishedSeq": 1009,
+      "seqGaps": 250,
+      "backlogBounded": true,
+      "latestDelivered": true,
+      "slowSockAlive": true
+    },
+    "reconnect": {
+      "reconnectMs": 2080,
+      "guestReconnected": true,
+      "hostConnAlive": true,
+      "hostSawPlayerLeft": false
+    }
+  },
+  "finishedAt": "2026-10-21T03:11:55.278Z"
+}

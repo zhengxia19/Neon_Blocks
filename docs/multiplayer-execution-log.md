@@ -569,3 +569,14 @@
 - 负载教训：默认 workers 下 5 矩阵并发挤占单 workerd，mp-resilience 刷新首帧 10s 窗口偶发超时；`--workers=2` 稳定，已写入 spec 头部注释。
 - 独立复审 PASS（P1×1、P2×1、O×6）：P1=N36 三截图被证据跑覆盖⇒提交前还原；P2=证据 txt 行号与补注释后 spec 不一致⇒重跑重生成；O 项记录（容量 WS/HTTP 到达顺序窄竞态、观战广度 vs N38 深度、双棋盘两时点抽查、shot-matrix-6 榜单分布与冻结语义核验一致非缺陷）。
 - 证据：`evidence/multiplayer/N41/`（README + 6 份原始输出 + 5 张 shot-matrix-{2..6}.png）。
+
+## N42 断线/恶意流量与上限压测（2026-10-21）
+- 范围：新增 tests/load/mp-abuse.mjs（原始 TCP WS 客户端 5 场景）、tests/load/mp-soak.mjs（Playwright 6 客户端 × 600s + WS/rAF 记录器）、evidence/multiplayer/N42/。
+- 压测暴露 2 个服务端缺口并修复（唯一逻辑文件 worker/src/room.ts，+54 行）：
+  1) 出站帧率放大：入站 20/s 限流放行的快照向观察者按入站速率放大（实测 watcher 20Hz > 验收 5Hz）⇒ OUTBOUND_FRAME_MIN_INTERVAL_MS=200 每连接门控（前沿放行、窗口内丢弃=最新态语义；补发帧绕过并刷新时戳；随连接/释放清理）。
+  2) 背压槽最新帧滞留：单槽覆盖后发布者停发时槽帧等待下一帧 ⇒ SLOT_FLUSH_RETRY_MS=500 每连接一次性补发定时器（仍超限重挂；随连接清理）。
+- abuse 实测：100Hz 洪水 389 条 ⇒ watcher 2/s；重复 seq 收 1/2、迟到帧 0/1；UNKNOWN_TYPE/FORBIDDEN_FIELD/BAD_SNAPSHOT(3079B)/BAD_MESSAGE 连接保持，PROTOCOL_VERSION ⇒ 关闭；慢客户端暂停 60s 发布 992 帧 ⇒ 收 262 帧（积压有界、seq 跳变 250、最新 seq 必达）；断线重连 2080ms 成功且房主无 player_left。
+- soak 600s×6：有效快照 0.80Hz/连接（60s 烟测 3.9Hz）≤5Hz；max 报文 1168B ≤4KiB；每人 1 路目标流；榜单 6 条/600s ≤2Hz；帧 35974–35982/600s、p95=16.7ms、长帧 0.09–0.10%；服务端 CPU +32.7s/660s（终局后 7min 仅 +0.5s）、workerd 内存终局后 6min +2.4MB、SQLite +65KB（快照零写库）。
+- 回归：worker tsc 0 / vitest 221/221（新增 2 个 N42 用例含正/负断言；3 个既有用例补真实节奏步进）；root tsc 0 / vitest 412/412 / build 通过；E2E mp 5 specs（worker 在线）14 passed。
+- 独立复审：PASS（无 P1；2 个 P2 已修：README 数字与 CSV/JSON 对齐、pipelineStats 暴露 frameGateSize/slotTimerSize 并在 N25 有界用例补 ≤6 与 close 归零断言；修后 worker vitest 221/221 复跑绿）。
+- 观察项：O-1 空闲玩家 2–3 分钟顶出致后段负载自然下降；O-2 裸定时器仅在 DO 被事件唤醒时执行（与 #sbTimer 同模式）；O-3 容量设置 WS 生效与访客 REST 加入竞态（脚本 1.5s 等待 + 重试兜底）。

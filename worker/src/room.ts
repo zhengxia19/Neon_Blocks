@@ -62,6 +62,13 @@ const INBOUND_RATE_PER_SEC = 20;
 const OUTBOUND_BUFFER_LIMIT = 16_384;
 // N28：排行榜广播最小间隔（最高 2Hz；方案 §5:129「排行榜最多广播 2 次／秒」）。
 const SCOREBOARD_MIN_INTERVAL_MS = 500;
+// N42：出站目标帧率限——每连接（每人至多 1 路目标流）相邻 remote_snapshot 最小间隔
+// 200ms（≤5Hz，与客户端 publisher 节奏一致）。入站 20/s 限流放行的高频快照不得向
+// 观察者放大；目标切换补发帧不受此限（一次性关键帧，且刷新限流时戳）。
+const OUTBOUND_FRAME_MIN_INTERVAL_MS = 200;
+// N42：背压槽自动补发重试间隔——槽内最新帧若因缓冲未回落迟迟没有下一帧触发投递，
+// 定时器到点主动重试一次（保证「最新态必达」；每连接至多一个定时器，随连接清理）。
+const SLOT_FLUSH_RETRY_MS = 500;
 
 /** N25：席位最新快照槽（内存态，绝不写 SQLite；N26 单目标路由读取源）。 */
 export type SnapshotSlot = {
@@ -253,6 +260,10 @@ export class RoomDO extends DurableObject<Env> {
   readonly #connRate = new Map<string, number[]>();
   // connId → 出站背压单槽（缓冲超限时覆盖旧帧保留新帧）。
   readonly #outSlots = new Map<string, string>();
+  // N42：connId → 最近一次向该连接投递目标帧的时刻（出站 ≤5Hz 门控；随连接清理）。
+  readonly #frameLastAt = new Map<string, number>();
+  // N42：connId → 背压槽补发重试定时器（每连接至多一个；随连接/业务释放清理）。
+  readonly #slotTimers = new Map<string, ReturnType<typeof setTimeout>>();
   // —— N26：观察订阅映射（内存态，每局重建；席位 ≤6）——
   // playerId → 当前观察目标（目标永不为自身；开局建默认环，N29 纯函数/N30 周期重估替换）。
   readonly #watchTarget = new Map<string, string>();
@@ -1265,6 +1276,9 @@ export class RoomDO extends DurableObject<Env> {
     this.#connSeq.clear();
     this.#connRate.clear();
     this.#outSlots.clear();
+    this.#frameLastAt.clear();
+    for (const t of this.#slotTimers.values()) clearTimeout(t); // N42：补发定时器一并清理
+    this.#slotTimers.clear();
     // N26：订阅映射随业务释放清空。
     this.#watchTarget.clear();
     this.#watchersOf.clear();
@@ -2254,9 +2268,16 @@ export class RoomDO extends DurableObject<Env> {
       const slot = this.#snapLatest.get(att.playerId) as SnapshotSlot;
       const revision = this.#nextRevision();
       const text = `{"v":${PROTOCOL_VERSION},"type":"remote_snapshot","revision":${revision},"targetPlayerId":${JSON.stringify(att.playerId)},"snapshot":${slot.encoded}}`;
+      // N42：出站 ≤5Hz 门控——同一连接相邻目标帧至少间隔 200ms；被丢弃的中间帧
+      // 无信息损失（快照为最新态语义，后续帧携带更新状态）。
+      const now = Date.now();
       for (const ws of this.ctx.getWebSockets()) {
         const wAtt = this.#attachmentOf(ws);
-        if (wAtt !== null && watchers.has(wAtt.playerId)) this.deliverFrame(wAtt.connId, ws, text);
+        if (wAtt === null || !watchers.has(wAtt.playerId)) continue;
+        const last = this.#frameLastAt.get(wAtt.connId);
+        if (last !== undefined && now - last < OUTBOUND_FRAME_MIN_INTERVAL_MS) continue;
+        this.#frameLastAt.set(wAtt.connId, now);
+        this.deliverFrame(wAtt.connId, ws, text);
       }
     }
   }
@@ -2315,6 +2336,7 @@ export class RoomDO extends DurableObject<Env> {
       );
       const slot = this.#snapLatest.get(targetPlayerId);
       if (slot !== undefined && slot.matchId === matchId) {
+        this.#frameLastAt.set(att.connId, Date.now()); // N42：补发帧刷新出站限流时戳
         this.deliverFrame(
           att.connId,
           ws,
@@ -2390,6 +2412,7 @@ export class RoomDO extends DurableObject<Env> {
       );
       const slot = this.#snapLatest.get(target);
       if (slot !== undefined && String(slot.matchId) === matchId) {
+        this.#frameLastAt.set(att.connId, Date.now()); // N42：补发帧刷新出站限流时戳
         this.deliverFrame(
           att.connId,
           ws,
@@ -2470,6 +2493,7 @@ export class RoomDO extends DurableObject<Env> {
     const buffered = (ws as unknown as { bufferedAmount?: number }).bufferedAmount ?? 0;
     if (buffered > OUTBOUND_BUFFER_LIMIT) {
       this.#outSlots.set(connId, text); // 单槽覆盖：丢弃旧帧，保留新帧
+      this.#armSlotTimer(connId); // N42：无后续帧时定时器兜底补发（最新态必达）
       return;
     }
     const slot = this.#outSlots.get(connId);
@@ -2478,6 +2502,28 @@ export class RoomDO extends DurableObject<Env> {
       if (slot !== text) ws.send(slot);
     }
     ws.send(text);
+  }
+
+  /** N42：为背压槽挂一次性补发定时器（已有则不重复挂；到点经连接重查后走 deliverFrame）。 */
+  #armSlotTimer(connId: string): void {
+    if (this.#slotTimers.has(connId)) return;
+    this.#slotTimers.set(
+      connId,
+      setTimeout(() => {
+        this.#slotTimers.delete(connId);
+        const slot = this.#outSlots.get(connId);
+        if (slot === undefined) return;
+        for (const ws of this.ctx.getWebSockets()) {
+          const att = this.#attachmentOf(ws);
+          if (att !== null && att.connId === connId) {
+            // 缓冲已回落 → 补发；仍超限 → 重新入槽并重挂定时器。
+            this.deliverFrame(connId, ws, slot);
+            return;
+          }
+        }
+        this.#outSlots.delete(connId); // 连接已终结：弃槽（连接清理路径兜底）
+      }, SLOT_FLUSH_RETRY_MS),
+    );
   }
 
   /** N25：读取席位最新快照槽（N26 单目标路由/测试用；无则 null）。 */
@@ -2490,6 +2536,8 @@ export class RoomDO extends DurableObject<Env> {
     snapshots: number;
     conns: number;
     outSlots: number;
+    frameGateSize: number;
+    slotTimerSize: number;
     watchTargets: number;
     sbRevision: number;
     sbDirty: boolean;
@@ -2499,6 +2547,8 @@ export class RoomDO extends DurableObject<Env> {
       snapshots: this.#snapLatest.size,
       conns: this.#connSeq.size,
       outSlots: this.#outSlots.size,
+      frameGateSize: this.#frameLastAt.size, // N42：出站门控时戳表（≤连接数，随连接清理）
+      slotTimerSize: this.#slotTimers.size, // N42：背压槽补发定时器（≤连接数，随连接清理）
       watchTargets: this.#watchTarget.size,
       sbRevision: this.#revision,
       sbDirty: this.#sbDirty,
@@ -2540,6 +2590,12 @@ export class RoomDO extends DurableObject<Env> {
     this.#connSeq.delete(att.connId);
     this.#connRate.delete(att.connId);
     this.#outSlots.delete(att.connId);
+    this.#frameLastAt.delete(att.connId); // N42：出站限流时戳随连接清理
+    const slotTimer = this.#slotTimers.get(att.connId); // N42：补发定时器随连接清理
+    if (slotTimer !== undefined) {
+      clearTimeout(slotTimer);
+      this.#slotTimers.delete(att.connId);
+    }
     this.#ensureSchema();
     this.#sql.exec(
       'DELETE FROM seat_conns WHERE player_id = ? AND conn_id = ?',

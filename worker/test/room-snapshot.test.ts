@@ -276,10 +276,17 @@ describe('N25 恶意流量硬上限', () => {
     expect(stats.snapshots).toBeLessThanOrEqual(6);
     expect(stats.conns).toBeLessThanOrEqual(6);
     expect(stats.outSlots).toBeLessThanOrEqual(6);
+    // N42：出站门控时戳表与槽补发定时器同样受连接数约束（活跃期非空 ⇒ 证明在用）。
+    expect(stats.frameGateSize).toBeLessThanOrEqual(6);
+    expect(stats.frameGateSize).toBeGreaterThan(0);
+    expect(stats.slotTimerSize).toBeLessThanOrEqual(6);
     // 断线清理：全部 close 后连接态归零
     for (const id of ids) room.webSocketClose(sockets.get(id) as never, 1000, '', true);
-    expect(room.pipelineStats().conns).toBe(0);
-    expect(room.pipelineStats().outSlots).toBe(0);
+    const after = room.pipelineStats();
+    expect(after.conns).toBe(0);
+    expect(after.outSlots).toBe(0);
+    expect(after.frameGateSize).toBe(0); // N42：门控时戳随连接终结清理
+    expect(after.slotTimerSize).toBe(0); // N42：补发定时器随连接终结清理
     vi.useRealTimers();
   });
 });

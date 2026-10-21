@@ -105,6 +105,8 @@ describe('N26 单目标快照路由', () => {
     const { room, ids, states, sockets } = await runningMatch(6);
     for (let seq = 1; seq <= 15; seq += 1) {
       for (const id of ids) room.webSocketMessage(sockets.get(id) as never, snapMsg(seq));
+      // N42：出站 ≤5Hz 门控——按真实 publisher 节奏（250ms）推进时钟。
+      vi.advanceTimersByTime(250);
     }
     let total = 0;
     for (let i = 0; i < 6; i += 1) {
@@ -121,7 +123,10 @@ describe('N26 单目标快照路由', () => {
 
   it('切换目标：即时补发 watch_target + 目标最后一帧，旧目标流即停', async () => {
     const { room, ids, states, sockets } = await runningMatch(6);
-    for (const seq of [1, 2, 3]) room.webSocketMessage(sockets.get(ids[0]) as never, snapMsg(seq));
+    for (const seq of [1, 2, 3]) {
+      room.webSocketMessage(sockets.get(ids[0]) as never, snapMsg(seq));
+      vi.advanceTimersByTime(250); // N42：真实 5Hz 节奏（出站门控不误伤）
+    }
     // ids[2] 的自动目标本就是 ids[0]：清空记录后手动切换（同目标仍即时下发）。
     const st2 = states.get(ids[2]) as WsState;
     st2.sent.length = 0;
@@ -135,6 +140,7 @@ describe('N26 单目标快照路由', () => {
       snapshot: { seq: 3, score: 300 }, // 最后一帧即时补发
     });
     // 新目标后续帧多观察者（ids[1..5] 均观察 ids[0]）同收；旧目标 ids[3] 的帧不再进 ids[2]。
+    vi.advanceTimersByTime(250); // N42：补发帧刷新门控时戳，250ms 后新帧放行
     room.webSocketMessage(sockets.get(ids[0]) as never, snapMsg(4));
     room.webSocketMessage(sockets.get(ids[3]) as never, snapMsg(1));
     expect(remoteSnaps(st2).map((m) => m.targetPlayerId)).toEqual([ids[0], ids[0]]);
@@ -202,10 +208,12 @@ describe('N26 单目标快照路由', () => {
     const st5 = states.get(ids[5]) as WsState;
     st5.bufferedAmount = 20_000;
     room.webSocketMessage(sockets.get(ids[0]) as never, snapMsg(1));
+    vi.advanceTimersByTime(250); // N42：真实 5Hz 节奏（出站门控不误伤）
     room.webSocketMessage(sockets.get(ids[0]) as never, snapMsg(2));
     expect(remoteSnaps(st5).length).toBe(0);
     expect(room.pipelineStats().outSlots).toBe(1);
     st5.bufferedAmount = 0;
+    vi.advanceTimersByTime(250);
     room.webSocketMessage(sockets.get(ids[0]) as never, snapMsg(3));
     const snaps = remoteSnaps(st5);
     expect(snaps.map((m) => (m.snapshot as { seq: number }).seq)).toEqual([2, 3]);
@@ -246,6 +254,48 @@ describe('N26 单目标快照路由', () => {
     room.webSocketMessage(sockets.get(ids[1]) as never, snapMsg(1));
     expect(remoteSnaps(states.get(ids[0]) as WsState).length).toBe(1);
     expect(room.pipelineStats().watchTargets).toBe(2);
+    vi.useRealTimers();
+  });
+
+  it('N42 出站 ≤5Hz 门控：同刻多帧只放行首帧；窗口滑过后恢复；补发帧不受门控', async () => {
+    const { room, ids, states, sockets } = await runningMatch(3);
+    // 开局全零分：ids[1]、ids[2] 均自动观察 ids[0]。恶意席位同刻连发 5 帧。
+    for (const seq of [1, 2, 3, 4, 5]) {
+      room.webSocketMessage(sockets.get(ids[0]) as never, snapMsg(seq));
+    }
+    const st1 = states.get(ids[1]) as WsState;
+    // 负例：门控丢弃同窗内的 2..5 帧（快照为最新态语义，无信息损失）。
+    expect(remoteSnaps(st1).map((m) => (m.snapshot as { seq: number }).seq)).toEqual([1]);
+    // 补发帧不受门控：门控窗口未滑过（仍为 T0），setWatchTarget 仍即时补发最新帧。
+    const st2 = states.get(ids[2]) as WsState;
+    st2.sent.length = 0;
+    expect(room.setWatchTarget(ids[2], ids[0]).ok).toBe(true);
+    expect(remoteSnaps(st2).map((m) => (m.snapshot as { seq: number }).seq)).toEqual([5]);
+    // 正例：窗口滑过（200ms）后新帧恢复放行。
+    vi.advanceTimersByTime(200);
+    room.webSocketMessage(sockets.get(ids[0]) as never, snapMsg(6));
+    expect(remoteSnaps(st1).map((m) => (m.snapshot as { seq: number }).seq)).toEqual([1, 6]);
+    expect(remoteSnaps(st2).map((m) => (m.snapshot as { seq: number }).seq)).toEqual([5, 6]);
+    // 有界性：门控时戳为 connId 级 Map（≤连接数），随连接终结清理（N25 用例已证）。
+    vi.useRealTimers();
+  });
+
+  it('N42 背压槽定时器补发：缓冲回落后无新帧也送达槽内最新帧；仍超限则不投递', async () => {
+    const { room, ids, states, sockets } = await runningMatch(6);
+    const st5 = states.get(ids[5]) as WsState;
+    st5.bufferedAmount = 20_000; // 慢观察者：帧入单槽
+    room.webSocketMessage(sockets.get(ids[0]) as never, snapMsg(1));
+    expect(remoteSnaps(st5).length).toBe(0);
+    expect(room.pipelineStats().outSlots).toBe(1);
+    // 负例：定时器到点但缓冲仍超限 → 不投递（重新入槽等待下一窗口）。
+    vi.advanceTimersByTime(500);
+    expect(remoteSnaps(st5).length).toBe(0);
+    expect(room.pipelineStats().outSlots).toBe(1);
+    // 正例：缓冲回落（无新帧到达）→ 定时器到点补发槽内最新帧，槽归零。
+    st5.bufferedAmount = 0;
+    vi.advanceTimersByTime(500);
+    expect(remoteSnaps(st5).map((m) => (m.snapshot as { seq: number }).seq)).toEqual([1]);
+    expect(room.pipelineStats().outSlots).toBe(0);
     vi.useRealTimers();
   });
 });

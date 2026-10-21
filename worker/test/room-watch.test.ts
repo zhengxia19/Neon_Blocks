@@ -156,6 +156,7 @@ describe('N30 自动观战目标切换', () => {
     expect(entryJsons[2]).toBe(entryJsons[0]);
     // 切换后路由：各席位只收自身新目标流。
     for (const st of states.values()) st.sent.length = 0;
+    vi.advanceTimersByTime(210); // N42：出站 ≤5Hz 门控——按真实节奏推进（补发帧刚刷新时戳）
     room.webSocketMessage(sockets.get(ids[0]) as never, snapMsg(2, 100, 1));
     room.webSocketMessage(sockets.get(ids[1]) as never, snapMsg(2, 200, 2));
     room.webSocketMessage(sockets.get(ids[2]) as never, snapMsg(2, 300, 3));

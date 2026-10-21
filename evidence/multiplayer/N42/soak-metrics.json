@@ -1,0 +1,242 @@
+{
+  "startedAt": "2026-10-21T03:23:48.026Z",
+  "durationSec": 600,
+  "base": "http://127.0.0.1:4173",
+  "clients": [
+    {
+      "nickname": "soakhost01",
+      "ws": {
+        "opened": 2,
+        "closed": 0,
+        "inMsgs": 523,
+        "inBytes": 271507,
+        "outMsgs": 510,
+        "outBytes": 226955,
+        "maxMsgBytes": 1168,
+        "byType": {
+          "connected": 1,
+          "room_state": 21,
+          "player_joined": 5,
+          "countdown": 1,
+          "match_start": 1,
+          "scoreboard": 6,
+          "watch_target": 1,
+          "remote_snapshot": 481,
+          "player_left": 5,
+          "match_end": 1
+        },
+        "remoteSnapCount": 481,
+        "scoreboardCount": 6,
+        "remoteSnapHz": 0.79
+      },
+      "frames": {
+        "count": 35974,
+        "meanMs": 16.68,
+        "p50Ms": 16.7,
+        "p95Ms": 16.7,
+        "p99Ms": 16.8,
+        "maxMs": 49.9,
+        "longFrames25ms": 34,
+        "longFrameRatio": 0.0009
+      },
+      "remoteSeq": 492,
+      "watchTarget": "p_f200f8471854"
+    },
+    {
+      "nickname": "soakguest02",
+      "ws": {
+        "opened": 2,
+        "closed": 0,
+        "inMsgs": 522,
+        "inBytes": 271546,
+        "outMsgs": 508,
+        "outBytes": 226815,
+        "maxMsgBytes": 1168,
+        "byType": {
+          "connected": 1,
+          "room_state": 18,
+          "player_joined": 4,
+          "countdown": 1,
+          "match_start": 1,
+          "scoreboard": 6,
+          "watch_target": 1,
+          "remote_snapshot": 484,
+          "player_left": 5,
+          "match_end": 1
+        },
+        "remoteSnapCount": 484,
+        "scoreboardCount": 6,
+        "remoteSnapHz": 0.8
+      },
+      "frames": {
+        "count": 35975,
+        "meanMs": 16.68,
+        "p50Ms": 16.7,
+        "p95Ms": 16.7,
+        "p99Ms": 16.8,
+        "maxMs": 50,
+        "longFrames25ms": 35,
+        "longFrameRatio": 0.001
+      },
+      "remoteSeq": 492,
+      "watchTarget": "p_a1e90ec317b8"
+    },
+    {
+      "nickname": "soakguest03",
+      "ws": {
+        "opened": 2,
+        "closed": 0,
+        "inMsgs": 519,
+        "inBytes": 270146,
+        "outMsgs": 509,
+        "outBytes": 227281,
+        "maxMsgBytes": 1168,
+        "byType": {
+          "connected": 1,
+          "room_state": 16,
+          "player_joined": 3,
+          "countdown": 1,
+          "match_start": 1,
+          "scoreboard": 6,
+          "watch_target": 1,
+          "remote_snapshot": 484,
+          "player_left": 5,
+          "match_end": 1
+        },
+        "remoteSnapCount": 484,
+        "scoreboardCount": 6,
+        "remoteSnapHz": 0.8
+      },
+      "frames": {
+        "count": 35977,
+        "meanMs": 16.68,
+        "p50Ms": 16.7,
+        "p95Ms": 16.7,
+        "p99Ms": 16.8,
+        "maxMs": 50,
+        "longFrames25ms": 34,
+        "longFrameRatio": 0.0009
+      },
+      "remoteSeq": 492,
+      "watchTarget": "p_a1e90ec317b8"
+    },
+    {
+      "nickname": "soakguest04",
+      "ws": {
+        "opened": 2,
+        "closed": 0,
+        "inMsgs": 516,
+        "inBytes": 268455,
+        "outMsgs": 509,
+        "outBytes": 227279,
+        "maxMsgBytes": 1168,
+        "byType": {
+          "connected": 1,
+          "room_state": 14,
+          "player_joined": 2,
+          "countdown": 1,
+          "match_start": 1,
+          "scoreboard": 6,
+          "watch_target": 1,
+          "remote_snapshot": 484,
+          "player_left": 5,
+          "match_end": 1
+        },
+        "remoteSnapCount": 484,
+        "scoreboardCount": 6,
+        "remoteSnapHz": 0.8
+      },
+      "frames": {
+        "count": 35979,
+        "meanMs": 16.68,
+        "p50Ms": 16.7,
+        "p95Ms": 16.7,
+        "p99Ms": 16.8,
+        "maxMs": 50.1,
+        "longFrames25ms": 35,
+        "longFrameRatio": 0.001
+      },
+      "remoteSeq": 492,
+      "watchTarget": "p_a1e90ec317b8"
+    },
+    {
+      "nickname": "soakguest05",
+      "ws": {
+        "opened": 2,
+        "closed": 0,
+        "inMsgs": 513,
+        "inBytes": 266472,
+        "outMsgs": 509,
+        "outBytes": 227278,
+        "maxMsgBytes": 1168,
+        "byType": {
+          "connected": 1,
+          "room_state": 12,
+          "player_joined": 1,
+          "countdown": 1,
+          "match_start": 1,
+          "scoreboard": 6,
+          "watch_target": 1,
+          "remote_snapshot": 484,
+          "player_left": 5,
+          "match_end": 1
+        },
+        "remoteSnapCount": 484,
+        "scoreboardCount": 6,
+        "remoteSnapHz": 0.8
+      },
+      "frames": {
+        "count": 35981,
+        "meanMs": 16.68,
+        "p50Ms": 16.7,
+        "p95Ms": 16.7,
+        "p99Ms": 16.8,
+        "maxMs": 50,
+        "longFrames25ms": 34,
+        "longFrameRatio": 0.0009
+      },
+      "remoteSeq": 492,
+      "watchTarget": "p_a1e90ec317b8"
+    },
+    {
+      "nickname": "soakguest06",
+      "ws": {
+        "opened": 3,
+        "closed": 1,
+        "inMsgs": 509,
+        "inBytes": 263031,
+        "outMsgs": 509,
+        "outBytes": 227302,
+        "maxMsgBytes": 1168,
+        "byType": {
+          "connected": 1,
+          "room_state": 9,
+          "countdown": 1,
+          "match_start": 1,
+          "scoreboard": 6,
+          "watch_target": 1,
+          "remote_snapshot": 484,
+          "player_left": 5,
+          "match_end": 1
+        },
+        "remoteSnapCount": 484,
+        "scoreboardCount": 6,
+        "remoteSnapHz": 0.8
+      },
+      "frames": {
+        "count": 35982,
+        "meanMs": 16.68,
+        "p50Ms": 16.7,
+        "p95Ms": 16.7,
+        "p99Ms": 16.8,
+        "maxMs": 50,
+        "longFrames25ms": 35,
+        "longFrameRatio": 0.001
+      },
+      "remoteSeq": 492,
+      "watchTarget": "p_a1e90ec317b8"
+    }
+  ],
+  "matchWallMs": 600281,
+  "finishedAt": "2026-10-21T03:33:56.363Z"
+}
