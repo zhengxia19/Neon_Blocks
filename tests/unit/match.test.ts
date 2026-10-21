@@ -71,7 +71,7 @@ describe('N34 装配结构断言', () => {
     expect(SRC.match).not.toContain('WebSocket');
     expect(SRC.match).not.toContain('NetClient');
     expect(SRC.multiplayer).toContain('computeClockOffset(msg.serverTime, Date.now())');
-    expect(SRC.multiplayer).toContain('bootMatch(root, msg, clockOffset, myPlayerId, {}, {');
+    expect(SRC.multiplayer).toContain('bootMatch(root, msg, clockOffset, myPlayerId, {}, matchUi);');
     expect(SRC.multiplayer).toContain('match?.destroy()');
   });
 
@@ -82,8 +82,8 @@ describe('N34 装配结构断言', () => {
     expect(SRC.match).toContain('remoteBoard.resetForTarget()');
     expect(SRC.match).toContain('remoteBoard.resize()');
     expect(SRC.match).toContain('leaderboardView.markWinners(');
-    // 陈旧目标帧丢弃：只绘制当前观察目标。
-    expect(SRC.match).toContain('if (targetPlayerId !== watchTargetId) return false;');
+    // 陈旧目标帧丢弃：只绘制当前观察目标（N40-a 复审 P1 后为 else-if 分支）。
+    expect(SRC.match).toContain('} else if (targetPlayerId !== watchTargetId) {');
     // multiplayer：四类对局消息接线 + 快照发布 + gameover 单发。
     expect(SRC.multiplayer).toContain("case 'scoreboard':");
     expect(SRC.multiplayer).toContain("case 'watch_target':");
@@ -127,8 +127,10 @@ describe('N34 装配结构断言', () => {
     expect(SRC.multiplayer).toContain("showPreCountdown(msg.startAt)");
     expect(SRC.multiplayer).toContain("id = 'mp-pre-countdown'");
     expect(SRC.multiplayer).toContain('countdownLabel(startAt - (Date.now() + clockOffset))');
-    // 装配前清除遮罩（clearPreCountdown 在 bootMatch 之前调用）。
-    expect(SRC.multiplayer).toMatch(/clearPreCountdown\(\);\s*lobby\?\.destroy\(\);\s*lobby = null;\s*match = bootMatch/);
+    // 装配前清除遮罩（clearPreCountdown 在 bootMatch 之前调用；N40 起中间多一步缓存写入）。
+    expect(SRC.multiplayer).toMatch(
+      /clearPreCountdown\(\);\s*lobby\?\.destroy\(\);\s*lobby = null;[\s\S]*?writeCache\(MATCH_CACHE_KEY, msg\);\s*match = bootMatch/,
+    );
   });
 
   it('正向：main.ts 暴露联网只读句柄且动态 import 失败有回退（N32 O-7）', () => {

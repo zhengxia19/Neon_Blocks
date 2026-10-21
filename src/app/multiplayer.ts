@@ -10,13 +10,20 @@
  * 收到 phase=LOBBY 的 room_state（房主「下一局」触发 FINISHED→LOBBY）即停发布、
  * 拆对局、按新 room_state 重建大厅；本人房主身份从 room_state.players 跟踪，
  * 决定对局结果面板是否渲染「下一局」入口（服务端仍裁决权限）。
+ * N40：失焦/断线/刷新语义——对局期 WS 断开即遮罩「连接中断」+ 冻结本地操作
+ * （服务端比赛不停摆，30 秒宽限由服务端裁决）；重连成功解冻并按 room_state
+ * 权威重建（LOBBY 拆局 / FINISHED 无明细终局）；刷新后凭 sessionStorage 席位
+ * 凭据自动重连，对局期凭缓存 match_start（同席位种子/等级）与快照 seq 高水位
+ * 重建比赛（服务端按 seq 水位拒收陈旧帧）。单人自动暂停语义不受影响（main.ts）。
  */
-import { PROTOCOL_VERSION, decodeSnapshot, type ServerMessage, SnapshotPublisher } from '../net';
+import { PROTOCOL_VERSION, decodeSnapshot, loadCredential, type ServerMessage, SnapshotPublisher } from '../net';
 import { NetClient } from '../net';
+import type { MatchStartMsg } from '../../shared/protocol';
 import { bootMatch, computeClockOffset, countdownLabel, type MatchHandle } from './match';
 import { renderLobby, type LobbyCallbacks, type LobbyController } from '../ui/lobby';
 import { renderMultiplayerEntry, type EntryController } from '../ui/mp-entry';
 import { mountMultiplayerLayout } from '../ui/multiplayer-layout';
+import { createConnOverlay } from '../ui/conn-overlay';
 
 // N36：模块级暴露布局装配函数——E2E 可在无 Worker 时直接挂载双棋盘骨架做布局断言。
 (window as unknown as Record<string, unknown>).__NEON_BLOCKS_MP_LAYOUT__ = mountMultiplayerLayout;
@@ -53,6 +60,36 @@ export function bootMultiplayer(root: HTMLElement, apiBaseUrl: string): Multipla
   // N39-b：本人房主身份（room_state.players 权威跟踪）与房间码（重建大厅提示用）。
   let myIsHost = false;
   let lastRoomCode = '';
+  // N40：对局期连接中断遮罩（WS 连接事件驱动；文案见 onClose/onFatal）。
+  const connOverlay = createConnOverlay(root);
+  // N40：刷新恢复缓存（sessionStorage 同页签）——服务端 attach 只发 room_state
+  // 不补发 match_start，须缓存本人 match_start 载荷（席位种子/等级）；快照 seq
+  // 须从服务端高水位续起（服务端按 playerId+matchId 拒收 seq ≤ 旧值，归零会丢帧）。
+  const MATCH_CACHE_KEY = 'neon_blocks_mp_match_v1';
+  const SNAP_CACHE_KEY = 'neon_blocks_mp_snapseq_v1';
+  function readCache<T>(key: string): T | null {
+    try {
+      const raw = window.sessionStorage.getItem(key);
+      return raw === null ? null : (JSON.parse(raw) as T);
+    } catch {
+      return null;
+    }
+  }
+  const writeCache = (key: string, value: unknown): void => {
+    try {
+      window.sessionStorage.setItem(key, JSON.stringify(value));
+    } catch {
+      // 隐私模式/配额受限：降级为「刷新不重建对局」，不影响正常对局。
+    }
+  };
+  const clearMatchCache = (): void => {
+    try {
+      window.sessionStorage.removeItem(MATCH_CACHE_KEY);
+      window.sessionStorage.removeItem(SNAP_CACHE_KEY);
+    } catch {
+      // 忽略：清不掉也只是下次刷新多一次 matchId 比对。
+    }
+  };
 
   const stopSnapshotPublishing = (): void => {
     if (snapTimer !== null) {
@@ -63,9 +100,11 @@ export function bootMultiplayer(root: HTMLElement, apiBaseUrl: string): Multipla
     publisher = null;
   };
 
-  const startSnapshotPublishing = (): void => {
+  const startSnapshotPublishing = (matchId: string): void => {
     if (match === null) return;
-    snapSeq = 0;
+    // N40：刷新/重连重建同一局 ⇒ seq 从 sessionStorage 高水位续起（新对局从 0）。
+    const snapCache = readCache<{ matchId: string; seq: number }>(SNAP_CACHE_KEY);
+    snapSeq = snapCache !== null && snapCache.matchId === matchId ? snapCache.seq : 0;
     gameoverSent = false;
     publisher = new SnapshotPublisher({
       // 发布器出口是编码后文本：解码回对象走 NetClient.send（统一 seq 信封）。
@@ -82,6 +121,7 @@ export function bootMultiplayer(root: HTMLElement, apiBaseUrl: string): Multipla
       if (match === null || publisher === null) return;
       const state = match.engine.getState();
       snapSeq += 1;
+      writeCache(SNAP_CACHE_KEY, { matchId, seq: snapSeq });
       publisher.publish(match.buildSnapshot(snapSeq));
       if (!gameoverSent && state.status === 'gameover') {
         // 复审 N38 P2-2：send 成功才置位——断线瞬间的 gameover 上报在重连后的
@@ -132,10 +172,42 @@ export function bootMultiplayer(root: HTMLElement, apiBaseUrl: string): Multipla
             match.destroy();
             match = null;
             clearPreCountdown();
+            connOverlay.hide();
             lobby?.destroy();
             lobby = renderLobby(root, myPlayerId, lobbyHandlers);
             lobby.update(msg);
             lobby.showMessage('info', `房间码 ${lastRoomCode}，全员准备后房主可再开局。`);
+          } else if (match === null && msg.matchId !== null && msg.phase !== 'LOBBY') {
+            // N40：刷新/重连进入进行中或已结束的对局但本地无对局 ⇒ 用缓存的
+            // match_start 重建（服务端 attach 只发 room_state，不补发 match_start）。
+            const cached = readCache<MatchStartMsg>(MATCH_CACHE_KEY);
+            if (cached !== null && cached.matchId === msg.matchId) {
+              clearPreCountdown();
+              lobby?.destroy();
+              lobby = null;
+              match = bootMatch(root, cached, clockOffset, myPlayerId, {}, matchUi);
+              startSnapshotPublishing(cached.matchId);
+              if (msg.phase === 'FINISHED') {
+                // N40（复审 N39-b O-7）：断线错过 match_end 后重连进 FINISHED。
+                stopSnapshotPublishing();
+                match.applyRoomFinished();
+              }
+              connOverlay.hide();
+            } else {
+              // 无本人对局缓存（中途加入/断线错过 match_start 又开了新局）：保持大厅
+              // 视图，等下一局 match_start；复审 N40-a P2-2：RUNNING 补中文提示，
+              // 避免局内玩家整局无棋盘、无上行、无提示。
+              lobby?.update(msg);
+              if (msg.phase === 'RUNNING') {
+                lobby?.showMessage('info', '比赛进行中，未能恢复本局棋盘；本局结束后自动返回大厅。');
+              }
+            }
+          } else if (match !== null && msg.phase === 'FINISHED') {
+            // N40（复审 N39-b O-7）：断线错过 match_end 后重连进 FINISHED ⇒
+            // 无明细终局展示（match_end 不可补发），等待房主下一局回大厅。
+            stopSnapshotPublishing();
+            match.applyRoomFinished();
+            connOverlay.hide();
           } else {
             lobby?.update(msg);
           }
@@ -157,16 +229,11 @@ export function bootMultiplayer(root: HTMLElement, apiBaseUrl: string): Multipla
           clearPreCountdown();
           lobby?.destroy();
           lobby = null;
-          match = bootMatch(root, msg, clockOffset, myPlayerId, {}, {
-            // N39-b：房主才渲染「下一局」入口；发送仍走 start（服务端按阶段裁决）。
-            // 复审 P2-2：getter 取实时值——房主局中离开转让后新房主仍可开下一局。
-            isHost: (): boolean => myIsHost,
-            onNextRound: (): void => {
-              client.send({ v: PROTOCOL_VERSION, type: 'start' });
-            },
-          });
+          // N40：缓存本人 match_start 载荷（同页签刷新后重建对局的唯一来源）。
+          writeCache(MATCH_CACHE_KEY, msg);
+          match = bootMatch(root, msg, clockOffset, myPlayerId, {}, matchUi);
           // N38：装配完成即开始 5Hz 快照发布（对局期数据上行）。
-          startSnapshotPublishing();
+          startSnapshotPublishing(msg.matchId);
           break;
         }
         case 'scoreboard':
@@ -198,20 +265,49 @@ export function bootMultiplayer(root: HTMLElement, apiBaseUrl: string): Multipla
     onOpen(): void {
       // N38：重连成功即恢复快照发布通道（断开期间的帧已被发布器丢弃）。
       publisher?.setConnected(true);
+      // N40：重连成功 ⇒ 解冻本地对局、隐藏遮罩；权威显示由随后服务端 attach
+      // 推送的 room_state 兜底（LOBBY 拆局 / FINISHED 终局 / RUNNING 续跑）。
+      if (match !== null) {
+        match.setFrozen(false);
+        connOverlay.hide();
+      }
     },
     onClose: (info): void => {
       publisher?.setConnected(false);
       if (leftIntentionally) return;
-      if (info.willReconnect) {
+      if (match !== null) {
+        // N40：对局期断开 ⇒ 遮罩 + 冻结本地操作（服务端比赛不停摆，
+        // 30 秒宽限与淘汰由服务端裁决，本地只展示与停输入）。
+        match.setFrozen(true);
+        connOverlay.show(
+          info.willReconnect ? '连接中断，正在自动重连……' : '与服务器断开连接，重连失败。',
+        );
+      } else if (info.willReconnect) {
         lobby?.showMessage('info', '连接中断，正在自动重连……');
       } else {
         lobby?.showMessage('error', '与服务器断开连接，请刷新页面重试。');
       }
     },
     onFatal: (err): void => {
-      lobby?.showMessage('error', err.message);
+      // N40：致命错误（协议不匹配/重连超时）⇒ 不再自动重连：对局期遮罩冻结，
+      // 大厅期回显到大厅消息区。
+      if (match !== null) {
+        match.setFrozen(true);
+        connOverlay.show(err.message);
+      } else {
+        lobby?.showMessage('error', err.message);
+      }
     },
   });
+
+  // N39-b/N40：对局 UI 接线提取为常量——刷新重建对局时复用同一接线。
+  // 复审 P2-2：isHost 用 getter 取实时值——房主局中离开转让后新房主仍可开下一局。
+  const matchUi = {
+    isHost: (): boolean => myIsHost,
+    onNextRound: (): void => {
+      client.send({ v: PROTOCOL_VERSION, type: 'start' });
+    },
+  };
 
   // N39-b：大厅接线提取为常量——下一局重建大厅时复用同一控制器组。
   const lobbyHandlers: LobbyCallbacks = {
@@ -228,6 +324,8 @@ export function bootMultiplayer(root: HTMLElement, apiBaseUrl: string): Multipla
       leftIntentionally = false;
       clearPreCountdown();
       stopSnapshotPublishing();
+      clearMatchCache(); // N40：主动离开 ⇒ 不再自动重连/重建对局。
+      connOverlay.hide();
       lobby?.destroy();
       lobby = null;
       entry = renderMultiplayerEntry(root, entryHandlers);
@@ -241,9 +339,17 @@ export function bootMultiplayer(root: HTMLElement, apiBaseUrl: string): Multipla
   async function enterLobby(code: string, playerId: string): Promise<void> {
     myPlayerId = playerId;
     lastRoomCode = code;
-    const res = await client.connect();
+    let res: Awaited<ReturnType<typeof client.connect>>;
+    try {
+      res = await client.connect();
+    } catch {
+      res = { ok: false, code: 'INTERNAL', message: '服务器暂时无法访问，请稍后再试。', status: 0 };
+    }
     if (!res.ok) {
-      entry?.showMessage('error', res.message);
+      // N40：刷新自动重连失败（房间已解散/服务器不可达）⇒ 回退入口面板并清缓存。
+      if (entry === null) entry = renderMultiplayerEntry(root, entryHandlers);
+      entry.showMessage('error', res.message);
+      clearMatchCache();
       return;
     }
     entry?.destroy();
@@ -283,7 +389,14 @@ export function bootMultiplayer(root: HTMLElement, apiBaseUrl: string): Multipla
     },
   };
 
-  entry = renderMultiplayerEntry(root, entryHandlers);
+  // N40：同页签刷新 ⇒ 有席位凭据即自动重连（方案 §凭据仅存 sessionStorage，
+  // 只用于同页签刷新重连），跳过入口面板；重连失败由 enterLobby 回退入口提示。
+  const restored = loadCredential(window.sessionStorage);
+  if (restored !== null) {
+    void enterLobby(restored.code, restored.playerId);
+  } else {
+    entry = renderMultiplayerEntry(root, entryHandlers);
+  }
 
   let tornDown = false;
   return {
@@ -292,12 +405,14 @@ export function bootMultiplayer(root: HTMLElement, apiBaseUrl: string): Multipla
       if (match === null) return null;
       return { watchTargetId: match.debug.watchTargetId(), remoteSeq: match.debug.remoteSeq() };
     },
+    // N40-b：debugDropSocket（E2E 断线注入）随 NetClient 断网容错修复一并接入。
     teardown(): void {
       if (tornDown) return;
       tornDown = true;
       client.close();
       clearPreCountdown();
       stopSnapshotPublishing();
+      connOverlay.destroy();
       entry?.destroy();
       lobby?.destroy();
       match?.destroy();

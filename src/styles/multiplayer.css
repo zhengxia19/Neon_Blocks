@@ -206,3 +206,25 @@
   font-size: 14px;
   color: var(--accent-2);
 }
+
+
+/* ── N40：对局期连接中断遮罩 ────────────────────────────────────────────────
+   全屏半透明（断线期间本地输入已冻结，遮罩只作状态展示）；
+   display:flex 同样必须显式恢复 [hidden] 的隐藏语义（N39-b E2E 教训）。 */
+#mp-conn-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: rgba(5, 7, 18, 0.78);
+  color: var(--text);
+  font-size: 16px;
+  letter-spacing: 0.08em;
+  z-index: 40;
+}
+
+#mp-conn-overlay[hidden] {
+  display: none;
+}

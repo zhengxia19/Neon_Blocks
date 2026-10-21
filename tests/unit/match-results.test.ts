@@ -59,7 +59,7 @@ describe('N39-b 装配结构断言', () => {
     expect(SRC.match).toContain('applyMatchEnd(msg: MatchEndMsg): void');
     expect(SRC.match).toContain('results.show({ reasonLabel, winnersText: winnersText(names), isHost: ui.isHost() });');
     // 复审 P2-1：终局冻结本地棋盘（不步进、不推进节奏）并卸载输入。
-    expect(SRC.match).toContain('if (!ended) engine.step(dtMs);');
+    expect(SRC.match).toContain('if (!frozen && !ended) engine.step(dtMs);');
     expect(SRC.match).toMatch(/releaseInputs\(\);\s*keyboard\.dispose\(\);\s*touch\.dispose\(\);/);
     // 胜者昵称按服务端榜单顺序提取（全员文案一致），不本地排序。
     expect(SRC.match).toContain('.filter((entry) => winnerSet.has(entry.playerId))');

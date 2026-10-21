@@ -533,3 +533,14 @@
 - 门禁：root 26 文件/388 用例；root tsc 0；build mp 32.77 kB / index 36.08 kB 不变 / CSS 11.72 kB；worker 27/219（零改动）；worker tsc 0；E2E mp 组（worker 8787 在跑）9 通过；E2E 全量（无 worker）15 通过/9 跳过。
 - 证据：evidence/multiplayer/N39-b/（README + 7 份原始输出）。
 - 遗留观察转 N40：对局期 error 静默丢弃（O-1）；mp-mode 类回大厅残留（O-3）；极端短局「本局无胜者」理论边界（O-4）；断线错过 match_end 后 FINISHED 重连界面停滞（O-7）。
+
+## N40-a 失焦/刷新语义（客户端）— 完成
+- 范围：对局期失焦不停时钟、刷新重建、自动重连（N40 拆分之二一；NetClient 断网容错+断网遮罩 E2E 见 N40-b，4 逻辑文件>§0 上限经用户确认拆分）。
+- 改动（逻辑 3 文件 ≈260 行）：src/ui/conn-overlay.ts（新增：#mp-conn-overlay 纯 DOM 遮罩；show 重挂脱文档节点——mountMultiplayerLayout 重建 root；destroy 后 show 空操作）；src/app/match.ts（MatchHandle setFrozen/applyRoomFinished；frozen 门控输入五路+节奏+开局门+engine.step、状态行保留「连接中断，比赛仍在服务器进行……」；解冻重挂键盘+重置帧时间戳；adoptWatchTarget 无目标首帧采纳）；src/app/multiplayer.ts（match_start+快照 seq 高水位 sessionStorage 缓存、room_state 四分支：LOBBY 拆局/缓存重建/FINISHED 兜底/RUNNING 无缓存中文提示；onClose/onOpen/onFatal 冻结+遮罩接线；boot loadCredential 自动重连；enterLobby 异常兜底；leave 清缓存）；multiplayer.css（#mp-conn-overlay + [hidden] display:none）。
+- 关键服务端事实：attach 只推 room_state 不重发 match_start（room.ts:1965）；快照 seq 按 playerId 高水位拒收（room.ts:2225）；watch_target 仅向「目标改变」者补发（room.ts:2362）、订阅映射跨断线存活 ⇒ 客户端以首帧采纳观察目标自愈（P1 修复）。
+- 测试：tests/unit/mp-resilience.test.ts（17 用例：遮罩三态+纯 DOM 反向、destroy 空操作门、CSS 钉死、冻结/解冻/终局兜底/首帧采纳钉死、onClose/onOpen/FINISHED/缓存/seq 续起/RUNNING 提示/leave 清缓存、单人 blur→suspendGame 反向钉死）；tests/e2e/mp-resilience.spec.ts（2 场景：失焦不停时钟（3s 内剩余递减 ≥2s）+对局期刷新重建（无入口面板、状态行续跑、seq 3s 内续增、对手面板恢复 host01/比赛中、remoteSeq>0）；大厅期刷新回同房间）。
+- E2E 教训（转 N40-b）：Chromium setOffline 不拆既有 WS；workerd Hibernation 不回显 close 帧（服务端已标记断线、浏览器 close 事件永不达）⇒ 断网注入需应用侧 debugDropSocket+手动 handleClose；NetClient 票据 fetch reject（非 HTTP 失败）中断重连链（首个退避尝试失败后不再重试）⇒ N40-b 修复。
+- 复审（独立只读）：FAIL（P1×1、P2×3、O×6）→ 全部修复复跑绿。P1 刷新重建收不到 watch_target 致对手棋盘整局失效→首帧采纳+E2E 刷新方对手视图断言；P2-1 teardown 僵尸遮罩→destroy 后 show 空操作；P2-2 RUNNING 无缓存静默→大厅中文提示；P2-3 重言断言删除。§0 口径通过（3 逻辑文件 247 行、CSS 另计、白名单/game/main/worker 零改动）。
+- 门禁：root 27 文件/406 用例；root tsc 0；build mp 34.76 kB / index 36.08 kB 不变 / CSS 11.96 kB；worker 27/219（零改动）；worker tsc 0；E2E mp 组（worker 8787 在跑）11 通过；E2E 全量（无 worker）15 通过/11 跳过。
+- 证据：evidence/multiplayer/N40-a/（README + 原始输出）。
+- 遗留观察转后续：刷新后本人分数/消行归零（引擎按种子重开，设计语义）；onFatal 文案被随后 onClose 覆盖；KeyP 仍可暂停联网对局本地引擎（既有，keyboard.ts:195）；开局前冻结时倒计时元素仍刷新（外观）；N39-b O-1/O-3/O-4、N38 O-1、N36 O-2 继续跟踪。

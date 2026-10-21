@@ -64,6 +64,10 @@ export interface MatchHandle {
   applyRemoteSnapshot(targetPlayerId: string, snapshot: SnapshotPayload): boolean;
   /** N38：match_end 胜者标记（仅高亮，不改服务端榜单行序）。 */
   applyMatchEnd(msg: MatchEndMsg): void;
+  /** N40：断线冻结/恢复——冻结期间本地棋盘不步进、键盘卸载（服务端比赛不停摆）。 */
+  setFrozen(frozen: boolean): void;
+  /** N40：重连进 FINISHED（错过 match_end）：无明细终局展示，等待房主下一局。 */
+  applyRoomFinished(): void;
   /** N38：本人状态 → 快照载荷（seq 由装配层发布计数供给，本文件不发送）。 */
   buildSnapshot(seq: number): SnapshotPayload;
   /** 诊断/E2E：当前观察目标与远程棋盘水位。 */
@@ -111,6 +115,15 @@ export function bootMatch(
   let watchTargetId: string | null = null;
   let lastEntries: LeaderboardEntry[] = [];
 
+  // 复审 N40-a P1：刷新重建后服务端不补发 watch_target（订阅映射跨断线存活，
+  // 仅「目标改变」才补发），但 remote_snapshot 已按服务端映射路由到正确观看者
+  // ⇒ 无目标时以首帧采纳目标（自愈，无需额外缓存；水位随采纳复位）。
+  const adoptWatchTarget = (targetPlayerId: string): void => {
+    watchTargetId = targetPlayerId;
+    remoteBoard.resetForTarget();
+    syncOpponentPanel();
+  };
+
   // N39-b：结果面板（match_end 驱动显示；房主才渲染「下一局」按钮）。
   const results = createResultsPanel(refs.overlayRoot, { onNextRound: ui.onNextRound });
 
@@ -154,16 +167,27 @@ export function bootMatch(
   keyboard.attach(window);
 
   // N36：触屏按键与单人同一套装配（RepeatController 共享节奏），手机可操作。
+  // N40：动作经 inputLive 门控——断线冻结/终局后触屏不再触碰引擎。
   const touchRepeat = new RepeatController({
-    move: (direction) => engine.move(direction),
-    softDrop: () => engine.softDrop(),
+    move: (direction) => {
+      if (inputLive()) engine.move(direction);
+    },
+    softDrop: () => {
+      if (inputLive()) engine.softDrop();
+    },
   });
   const touch = createTouchControls(refs.touchControls, {
     repeat: touchRepeat,
     actions: {
-      rotate: (direction) => engine.rotate(direction),
-      hardDrop: () => engine.hardDrop(),
-      hold: () => engine.hold(),
+      rotate: (direction) => {
+        if (inputLive()) engine.rotate(direction);
+      },
+      hardDrop: () => {
+        if (inputLive()) engine.hardDrop();
+      },
+      hold: () => {
+        if (inputLive()) engine.hold();
+      },
     },
   });
 
@@ -186,6 +210,10 @@ export function bootMatch(
   let ended = false;
   let selfEliminated = false;
   let lastStatusLabel = '';
+  // N40：断线冻结标记（由装配层按连接事件驱动；服务端比赛不停摆）。
+  let frozen = false;
+  // N40：冻结或终局后本地操作不可信/无意义——触屏与节奏一律不触碰引擎。
+  const inputLive = (): boolean => !frozen && !ended;
 
   const frame = (nowMs: number): void => {
     if (destroyed) return;
@@ -196,17 +224,18 @@ export function bootMatch(
     // 长按节奏推进（与单人主循环同构）：键盘 ↓ 与触屏 ↓ 的软降节奏
     // 由 update(dt) 累加驱动（RepeatController 无独立计时器）。
     // 复审 N39-b P2-1：match_end 后冻结本地棋盘（不再步进/推进节奏）。
-    if (!ended) {
+    // N40：断线冻结同样跳过步进与节奏（服务端比赛不停摆，恢复后续跑）。
+    if (!frozen && !ended) {
       keyboard.update(dtMs);
       touchRepeat.update(dtMs);
     }
 
     // 开局判定：校准墙钟到达 startAt 即启动（不依赖隐藏页里停摆的 rAF 计数）。
-    if (!started && !ended && wallNow() + clockOffset >= match.startAt) {
+    if (!started && !ended && !frozen && wallNow() + clockOffset >= match.startAt) {
       started = true;
       engine.start();
     }
-    if (!ended) engine.step(dtMs);
+    if (!frozen && !ended) engine.step(dtMs);
 
     const state = engine.getState();
     renderer.render(state, {
@@ -239,7 +268,9 @@ export function bootMatch(
       // N39-b：状态行明确展示 600 秒剩余（服务器 deadlineAt − 校准墙钟，逐秒
       // 刷新；隐藏页 rAF 停摆但墙钟照样推进，恢复即正确）与本人淘汰
       // （服务端榜单 status=eliminated 驱动，不本地另算）。
-      if (!ended) {
+      // N40：冻结期间保留「连接中断」提示（解冻后 lastStatusLabel 已清空，
+      // 下一帧重算续跑文案）。
+      if (!frozen && !ended) {
         const selfTag = selfEliminated ? '你已淘汰，等待比赛结束' : '比赛进行中';
         const label = `${selfTag} · 剩余 ${formatRemaining(match.deadlineAt - (wallNow() + clockOffset))}`;
         if (label !== lastStatusLabel) {
@@ -279,14 +310,17 @@ export function bootMatch(
     },
     applyWatchTarget(targetPlayerId: string): void {
       if (targetPlayerId === watchTargetId) return;
-      watchTargetId = targetPlayerId;
       // 切换即复位水位（旧目标最后画面保留至新目标补帧到达，无闪白）。
-      remoteBoard.resetForTarget();
-      syncOpponentPanel();
+      adoptWatchTarget(targetPlayerId);
     },
     applyRemoteSnapshot(targetPlayerId: string, snapshot: SnapshotPayload): boolean {
-      // 只绘制当前观察目标的帧：陈旧目标的迟到帧直接丢弃（无第三棋盘语义）。
-      if (targetPlayerId !== watchTargetId) return false;
+      // 复审 N40-a P1：无目标（刷新重建后服务端不补发 watch_target）⇒ 首帧采纳；
+      // 陈旧目标的迟到帧直接丢弃（无第三棋盘语义）。
+      if (watchTargetId === null) {
+        adoptWatchTarget(targetPlayerId);
+      } else if (targetPlayerId !== watchTargetId) {
+        return false;
+      }
       const drawn = remoteBoard.applySnapshot(snapshot);
       // 复审 N38 P2-1：当前目标首帧绘制成功后补一次面板同步——此前被延迟的
       // 淘汰冻结/断线遮罩在目标自己的最后画面上生效。
@@ -308,6 +342,31 @@ export function bootMatch(
       results.show({ reasonLabel, winnersText: winnersText(names), isHost: ui.isHost() });
       // 复审 N39-b P2-1：终局即释放并卸载输入（键盘监听移除、触屏按钮移除），
       // 死局棋盘不可再操作；dispose 幂等（destroy 二次调用安全）。
+      releaseInputs();
+      keyboard.dispose();
+      touch.dispose();
+    },
+    setFrozen(frozenNow: boolean): void {
+      // N40：断线⇒停止不可信本地操作（卸载键盘、释放长按、棋盘不步进）；
+      // 恢复⇒重挂键盘、重置帧时间戳（dt 封顶双保险），状态行下一帧重算。
+      if (destroyed || ended || frozenNow === frozen) return;
+      frozen = frozenNow;
+      if (frozenNow) {
+        releaseInputs();
+        keyboard.dispose();
+        statusLine.textContent = '连接中断，比赛仍在服务器进行……';
+      } else {
+        keyboard.attach(window);
+        lastFrameMs = performance.now();
+        lastStatusLabel = '';
+      }
+    },
+    applyRoomFinished(): void {
+      // N40（复审 N39-b O-7）：断线错过 match_end 后重连进 FINISHED——
+      // 无胜负明细的终局展示（match_end 不可补发），等待房主下一局回大厅。
+      if (destroyed || ended) return;
+      ended = true;
+      statusLine.textContent = '比赛已结束，等待房主开始下一局';
       releaseInputs();
       keyboard.dispose();
       touch.dispose();
