@@ -50,7 +50,7 @@
 - O-3：容量设置经 host WS 生效与访客 REST 加入存在竞态窗口（N41 观察项复现）；soak 脚本以 1.5s 等待 + 加入重试兜底。
 
 ## 文件清单
-- `abuse-metrics.json` / `abuse-metrics-abuse.log`：恶意流量场景指标与日志（log 为多轮追加：含修复前 watcher 20Hz 违例轮与修复后达标轮，构成前后对照）。
+- `abuse-metrics.json` / `abuse-metrics-run.log.txt（*.log 被 .gitignore 排除，改 .txt 入库）`：恶意流量场景指标与日志（log 为多轮追加：含修复前 watcher 20Hz 违例轮与修复后达标轮，构成前后对照）。
 - `soak-metrics.json` / `soak-smoke-metrics.json`：600s 正式与 60s 烟测指标。
 - `server-samples.csv`：服务端 CPU/内存/SQLite 采样（66 行 × 10s）。
 - `typecheck-root.txt` / `vitest-root.txt` / `build.txt` / `typecheck-worker.txt` / `vitest-worker.txt` / `e2e-mp-with-worker.txt`：回归原始输出。

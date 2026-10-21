@@ -1,0 +1,64 @@
+[fatal] Error: create failed: 403 {"error":"BAD_ORIGIN","message":"请求来源不被允许。"}
+    at Client.create (file:///D:/tcodes/Neon_Blocks/tests/load/mp-abuse.mjs:68:55)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async scenarioFlood (file:///D:/tcodes/Neon_Blocks/tests/load/mp-abuse.mjs:163:16)
+    at async main (file:///D:/tcodes/Neon_Blocks/tests/load/mp-abuse.mjs:373:3)
+[fatal] Error: create failed: 400 {"error":"BAD_NICKNAME","message":"昵称需为 1–16 位英文字母或数字。"}
+    at Client.create (file:///D:/tcodes/Neon_Blocks/tests/load/mp-abuse.mjs:205:55)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async scenarioFlood (file:///D:/tcodes/Neon_Blocks/tests/load/mp-abuse.mjs:291:16)
+    at async main (file:///D:/tcodes/Neon_Blocks/tests/load/mp-abuse.mjs:471:3)
+[fatal] Error: ticket failed: 400 {"error":"BAD_MESSAGE","message":"消息格式不合法。"}
+    at Client.ticket (file:///D:/tcodes/Neon_Blocks/tests/load/mp-abuse.mjs:229:52)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async Client.connect (file:///D:/tcodes/Neon_Blocks/tests/load/mp-abuse.mjs:234:20)
+    at async scenarioFlood (file:///D:/tcodes/Neon_Blocks/tests/load/mp-abuse.mjs:294:43)
+    at async main (file:///D:/tcodes/Neon_Blocks/tests/load/mp-abuse.mjs:471:3)
+[flood] 发送 391 条(100Hz/6s)；watcher 收到目标帧 120（20/s）；洪水连接存活=true
+[seq] 重复 seq 收到 1/2；迟到帧收到 0/1；连接存活=true
+[invalid] unknown_type bytes=30 errors=[{"code":"UNKNOWN_TYPE","retryable":false}] alive=true
+[invalid] forbidden_field bytes=45 errors=[{"code":"FORBIDDEN_FIELD","retryable":false}] alive=true
+[invalid] oversized_4k bytes=3079 errors=[{"code":"BAD_SNAPSHOT","retryable":true}] alive=true
+[invalid] bad_json bytes=9 errors=[{"code":"BAD_MESSAGE","retryable":true}] alive=true
+[invalid] wrong_version bytes=57 errors=[{"code":"PROTOCOL_VERSION","retryable":false}] alive=false
+[invalid] 探测结束连接存活=false
+[fatal] TypeError: Cannot read properties of undefined (reading 'send')
+    at Client.sendRaw (file:///D:/tcodes/Neon_Blocks/tests/load/mp-abuse.mjs:269:13)
+    at Client.send (file:///D:/tcodes/Neon_Blocks/tests/load/mp-abuse.mjs:272:20)
+    at Client.ready (file:///D:/tcodes/Neon_Blocks/tests/load/mp-abuse.mjs:282:18)
+    at scenarioSlow (file:///D:/tcodes/Neon_Blocks/tests/load/mp-abuse.mjs:395:40)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async main (file:///D:/tcodes/Neon_Blocks/tests/load/mp-abuse.mjs:474:3)
+[flood] 发送 391 条(100Hz/6s)；watcher 收到目标帧 12（2/s）；洪水连接存活=true
+[seq] 重复 seq 收到 1/2；迟到帧收到 0/1；连接存活=true
+[invalid] unknown_type bytes=30 errors=[{"code":"UNKNOWN_TYPE","retryable":false}] alive=true
+[invalid] forbidden_field bytes=45 errors=[{"code":"FORBIDDEN_FIELD","retryable":false}] alive=true
+[invalid] oversized_4k bytes=3079 errors=[{"code":"BAD_SNAPSHOT","retryable":true}] alive=true
+[invalid] bad_json bytes=9 errors=[{"code":"BAD_MESSAGE","retryable":true}] alive=true
+[invalid] wrong_version bytes=57 errors=[{"code":"PROTOCOL_VERSION","retryable":false}] alive=false
+[invalid] 探测结束连接存活=false
+[slow] 握手101=true 暂停60s内发布976帧；恢复后收到245帧（最旧seq=3，最新seq=977，发布最新=978，seq跳变=244）积压有界=true 最新态必达=false
+[reconnect] 断线→重连耗时 2082ms；重连成功=false；房主连接存活=true
+[done] 指标写入 evidence/multiplayer/N42/abuse-metrics.json
+[flood] 发送 390 条(100Hz/6s)；watcher 收到目标帧 12（2/s）；洪水连接存活=true
+[seq] 重复 seq 收到 1/2；迟到帧收到 0/1；连接存活=true
+[invalid] unknown_type bytes=30 errors=[{"code":"UNKNOWN_TYPE","retryable":false}] alive=true
+[invalid] forbidden_field bytes=45 errors=[{"code":"FORBIDDEN_FIELD","retryable":false}] alive=true
+[invalid] oversized_4k bytes=3079 errors=[{"code":"BAD_SNAPSHOT","retryable":true}] alive=true
+[invalid] bad_json bytes=9 errors=[{"code":"BAD_MESSAGE","retryable":true}] alive=true
+[invalid] wrong_version bytes=57 errors=[{"code":"PROTOCOL_VERSION","retryable":false}] alive=false
+[invalid] 探测结束连接存活=false
+[slow] 握手101=true 暂停60s内发布974帧；恢复后收到244帧（最旧seq=3，最新seq=975，发布最新=976，seq跳变=243）积压有界=true 最新态必达=false
+[reconnect] 断线→重连耗时 2084ms；重连成功=true；房主连接存活=true
+[done] 指标写入 evidence/multiplayer/N42/abuse-metrics.json
+[flood] 发送 389 条(100Hz/6s)；watcher 收到目标帧 12（2/s）；洪水连接存活=true
+[seq] 重复 seq 收到 1/2；迟到帧收到 0/1；连接存活=true
+[invalid] unknown_type bytes=30 errors=[{"code":"UNKNOWN_TYPE","retryable":false}] alive=true
+[invalid] forbidden_field bytes=45 errors=[{"code":"FORBIDDEN_FIELD","retryable":false}] alive=true
+[invalid] oversized_4k bytes=3079 errors=[{"code":"BAD_SNAPSHOT","retryable":true}] alive=true
+[invalid] bad_json bytes=9 errors=[{"code":"BAD_MESSAGE","retryable":true}] alive=true
+[invalid] wrong_version bytes=57 errors=[{"code":"PROTOCOL_VERSION","retryable":false}] alive=false
+[invalid] 探测结束连接存活=false
+[slow] 握手101=true 暂停60s内发布992帧；恢复后收到262帧（最旧seq=3，最新seq=1009，发布最新=1009，seq跳变=250）积压有界=true 最新态必达=true
+[reconnect] 断线→重连耗时 2080ms；重连成功=true；房主连接存活=true
+[done] 指标写入 evidence/multiplayer/N42/abuse-metrics.json
