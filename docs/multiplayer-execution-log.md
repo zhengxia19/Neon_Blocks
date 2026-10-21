@@ -554,3 +554,10 @@
 - 独立复审 PASS（P1×0、P2×1、O×5）：P2-1 已修——`net-client.test.ts` 补 3 条 FakeWS+fetch reject 行为用例（重连期 reject 链不死 / 首连 reject 返回目录内 INTERNAL fail / debugDropSocket 去重幂等）；O 项记录（catch 不查 closedIntentionally 属既有同构、onFatal 文案被 onClose 覆盖、E2E fatal 余量 ~11s、计数钉死属有意脆弱）。
 - 证据：`evidence/multiplayer/N40-b/`（README + 7 份原始输出）。
 - G3：N31–N40 全部完成（N40 拆 a/b 各自过门禁与复审）。
+
+## 关口 G3 检查：PASS（2026-10-21，基线 c5e290d）
+- N31–N40 全部关闭（N40 拆 a/b；提交链 cdbf46f→c5e290d，每项含独立复审与证据目录）。
+- 单机全量四项（清单 §0-7 必跑）：`npm ci` 0（2.4s）；`npm run typecheck` 0 错误；`npm run test` 27 文件/412 通过；`npm run build` 0（125ms）。
+- E2E：全量无 worker 15 通过/12 跳过（6.4s）；mp 组 worker 在跑 12 通过（26.8s）。
+- Worker：vitest 27/219、tsc 0。
+- 无单机退化，进入 G4（N41–N43）。证据：`evidence/multiplayer/G3/`。

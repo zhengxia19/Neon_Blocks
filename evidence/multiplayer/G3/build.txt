@@ -1,0 +1,16 @@
+
+> neon-blocks@0.0.0 build
+> tsc -b && vite build
+
+vite v8.3.4 building client environment for production...
+transforming...
+✓ 44 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                       0.48 kB │ gzip:  0.32 kB
+dist/assets/index-CdV9pMXA.css       11.96 kB │ gzip:  3.19 kB
+dist/assets/multiplayer-DJfx2oyu.js  35.08 kB │ gzip: 12.62 kB
+dist/assets/index-opGxOe7G.js        36.08 kB │ gzip: 12.81 kB
+
+✓ built in 125ms
+BUILD_EXIT=0

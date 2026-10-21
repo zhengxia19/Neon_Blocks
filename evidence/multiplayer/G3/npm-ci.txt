@@ -1,0 +1,5 @@
+  run `npm fund` for details
+
+found 0 vulnerabilities
+CI_EXIT=0
+ci_seconds=2.4
