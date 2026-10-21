@@ -1,0 +1,5 @@
+# N44 生产 CORS 探测（OPTIONS /api/rooms, 2026-10-21）
+ALLOWED_ORIGINS=https://zhengxia19.github.io；ALLOW_DEV_ORIGINS 未设置（生产重部署已去除）
+https://zhengxia19.github.io => 204 ACAO=https://zhengxia19.github.io
+http://127.0.0.1:4173 => ERR 403 ACAO=
+https://evil.example => ERR 403 ACAO=

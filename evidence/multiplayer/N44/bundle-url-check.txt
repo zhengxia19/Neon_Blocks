@@ -1,0 +1,4 @@
+# N44 线上 bundle URL 取证（2026-10-21T07:29:28Z）
+GET https://zhengxia19.github.io/Neon_Blocks/ → assets: ./assets/index-Ba43dRAp.js
+asset https://zhengxia19.github.io/Neon_Blocks/assets/index-Ba43dRAp.js len=38293 has-neon-api=True has-workersdev=False
+# 注：multiplayer chunk 为动态 import，可能不在 index.html 直接引用；主 bundle 含 VITE_MULTIPLAYER_API_URL 注入值即证。

@@ -611,3 +611,13 @@
 - 证据：evidence/multiplayer/N44/（README + 部署/跨网/复现/回滚/回归 15 件 + 复现脚本）；N41 截图被矩阵复跑覆盖已还原。
 - 独立复审：PASS（无 P1；2 个 P2 已修：更正修复前 resilience 取证措辞——3× 失败确定性改由复现脚本佐证、补修复后 3× 复跑取证 resilience-repeat-fixed.txt；typecheck 证据补 exit code）。
 - 待授权（G5）：前端 main 发布（Pages 构建设置加 VITE_MULTIPLAYER_API_URL，不动 deploy.yml）→ 发布后跨网复测 → 生产重部署去 ALLOW_DEV_ORIGINS、workers_dev:false、zone Rate Limiting Rules、24h 指标观察。
+
+## N44 生产发布（用户授权 ①–④，2026-10-21）
+- 自定义域：zone notesofxia.cn AAAA proxied 记录 + wrangler routes custom_domain（custom domain 不允许 /*，pattern 用裸主机名）→ neon-api.notesofxia.cn health 200。
+- workers_dev:false 生效（workers.dev 404）；生产重部署无 ALLOW_DEV_ORIGINS → 版本 5c8f8d9e。
+- CORS 探测：github.io 204+ACAO；127.0.0.1:4173 与 evil.example 均 403（dev 白名单已关）。
+- zone 限流（http_ratelimit entrypoint ruleset 765e97a7 / rule bcd066b4）：per-IP 50 req/10s block 10s（Free 计划上限：period 与 mitigation_timeout 仅 10、characteristics 必含 cf.colo.id）；负向 80 连打 → 200x50 429x30、first429Index=50。
+- 前端：GitHub Pages 无构建 env 且 deploy.yml 禁改 ⇒ `.env.production`（Vite 构建期）注入 VITE_MULTIPLAYER_API_URL=https://neon-api.notesofxia.cn；Pages 构建（652c03d）成功，线上 bundle 含新 URL、无旧 workers.dev URL。
+- 发布后复测：复现脚本 BASE=生产 Pages ⇒ 刷新后 t+1s 昵称/帧/状态全部正常（production-retest-reload.txt）。
+- 证据：deploy-production / cors-probes / ratelimit-rule / ratelimit-flood-test / production-retest-reload（均 evidence/multiplayer/N44/）。
+- 遗留：24h 指标观察（N43 红线，Rows read 天花板 ≈55 局/天）。G5 达成（授权+发布+复测）。

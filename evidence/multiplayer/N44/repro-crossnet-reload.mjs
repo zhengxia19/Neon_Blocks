@@ -1,7 +1,7 @@
 // N44 跨网诊断：2 人局开赛 → guest 刷新 → 每秒采样双端 matchDebug 与对手昵称。
 import { chromium } from '@playwright/test';
 
-const BASE = 'http://127.0.0.1:4173';
+const BASE = process.env.BASE_URL ?? 'http://127.0.0.1:4173';
 
 async function debug(page) {
   return page.evaluate(() => {

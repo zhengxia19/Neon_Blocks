@@ -1,0 +1,8 @@
+N44 24h 指标观察（发布后启动，2026-10-21 07:20Z 起）
+- Workers Analytics GraphQL（POST /accounts/{id}/analytics/engine/graphql，query viewer.workersAnalytics.requests filter scriptName=neon-blocks-room-api period:1day）：HTTP 500 空响应体。
+  原因判断：当前 Account API Token 权限仅含 Workers Scripts Edit / Zone 相关，缺「Analytics Read」；GraphQL 对无权限返回 500（非 403）。
+- 观察途径（二选一）：
+  1) Cloudflare 控制台 → Workers & Pages → neon-blocks-room-api → Metrics（Requests / CPU / Errors / DO 用量），观察 24h。
+  2) 给 Token 加 Analytics: Read 权限后重跑上述 GraphQL。
+- 红线（N43 预算）：免费层 Workers 100k req/天、DO 请求与 SQLite rows read（天花板 ≈55 局/天）、CPU GB-s；实测口径 ≈300 req/局。
+- pipelineStats 为 DO 内部方法（room.ts:2560），未暴露 HTTP 端点；抽查以控制台 DO 指标为准。

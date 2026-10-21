@@ -1,6 +1,6 @@
 # N44 分阶段发布（预发部署 + 跨网 E2E + 回滚演练）
 
-日期：2026-10-21 ｜ 状态：预发完成，生产（前端 main）待授权
+日期：2026-10-21 ｜ 状态：**生产已发布**（用户授权 ①–④ 全部执行；24h 指标观察进行中）
 
 ## 预发环境
 
@@ -38,14 +38,17 @@
 - `playwright.config.ts`：webServer 注入 `VITE_MULTIPLAYER_API_URL=$E2E_API_URL`（前端指向预发 Worker）。
 - 6 个 mp spec：房码/榜单断言超时统一 `LOBBY_TIMEOUT`(15s)、workerUp 健康检查 2s→8s（公共端点冷启动/并发排队）。
 
-## 生产发布清单（待授权后执行）
+## 生产发布清单（已授权，全部执行完毕）
 
-1. Pages 构建设置（控制台，非 deploy.yml）新增环境变量 `VITE_MULTIPLAYER_API_URL=https://neon-blocks-room-api.zhengxia19.workers.dev` → 合并前端 main → Pages 自动部署。
-2. 发布后跨网复测（Pages 域名 + 生产 Worker）。
-3. Worker 生产重部署去掉 `ALLOW_DEV_ORIGINS`（恢复仅 ALLOWED_ORIGINS=zhengxia19.github.io）。
-4. Cloudflare zone Rate Limiting Rules（`/api/*` 每 IP 限流，N43 预算表建议值）。
-5. `wrangler.jsonc` 设 `workers_dev:false`（关闭 workers.dev 公网入口，仅 Pages 来源）。
-6. 24h 指标观察（N43 预算红线：DO 请求/行读/GB-s；`/api/health` + pipelineStats 抽查）。
+1. ~~Pages 构建设置新增环境变量~~ → GitHub Pages 无构建设置 env 且 deploy.yml 禁改 ⇒ 改用 **`.env.production`**（Vite 构建期自动读取）：`VITE_MULTIPLAYER_API_URL=https://neon-api.notesofxia.cn`。线上 bundle 验证含新 URL、无旧 workers.dev URL。
+2. 自定义域路由：zone `notesofxia.cn` AAAA 占位记录 `neon-api.notesofxia.cn`（proxied）+ `wrangler.jsonc routes custom_domain:true`（custom domain 不允许 `/*` 通配，pattern 为裸主机名）。
+3. Worker 生产重部署：`npx wrangler deploy`（**无 ALLOW_DEV_ORIGINS**）→ 版本 `5c8f8d9e`（`deploy-production.txt`）；CORS 探测：github.io 204+ACAO、127.0.0.1:4173 与 evil.example 均 403（`cors-probes.txt`）。
+4. `workers_dev:false` 生效：workers.dev 端点 404（自定义域 health 200）。
+5. zone Rate Limiting Rules：`http_ratelimit` entrypoint（ruleset `765e97a7`，rule `bcd066b4`）per-IP 50 req/10s block 10s（Free 计划上限：period 仅 10、mitigation_timeout 仅 10、characteristics 必含 cf.colo.id）。负向验证：80 连打 → 200x50 429x30，first429Index=50（`ratelimit-rule.txt`、`ratelimit-flood-test.txt`）。
+6. 发布后跨网复测：复现脚本 BASE=生产 Pages ⇒ 刷新后 t+1s 昵称/帧/状态全部正常（`production-retest-reload.txt`）。
+7. 待观察：24h 指标（N43 预算红线：DO 请求/行读/GB-s；Rows read 天花板 ≈55 局/天）。GraphQL 需 Token 加 Analytics: Read（当前 500），或控制台 Metrics 面板观察（`metrics-observation.txt`）。
+
+生产命令：`$env:CLOUDFLARE_API_TOKEN=…; npx wrangler deploy`（worker 目录，勿加 --var ALLOW_DEV_ORIGINS）；跨网 E2E 若需本地前端连生产 API，须同时设 `E2E_API_URL` 与 `VITE_MULTIPLAYER_API_URL`（本地来源会被生产 CORS 403，需临时用 dev 版 Worker 或忽略）。
 
 ## 遗留观察（不阻塞）
 

@@ -1,0 +1,3 @@
+# N44 workers.dev 关闭直接探测（2026-10-21T07:29:49Z）
+GET https://neon-blocks-room-api.zhengxia19.workers.dev/api/health => HTTP 404（路由已移除）
+GET https://neon-api.notesofxia.cn/api/health => {"status":"ok","protocol":"neon-blocks-mp","version":1}
