@@ -290,6 +290,22 @@ export class NetClient {
     }
   }
 
+  /**
+   * E2E 断网注入（仅测试装配调用，生产路径零调用）：主动断开当前 WS。
+   * workerd Hibernation 不回显 close 帧——浏览器 close 事件永不到达（E2E 实证
+   * >10s），故手动驱动 handleClose 模拟浏览器视角；服务端侧真实收到 close。
+   */
+  debugDropSocket(): void {
+    const ws = this.#ws;
+    if (ws === null) return;
+    try {
+      ws.close(4001, 'e2e drop');
+    } catch {
+      /* 已关闭 */
+    }
+    this.#handleClose(ws, 1006);
+  }
+
   /** 发送客户端消息：自动补连接内单调 seq；未 open 返回 false（调用方决定丢弃/排队）。 */
   send(msg: DistributiveOmit<ClientMessage, 'seq'> & { seq?: number }): boolean {
     if (this.#ws === null || this.#ws.readyState !== WS_OPEN) return false;
@@ -353,10 +369,23 @@ export class NetClient {
       return { ok: false, code: 'INTERNAL', message: describeError('INTERNAL').message, status: 0 };
     }
     // 一次性短期票据：每次连接（含重连）都重新换取；长令牌 seatToken 只进 POST body。
-    const res = await this.#post(`/api/rooms/${encodeURIComponent(cred.code)}/ticket`, {
-      playerId: cred.playerId,
-      seatToken: cred.seatToken,
-    });
+    // N40-b（E2E 断网教训）：断网时 fetch 是 reject（TypeError）而非非 2xx——
+    // 不捕获则异常穿出 #connectNow，重连定时器 `void` 调用成未处理拒绝，
+    // 重连链在首个退避尝试失败后即死亡（既不重试也见不到 onFatal）。
+    let res: Response;
+    try {
+      res = await this.#post(`/api/rooms/${encodeURIComponent(cred.code)}/ticket`, {
+        playerId: cred.playerId,
+        seatToken: cred.seatToken,
+      });
+    } catch {
+      if (this.#reconnectPending()) {
+        // 与非 2xx 票据失败（P2-3）同路径：继续退避并通知装配层。
+        const willReconnect = this.#scheduleReconnect();
+        this.#onClose?.({ code: 1006, willReconnect });
+      }
+      return { ok: false, code: 'INTERNAL', message: describeError('INTERNAL').message, status: 0 };
+    }
     const fail = await this.#failFrom(res);
     if (fail !== null) {
       if (this.#reconnectPending()) {
@@ -455,7 +484,13 @@ export class NetClient {
     }
     this.#reconnectTimer = setTimeout(() => {
       this.#reconnectTimer = null;
-      void this.#connectNow();
+      // N40-b 双保险：#openWithTicket 已内部消化 fetch 失败；catch 兜底任何
+      // 残余异常（如票据响应体损坏），绝不让重连链因未处理拒绝中断。
+      this.#connectNow().catch(() => {
+        if (this.#reconnectPending()) {
+          this.#scheduleReconnect();
+        }
+      });
     }, delay);
     return true;
   }

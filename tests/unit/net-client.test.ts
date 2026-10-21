@@ -73,7 +73,7 @@ interface FetchCall {
   body: unknown;
 }
 
-function makeFetchImpl(handler: (url: string, body: unknown) => { status: number; json: unknown }): {
+function makeFetchImpl(handler: (url: string, body: unknown) => { status: number; json: unknown; reject?: boolean }): {
   calls: FetchCall[];
   fetchImpl: (input: string, init: { method: string; body: string }) => Promise<{
     status: number;
@@ -85,6 +85,8 @@ function makeFetchImpl(handler: (url: string, body: unknown) => { status: number
     const body = JSON.parse(init.body) as unknown;
     calls.push({ url: input, body });
     const res = handler(input, body);
+    // N40-b：断网语义——fetch 是 reject（TypeError）而非非 OK 响应。
+    if (res.reject === true) return Promise.reject(new TypeError('Failed to fetch'));
     return Promise.resolve({
       status: res.status,
       json: () => Promise.resolve(res.json),
@@ -124,7 +126,7 @@ function ticketJson() {
 
 function makeClient(
   overrides: {
-    handler?: (url: string, body: unknown) => { status: number; json: unknown };
+    handler?: (url: string, body: unknown) => { status: number; json: unknown; reject?: boolean };
     store?: CredentialStore & { map: Map<string, string> };
   } = {},
 ) {
@@ -470,5 +472,67 @@ describe('N33 回归：fetch 以 null 接收者调用（浏览器 Illegal invoca
     const src = readFileSync(join(process.cwd(), 'src', 'net', 'client.ts'), 'utf8');
     expect(src).toMatch(/this\.#fetch\.call\(null,/);
     expect(src).not.toMatch(/return this\.#fetch\(/);
+  });
+});
+
+describe('N40-b 断网容错：票据 fetch reject 与断线注入', () => {
+  it('正向：重连期票据 fetch reject（断网 TypeError）⇒ 与非 2xx 同路径，重连链不死、下次尝试成功', async () => {
+    // 修复前：reject 穿出 #connectNow，定时器 void 调用成未处理拒绝，
+    // 重连链在首个退避尝试失败后即死亡（ctorCount 永不再增、无后续 onClose）。
+    let ticketCalls = 0;
+    const { client, closes } = makeClient({
+      handler: (url) => {
+        if (!url.endsWith('/ticket')) return { status: 201, json: seatJson() };
+        ticketCalls += 1;
+        return ticketCalls === 2
+          ? { status: 200, json: null, reject: true } // 断网：fetch reject 而非非 2xx
+          : { status: 200, json: ticketJson() };
+      },
+    });
+    await client.createRoom({ nickname: 'alice', capacity: 4, randomMode: 'S1', startLevel: 1 });
+    await client.connect(); // 票据 #1 成功
+    FakeWS.instances[0].serverClose(1006);
+    await vi.advanceTimersByTimeAsync(RECONNECT_BASE_MS); // 票据 #2 reject
+    expect(FakeWS.ctorCount).toBe(1); // reject 不建连
+    expect(client.state).toBe('reconnecting'); // 退避继续（修复前此处链已死）
+    expect(closes.length).toBe(2); // 首断 + 票据 reject 均通知装配层
+    expect(closes[1]).toEqual({ code: 1006, willReconnect: true });
+    await vi.advanceTimersByTimeAsync(1000); // 票据 #3 成功
+    expect(FakeWS.ctorCount).toBe(2);
+  });
+
+  it('反向：首连票据 fetch reject ⇒ connect 返回目录内 INTERNAL fail（不抛异常、不重连）', async () => {
+    const { client, closes } = makeClient({
+      handler: (url) =>
+        url.endsWith('/ticket')
+          ? { status: 200, json: null, reject: true }
+          : { status: 201, json: seatJson() },
+    });
+    const res = await client.joinRoom('842131', 'bob');
+    expect(res.ok).toBe(true);
+    const conn = await client.connect(); // 首连即断网
+    expect(conn.ok).toBe(false);
+    if (!conn.ok) {
+      expect(conn.code).toBe('INTERNAL');
+      expect(conn.status).toBe(0);
+    }
+    expect(FakeWS.ctorCount).toBe(0);
+    expect(closes.length).toBe(0); // 首连失败无「已建立连接后断开」语义，不通知 onClose
+    expect(client.state).toBe('closed');
+  });
+
+  it('正向：debugDropSocket 断线注入——close 帧发出且本地 handleClose 被驱动；无连接幂等', async () => {
+    const { client, closes } = makeClient();
+    await client.createRoom({ nickname: 'alice', capacity: 4, randomMode: 'S1', startLevel: 1 });
+    await client.connect();
+    FakeWS.instances[0].serverOpen();
+    client.debugDropSocket();
+    expect(FakeWS.instances[0].readyState).toBe(3); // close(4001) 已发出（服务端可见断线）
+    expect(closes.length).toBe(1); // 本地 onClose 恰一次：事件回显与手动 #handleClose 去重
+    expect(closes[0].willReconnect).toBe(true);
+    expect([4001, 1006]).toContain(closes[0].code); // 回显路径 4001 / 手动路径 1006，语义等价
+    expect(client.state).toBe('reconnecting');
+    client.debugDropSocket(); // #ws===null 幂等：不重复通知
+    expect(closes.length).toBe(1);
   });
 });

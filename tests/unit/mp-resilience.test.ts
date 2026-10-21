@@ -1,6 +1,7 @@
 /**
  * N40：失焦/断线/刷新语义装配断言——对局期断开遮罩+冻结、重连解冻、
  * 刷新自动重连（席位凭据）、match_start 缓存重建、快照 seq 高水位续起；
+ * N40-b：NetClient 票据 fetch reject 断网容错（重连链不死）与 debugDropSocket；
  * 单人自动暂停语义不受联网装配影响（main.ts 保持 blur/visibilitychange 暂停）。
  */
 import { readFileSync } from 'node:fs';
@@ -11,6 +12,7 @@ const SRC = {
   overlay: readFileSync(join(process.cwd(), 'src', 'ui', 'conn-overlay.ts'), 'utf8'),
   match: readFileSync(join(process.cwd(), 'src', 'app', 'match.ts'), 'utf8'),
   multiplayer: readFileSync(join(process.cwd(), 'src', 'app', 'multiplayer.ts'), 'utf8'),
+  client: readFileSync(join(process.cwd(), 'src', 'net', 'client.ts'), 'utf8'),
   main: readFileSync(join(process.cwd(), 'src', 'main.ts'), 'utf8'),
   css: readFileSync(join(process.cwd(), 'src', 'styles', 'multiplayer.css'), 'utf8'),
 };
@@ -125,6 +127,33 @@ describe('N40 刷新恢复（multiplayer.ts）', () => {
     expect(SRC.multiplayer).toMatch(
       /leftIntentionally = false;\s*clearPreCountdown\(\);\s*stopSnapshotPublishing\(\);\s*clearMatchCache\(\);/,
     );
+  });
+});
+
+describe('N40-b NetClient 断网容错与断线注入（client.ts）', () => {
+  it('正向：票据 fetch reject（断网）与非 2xx 同路径——继续退避并通知装配层', () => {
+    // 修复前：reject 穿出 #connectNow，重连定时器 void 调用成未处理拒绝，
+    // 重连链在首个退避尝试失败后即死亡（E2E 断网场景教训）。
+    expect(SRC.client).toMatch(
+      /try \{\s*res = await this\.#post\(`\/api\/rooms\/\$\{encodeURIComponent\(cred\.code\)\}\/ticket`, \{[\s\S]*?\} catch \{[\s\S]*?if \(this\.#reconnectPending\(\)\) \{[\s\S]*?const willReconnect = this\.#scheduleReconnect\(\);\s*this\.#onClose\?\.\(\{ code: 1006, willReconnect \}\);\s*\}\s*return \{ ok: false, code: 'INTERNAL', message: describeError\('INTERNAL'\)\.message, status: 0 \};\s*\}/,
+    );
+  });
+
+  it('正向：重连定时器 catch 双保险；debugDropSocket 手动 handleClose（workerd 不回显 close 帧）', () => {
+    expect(SRC.client).toMatch(
+      /this\.#reconnectTimer = setTimeout\(\(\) => \{[\s\S]*?this\.#connectNow\(\)\.catch\(\(\) => \{[\s\S]*?if \(this\.#reconnectPending\(\)\) \{\s*this\.#scheduleReconnect\(\);/,
+    );
+    expect(SRC.client).toMatch(
+      /debugDropSocket\(\): void \{\s*const ws = this\.#ws;[\s\S]*?ws\.close\(4001, 'e2e drop'\);[\s\S]*?this\.#handleClose\(ws, 1006\);\s*\}/,
+    );
+  });
+
+  it('正向：装配层句柄暴露 debugDropSocket；反向：生产路径无其他调用点', () => {
+    expect(SRC.multiplayer).toMatch(
+      /debugDropSocket\(\): void \{\s*client\.debugDropSocket\(\);\s*\}/,
+    );
+    // 出现点仅 3 处：接口声明 + 句柄实现 + 对 client 的转发调用。
+    expect(SRC.multiplayer.split('debugDropSocket').length - 1).toBe(3);
   });
 });
 

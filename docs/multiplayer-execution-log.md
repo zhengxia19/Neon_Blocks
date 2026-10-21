@@ -544,3 +544,13 @@
 - 门禁：root 27 文件/406 用例；root tsc 0；build mp 34.76 kB / index 36.08 kB 不变 / CSS 11.96 kB；worker 27/219（零改动）；worker tsc 0；E2E mp 组（worker 8787 在跑）11 通过；E2E 全量（无 worker）15 通过/11 跳过。
 - 证据：evidence/multiplayer/N40-a/（README + 原始输出）。
 - 遗留观察转后续：刷新后本人分数/消行归零（引擎按种子重开，设计语义）；onFatal 文案被随后 onClose 覆盖；KeyP 仍可暂停联网对局本地引擎（既有，keyboard.ts:195）；开局前冻结时倒计时元素仍刷新（外观）；N39-b O-1/O-3/O-4、N38 O-1、N36 O-2 继续跟踪。
+
+## N40-b NetClient 断网容错 + 断线注入 + 断网 E2E（2026-10-21）
+- 范围（N40 拆分之二，N40-a=`7277cca`）：`src/net/client.ts`、`src/app/multiplayer.ts`（逻辑文件 2 个、逻辑行 51 ≤300）。
+- 修复：`#openWithTicket` 票据 POST 未捕获断网 fetch reject（TypeError）——reject 穿出 `#connectNow`，重连定时器 `void` 调用成未处理拒绝，重连链在首个退避尝试失败后即死亡（既不重试也见不到 onFatal）。现与既有 P2-3 非 2xx 路径同构：继续退避 + `onClose({1006, willReconnect})`；定时器回调补 `.catch` 双保险（`#reconnectTimer!==null` 守卫防双重排期）。
+- `debugDropSocket()`：E2E 断线注入（生产零调用）——workerd Hibernation 不回显 close 帧（浏览器 close 事件永不到达，服务端真实收到），`ws.close(4001)` 后手动驱动 `#handleClose(ws,1006)`。
+- E2E 断网场景：route abort + 断线注入 ⇒ 遮罩+冻结、guest 榜单「连接中断」、8 秒后遮罩仍可见（重连链不死）、unroute ⇒ 退避 ≤8s 内重连解冻、时钟续跑（剩余 <590）、榜单恢复；30s 宽限淘汰由服务端 Alarm 裁决（worker 测试覆盖）。
+- 门禁：root tsc 0；root vitest 27/412；build mp 35.08 kB / index 36.08 kB 不变（单人零影响）；worker 27/219（零改动）；E2E mp 组 12/12（断网场景 21.9s）；全量无 worker 15 通过/12 跳过。
+- 独立复审 PASS（P1×0、P2×1、O×5）：P2-1 已修——`net-client.test.ts` 补 3 条 FakeWS+fetch reject 行为用例（重连期 reject 链不死 / 首连 reject 返回目录内 INTERNAL fail / debugDropSocket 去重幂等）；O 项记录（catch 不查 closedIntentionally 属既有同构、onFatal 文案被 onClose 覆盖、E2E fatal 余量 ~11s、计数钉死属有意脆弱）。
+- 证据：`evidence/multiplayer/N40-b/`（README + 7 份原始输出）。
+- G3：N31–N40 全部完成（N40 拆 a/b 各自过门禁与复审）。

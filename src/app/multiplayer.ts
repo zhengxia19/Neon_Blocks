@@ -33,6 +33,8 @@ export interface MultiplayerHandle {
   apiBaseUrl: string;
   /** N38：诊断/E2E——对局观察目标与远程棋盘水位（无对局时 null）。 */
   matchDebug(): { watchTargetId: string | null; remoteSeq: number } | null;
+  /** N40-b：E2E 断线注入——主动断开当前 WS（生产路径零调用）。 */
+  debugDropSocket(): void;
   teardown(): void;
 }
 
@@ -405,7 +407,9 @@ export function bootMultiplayer(root: HTMLElement, apiBaseUrl: string): Multipla
       if (match === null) return null;
       return { watchTargetId: match.debug.watchTargetId(), remoteSeq: match.debug.remoteSeq() };
     },
-    // N40-b：debugDropSocket（E2E 断线注入）随 NetClient 断网容错修复一并接入。
+    debugDropSocket(): void {
+      client.debugDropSocket();
+    },
     teardown(): void {
       if (tornDown) return;
       tornDown = true;
