@@ -10,7 +10,7 @@ const API = process.env.VITE_MULTIPLAYER_API_URL ?? 'http://127.0.0.1:8787';
 
 async function workerUp(request: { get(url: string, init?: { timeout?: number }): Promise<{ ok(): boolean }> }): Promise<boolean> {
   try {
-    const res = await request.get(`${API}/api/health`, { timeout: 2000 });
+    const res = await request.get(`${API}/api/health`, { timeout: 8000 });
     return res.ok();
   } catch {
     return false;
@@ -25,7 +25,7 @@ async function createRoom(page: Page, nickname: string): Promise<void> {
   await page.fill('#mp-nickname', nickname);
   await page.click('#mp-create');
   await expect(page.locator('#mp-lobby')).toBeVisible({ timeout: LOBBY_TIMEOUT });
-  await expect(page.locator('#mp-room-code-value')).toHaveText(/^[1-9]\d{5}$/);
+  await expect(page.locator('#mp-room-code-value')).toHaveText(/^[1-9]\d{5}$/, { timeout: LOBBY_TIMEOUT });
 }
 
 async function joinRoom(page: Page, nickname: string, code: string): Promise<void> {
@@ -114,8 +114,8 @@ test.describe('N40 失焦、刷新与断网恢复', () => {
       // 复审 N40-a P1：重建方服务端不补发 watch_target（订阅映射跨断线存活）⇒
       // 客户端须以首帧采纳观察目标：guest 端对手面板数秒内恢复对手昵称/状态，
       // 且 guest 的 remoteSeq 续增（未修复则恒「等待对手…」且水位停在 -1/0）。
-      await expect(guest.locator('#opponent-name')).toHaveText('host01', { timeout: 10_000 });
-      await expect(guest.locator('#opponent-status')).toHaveText('比赛中', { timeout: 10_000 });
+      await expect(guest.locator('#opponent-name')).toHaveText('host01', { timeout: LOBBY_TIMEOUT });
+      await expect(guest.locator('#opponent-status')).toHaveText('比赛中', { timeout: LOBBY_TIMEOUT });
       await expect
         .poll(async () => (await matchDebugOf(guest))?.remoteSeq ?? -1, { timeout: 3000 })
         .toBeGreaterThan(0);
@@ -202,7 +202,7 @@ test.describe('N40 失焦、刷新与断网恢复', () => {
       // 刷新 ⇒ 凭据自动重连：直接回大厅（房间码相同），入口面板不出现。
       await guest.reload();
       await expect(guest.locator('#mp-lobby')).toBeVisible({ timeout: LOBBY_TIMEOUT });
-      await expect(guest.locator('#mp-room-code-value')).toHaveText(code);
+      await expect(guest.locator('#mp-room-code-value')).toHaveText(code, { timeout: LOBBY_TIMEOUT });
       expect(await guest.locator('.mp-entry-panel').count()).toBe(0);
 
       // 服务端席位保持：房主端仍见 guest02（可继续准备开局）。

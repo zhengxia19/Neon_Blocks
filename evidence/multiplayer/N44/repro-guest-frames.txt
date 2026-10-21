@@ -1,0 +1,23 @@
+code= 527007
+running. hostDebug= {"watchTargetId":"p_de459b0ebfcd","remoteSeq":-1} guestDebug= {"watchTargetId":"p_bf5468eccec9","remoteSeq":-1}
+guest opponent-name= diaghost
+t+1s guest=null host={"watchTargetId":"p_de459b0ebfcd","remoteSeq":-1} name="等待对手…" status="比赛进行中 · 剩余 09:57"
+t+2s guest={"watchTargetId":"p_bf5468eccec9","remoteSeq":11} host={"watchTargetId":"p_de459b0ebfcd","remoteSeq":4} name="等待对手…" status="比赛进行中 · 剩余 09:56"
+t+3s guest={"watchTargetId":"p_bf5468eccec9","remoteSeq":15} host={"watchTargetId":"p_de459b0ebfcd","remoteSeq":8} name="等待对手…" status="比赛进行中 · 剩余 09:55"
+t+4s guest={"watchTargetId":"p_bf5468eccec9","remoteSeq":19} host={"watchTargetId":"p_de459b0ebfcd","remoteSeq":12} name="等待对手…" status="比赛进行中 · 剩余 09:54"
+t+5s guest={"watchTargetId":"p_bf5468eccec9","remoteSeq":23} host={"watchTargetId":"p_de459b0ebfcd","remoteSeq":16} name="等待对手…" status="比赛进行中 · 剩余 09:53"
+t+6s guest={"watchTargetId":"p_bf5468eccec9","remoteSeq":27} host={"watchTargetId":"p_de459b0ebfcd","remoteSeq":20} name="等待对手…" status="比赛进行中 · 剩余 09:52"
+t+7s guest={"watchTargetId":"p_bf5468eccec9","remoteSeq":31} host={"watchTargetId":"p_de459b0ebfcd","remoteSeq":25} name="等待对手…" status="比赛进行中 · 剩余 09:51"
+t+8s guest={"watchTargetId":"p_bf5468eccec9","remoteSeq":35} host={"watchTargetId":"p_de459b0ebfcd","remoteSeq":29} name="等待对手…" status="比赛进行中 · 剩余 09:50"
+t+9s guest={"watchTargetId":"p_bf5468eccec9","remoteSeq":39} host={"watchTargetId":"p_de459b0ebfcd","remoteSeq":33} name="等待对手…" status="比赛进行中 · 剩余 09:49"
+t+10s guest={"watchTargetId":"p_bf5468eccec9","remoteSeq":43} host={"watchTargetId":"p_de459b0ebfcd","remoteSeq":37} name="等待对手…" status="比赛进行中 · 剩余 09:48"
+t+11s guest={"watchTargetId":"p_bf5468eccec9","remoteSeq":47} host={"watchTargetId":"p_de459b0ebfcd","remoteSeq":41} name="等待对手…" status="比赛进行中 · 剩余 09:47"
+t+12s guest={"watchTargetId":"p_bf5468eccec9","remoteSeq":51} host={"watchTargetId":"p_de459b0ebfcd","remoteSeq":45} name="等待对手…" status="比赛进行中 · 剩余 09:46"
+t+13s guest={"watchTargetId":"p_bf5468eccec9","remoteSeq":54} host={"watchTargetId":"p_de459b0ebfcd","remoteSeq":49} name="等待对手…" status="比赛进行中 · 剩余 09:45"
+t+14s guest={"watchTargetId":"p_bf5468eccec9","remoteSeq":59} host={"watchTargetId":"p_de459b0ebfcd","remoteSeq":53} name="等待对手…" status="比赛进行中 · 剩余 09:44"
+t+15s guest={"watchTargetId":"p_bf5468eccec9","remoteSeq":63} host={"watchTargetId":"p_de459b0ebfcd","remoteSeq":57} name="等待对手…" status="比赛进行中 · 剩余 09:43"
+t+16s guest={"watchTargetId":"p_bf5468eccec9","remoteSeq":67} host={"watchTargetId":"p_de459b0ebfcd","remoteSeq":61} name="等待对手…" status="比赛进行中 · 剩余 09:42"
+t+17s guest={"watchTargetId":"p_bf5468eccec9","remoteSeq":71} host={"watchTargetId":"p_de459b0ebfcd","remoteSeq":65} name="等待对手…" status="比赛进行中 · 剩余 09:41"
+t+18s guest={"watchTargetId":"p_bf5468eccec9","remoteSeq":75} host={"watchTargetId":"p_de459b0ebfcd","remoteSeq":69} name="等待对手…" status="比赛进行中 · 剩余 09:40"
+t+19s guest={"watchTargetId":"p_bf5468eccec9","remoteSeq":79} host={"watchTargetId":"p_de459b0ebfcd","remoteSeq":73} name="等待对手…" status="比赛进行中 · 剩余 09:39"
+t+20s guest={"watchTargetId":"p_bf5468eccec9","remoteSeq":83} host={"watchTargetId":"p_de459b0ebfcd","remoteSeq":77} name="等待对手…" status="比赛进行中 · 剩余 09:38"

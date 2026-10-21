@@ -1,0 +1,22 @@
+
+ ⛅️ wrangler 4.151.2 (update available 4.151.3)
+───────────────────────────────────────────────
+
+Cloudflare collects anonymous telemetry about your usage of Wrangler. Learn more at https://github.com/cloudflare/workers-sdk/tree/main/packages/wrangler/telemetry.md
+Total Upload: 110.27 KiB / gzip: 27.69 KiB
+Worker Startup Time: 2 ms
+Your Worker has access to the following bindings:
+Binding                                                             Resource                  
+env.ROOM_DO (RoomDO)                                                Durable Object            
+env.ALLOWED_ORIGINS ("https://zhengxia19.github.io")                Environment Variable      
+env.CREATE_RATE_LIMIT_PER_MIN ("30")                                Environment Variable      
+env.JOIN_RATE_LIMIT_PER_MIN ("30")                                  Environment Variable      
+env.TICKET_RATE_LIMIT_PER_MIN ("60")                                Environment Variable      
+env.CODE_PROBE_LIMIT_PER_MIN ("20")                                 Environment Variable      
+env.PUBLIC_CREATE_ENABLED ("true")                                  Environment Variable      
+env.ALLOW_DEV_ORIGINS ("(hidden)")                                  Environment Variable      
+
+Uploaded neon-blocks-room-api (2.61 sec)
+Deployed neon-blocks-room-api triggers (0.83 sec)
+  https://neon-blocks-room-api.zhengxia19.workers.dev
+Current Version ID: 29e5b49f-21e5-45d5-b9b9-c28d382d8a5f

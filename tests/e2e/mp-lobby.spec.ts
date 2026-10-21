@@ -7,7 +7,7 @@ const API = process.env.VITE_MULTIPLAYER_API_URL ?? 'http://127.0.0.1:8787';
 
 async function workerUp(request: { get(url: string, init?: { timeout?: number }): Promise<{ ok(): boolean }> }): Promise<boolean> {
   try {
-    const res = await request.get(`${API}/api/health`, { timeout: 2000 });
+    const res = await request.get(`${API}/api/health`, { timeout: 8000 });
     return res.ok();
   } catch {
     return false;
@@ -23,7 +23,7 @@ async function createRoom(page: Page, nickname: string): Promise<void> {
   await page.click('#mp-create');
   await expect(page.locator('#mp-lobby')).toBeVisible({ timeout: LOBBY_TIMEOUT });
   // 房间码由首帧 room_state 填充：读取前先等 6 位码就位。
-  await expect(page.locator('#mp-room-code-value')).toHaveText(/^[1-9]\d{5}$/);
+  await expect(page.locator('#mp-room-code-value')).toHaveText(/^[1-9]\d{5}$/, { timeout: LOBBY_TIMEOUT });
 }
 
 async function joinRoom(page: Page, nickname: string, code: string): Promise<void> {
@@ -118,8 +118,8 @@ test.describe('N33 等待大厅（双端）', () => {
       await a.selectOption('#mp-start-level', '5');
       await a.click('#mp-apply-settings');
       // 访客侧收到同步后的权威值（锁定参数全员一致的基础）。
-      await expect(b.locator('#mp-capacity')).toHaveValue('6');
-      await expect(b.locator('#mp-start-level')).toHaveValue('5');
+      await expect(b.locator('#mp-capacity')).toHaveValue('6', { timeout: LOBBY_TIMEOUT });
+      await expect(b.locator('#mp-start-level')).toHaveValue('5', { timeout: LOBBY_TIMEOUT });
       // 设置变更重置准备状态（服务端裁决，双端视图一致）。
       await expect(a.locator('#mp-seat-list')).toContainText('未准备');
       await expect(b.locator('#mp-seat-list')).toContainText('未准备');

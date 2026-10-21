@@ -1,0 +1,7 @@
+
+Total Upload: 110.81 KiB / gzip: 27.81 KiB
+env.ALLOWED_ORIGINS ("https://zhengxia19.github.io")                Environment Variable      
+Deployed neon-blocks-room-api triggers (0.75 sec)
+  https://neon-blocks-room-api.zhengxia19.workers.dev
+Current Version ID: 26599ae7-1bef-4582-bb0b-d41e807f821a
+

@@ -10,7 +10,7 @@ const API = process.env.VITE_MULTIPLAYER_API_URL ?? 'http://127.0.0.1:8787';
 
 async function workerUp(request: { get(url: string, init?: { timeout?: number }): Promise<{ ok(): boolean }> }): Promise<boolean> {
   try {
-    const res = await request.get(`${API}/api/health`, { timeout: 2000 });
+    const res = await request.get(`${API}/api/health`, { timeout: 8000 });
     return res.ok();
   } catch {
     return false;
@@ -25,7 +25,7 @@ async function createRoom(page: Page, nickname: string): Promise<void> {
   await page.fill('#mp-nickname', nickname);
   await page.click('#mp-create');
   await expect(page.locator('#mp-lobby')).toBeVisible({ timeout: LOBBY_TIMEOUT });
-  await expect(page.locator('#mp-room-code-value')).toHaveText(/^[1-9]\d{5}$/);
+  await expect(page.locator('#mp-room-code-value')).toHaveText(/^[1-9]\d{5}$/, { timeout: LOBBY_TIMEOUT });
 }
 
 async function joinRoom(page: Page, nickname: string, code: string): Promise<void> {
@@ -120,7 +120,7 @@ test.describe('N39-b 淘汰、结果与下一局（双人局）', () => {
       await host.click('#mp-next-round');
       for (const p of pages) {
         await expect(p.locator('#mp-lobby')).toBeVisible({ timeout: LOBBY_TIMEOUT });
-        await expect(p.locator('#mp-room-code-value')).toHaveText(code);
+        await expect(p.locator('#mp-room-code-value')).toHaveText(code, { timeout: LOBBY_TIMEOUT });
         expect(await p.locator('#mp-results').count()).toBe(0);
         expect(await matchDebugNull(p)).toBe(true);
       }

@@ -29,6 +29,7 @@ import {
 import type {
   CountdownMsg,
   CreateRoomRequest,
+  LeaderboardEntry,
   MatchEndMsg,
   MatchId,
   MatchStartMsg,
@@ -279,6 +280,8 @@ export class RoomDO extends DurableObject<Env> {
   #sbLastSentAt: number | null = null;
   // 上次广播的 entries 序列化（内容一致则跳过发布，不占 revision）。
   #sbLastEntriesJson: string | null = null;
+  // 上次广播榜单的 revision（N44：attach 补发复用同一 revision，内容一致语义不变）。
+  #sbLastRevision: number | null = null;
   // 静默窗内合并多个变化的单个一次性定时器（发出即清空；无变化永不挂）。
   #sbTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -1473,6 +1476,7 @@ export class RoomDO extends DurableObject<Env> {
     );
     this.#sbLastSentAt = now;
     this.#sbLastEntriesJson = entriesJson;
+    this.#sbLastRevision = revision;
     // N30：排行榜 revision 已发布 ⇒ 同一事件内重估观战目标（复用榜单已读的名单/槽，
     // 不新增定时器），仅向目标改变的观看者逐席位单发 watch_target（方案 §6.2.4：
     // 仅通知当前观看者；公共排行榜本身不因目标而变）。
@@ -1492,6 +1496,7 @@ export class RoomDO extends DurableObject<Env> {
     this.#sbDirty = false;
     this.#sbLastSentAt = null;
     this.#sbLastEntriesJson = null;
+    this.#sbLastRevision = null;
   }
 
   /** N15：RUNNING→FINISHED 权威转换（N17 到期/N18 淘汰裁决触发；此处提供转移与幂等拒绝）。 */
@@ -1977,6 +1982,22 @@ export class RoomDO extends DurableObject<Env> {
     // 走全量广播而非单发：新 socket 已 accept+attach 在 getWebSockets 内，
     // 既收到自己的首帧，也让其他席位即时摆脱「连接中断」陈旧标记（复审 P2）。
     this.#sendRoomState();
+    // N44（跨网 E2E 复现）：榜单「内容无变化不重发」+ 刷新重连竞态（新 attach 先于
+    // 旧连接 close 处理 ⇒ 全程无状态变化）会让重连客户端整局收不到 scoreboard，
+    // 对手面板停在「等待对手…」。attach 后向新连接单发当前已发布榜（同 revision，
+    // 内容一致语义不变；客户端无去重，直接覆盖）。仅 RUNNING 且内存已有已发布榜；
+    // DO 驱逐后为 null，等下次快照入账自然广播（复审 O：驱逐窗内不补发空榜）。
+    if (this.#sbLastEntriesJson !== null && this.#sbLastRevision !== null
+      && this.#readConfig()?.state === 'RUNNING') {
+      ws.send(
+        JSON.stringify({
+          v: PROTOCOL_VERSION,
+          type: 'scoreboard',
+          revision: this.#sbLastRevision,
+          entries: JSON.parse(this.#sbLastEntriesJson) as LeaderboardEntry[],
+        } satisfies ScoreboardMsg),
+      );
+    }
     return result;
   }
 

@@ -1,0 +1,9 @@
+
+env.ALLOWED_ORIGINS ("https://zhengxia19.github.io")                Environment Variable      
+Deployed neon-blocks-room-api triggers (0.77 sec)
+  https://neon-blocks-room-api.zhengxia19.workers.dev
+Current Version ID: 75204b23-ba5e-4c52-9b1c-ab9426e47d5a
+
+
+--- health ---
+{"status":"ok","protocol":"neon-blocks-mp","version":1}

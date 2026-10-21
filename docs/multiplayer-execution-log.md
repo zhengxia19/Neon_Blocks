@@ -599,3 +599,15 @@
 - Cloudflare 预算复审：免费账户可上线，最紧约束 DO SQLite Rows read（天花板 ≈55 局/天 / 实测 ≈300 局/天）；回滚条件与 N44 部署清单固化于 N43/README.md。
 - 遗留观察带入 N44：快照读缓存（可选降载）、zone 级 Rate Limiting Rules、workers_dev:false、生产 ALLOWED_ORIGINS、N40/N41 观察项预发复核。
 - 下一步 N44（G5）：Cloudflare 预发 Worker/DO 先行，生产发布须单独授权。
+
+## N44 分阶段发布：预发部署 + 跨网 E2E + 回滚演练（2026-10-21）
+- 预发：`wrangler deploy --var ALLOW_DEV_ORIGINS:true` → neon-blocks-room-api.zhengxia19.workers.dev（29e5b49f）；用户决策预发=生产同名，生产授权门=前端 main 发布。
+- 跨网 E2E（E2E_API_URL=预发）：13/14；mp-resilience:72 对局期刷新对手面板恒「等待对手…」，3/3 确定性失败（本地 14/14）。
+- 复现脚本取证：刷新后 guest 帧持续到达（remoteSeq 4/s）、watchTarget 正确，唯榜单面板不填 → 根因=榜单「内容无变化不重发」+ 重连竞态（新 attach 先于旧 close 处理 ⇒ 全程无状态变化）⇒ 重连客户端整局收不到 scoreboard；本地通过属状态翻转巧合。
+- 修复（worker/src/room.ts 单文件）：attachWebSocket 后向新连接单发补发当前已发布榜（新增 #sbLastRevision 复用同 revision；仅 RUNNING；驱逐重建 null 不补发）；worker 单测 +2（正向逐字段一致/他人零广播，负向大厅/驱逐不补发）225/225。
+- 复测：跨网 5 spec 14/14；跨网 resilience 复跑 3× 均 3/3（resilience-repeat-fixed.txt）；本地 worker E2E 14/14；root tsc 0/412/412/build 0；worker tsc 0。
+- 回滚演练（双向）：rollback → 29e5b49f → 旧版缺陷精确复现（负向证明回滚生效）→ 重部署 → 75204b23（当前）→ health ok。
+- 测试适配：playwright.config webServer 注入 VITE_MULTIPLAYER_API_URL=$E2E_API_URL；6 个 mp spec 超时放宽至 LOBBY_TIMEOUT/workerUp 8s（公共端点延迟，断言语义不变）。
+- 证据：evidence/multiplayer/N44/（README + 部署/跨网/复现/回滚/回归 15 件 + 复现脚本）；N41 截图被矩阵复跑覆盖已还原。
+- 独立复审：PASS（无 P1；2 个 P2 已修：更正修复前 resilience 取证措辞——3× 失败确定性改由复现脚本佐证、补修复后 3× 复跑取证 resilience-repeat-fixed.txt；typecheck 证据补 exit code）。
+- 待授权（G5）：前端 main 发布（Pages 构建设置加 VITE_MULTIPLAYER_API_URL，不动 deploy.yml）→ 发布后跨网复测 → 生产重部署去 ALLOW_DEV_ORIGINS、workers_dev:false、zone Rate Limiting Rules、24h 指标观察。

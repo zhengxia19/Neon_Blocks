@@ -13,7 +13,7 @@ const API = process.env.VITE_MULTIPLAYER_API_URL ?? 'http://127.0.0.1:8787';
 
 async function workerUp(request: { get(url: string, init?: { timeout?: number }): Promise<{ ok(): boolean }> }): Promise<boolean> {
   try {
-    const res = await request.get(`${API}/api/health`, { timeout: 2000 });
+    const res = await request.get(`${API}/api/health`, { timeout: 8000 });
     return res.ok();
   } catch {
     return false;
@@ -28,7 +28,7 @@ async function createRoom(page: Page, nickname: string): Promise<void> {
   await page.fill('#mp-nickname', nickname);
   await page.click('#mp-create');
   await expect(page.locator('#mp-lobby')).toBeVisible({ timeout: LOBBY_TIMEOUT });
-  await expect(page.locator('#mp-room-code-value')).toHaveText(/^[1-9]\d{5}$/);
+  await expect(page.locator('#mp-room-code-value')).toHaveText(/^[1-9]\d{5}$/, { timeout: LOBBY_TIMEOUT });
 }
 
 async function joinRoom(page: Page, nickname: string, code: string): Promise<void> {
@@ -171,7 +171,7 @@ for (const p of [2, 3, 4, 5, 6]) {
         await host.click('#mp-next-round');
         for (const pg of pages) {
           await expect(pg.locator('#mp-lobby')).toBeVisible({ timeout: LOBBY_TIMEOUT });
-          await expect(pg.locator('#mp-room-code-value')).toHaveText(code);
+          await expect(pg.locator('#mp-room-code-value')).toHaveText(code, { timeout: LOBBY_TIMEOUT });
           expect(await matchDebugNull(pg)).toBe(true);
         }
 
@@ -180,7 +180,7 @@ for (const p of [2, 3, 4, 5, 6]) {
         await guests[0].click('#mp-leave');
         await expect(guests[0].locator('.mp-entry-panel')).toBeVisible({ timeout: LOBBY_TIMEOUT });
         await expect(host.locator('#mp-seat-list .mp-seat')).toHaveCount(p - 1, { timeout: LOBBY_TIMEOUT });
-        await expect(host.locator('#mp-room-code-value')).toHaveText(code);
+        await expect(host.locator('#mp-room-code-value')).toHaveText(code, { timeout: LOBBY_TIMEOUT });
       } finally {
         for (const ctx of contexts) await ctx.close();
       }

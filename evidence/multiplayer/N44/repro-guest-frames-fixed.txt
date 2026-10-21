@@ -1,0 +1,23 @@
+code= 367152
+running. hostDebug= {"watchTargetId":"p_1a607ef48875","remoteSeq":-1} guestDebug= {"watchTargetId":"p_3e707bdcda2f","remoteSeq":-1}
+guest opponent-name= diaghost
+t+1s guest=null host={"watchTargetId":"p_1a607ef48875","remoteSeq":-1} name="diaghost" status="比赛进行中 · 剩余 09:58"
+t+2s guest={"watchTargetId":"p_3e707bdcda2f","remoteSeq":10} host={"watchTargetId":"p_1a607ef48875","remoteSeq":4} name="diaghost" status="比赛进行中 · 剩余 09:56"
+t+3s guest={"watchTargetId":"p_3e707bdcda2f","remoteSeq":15} host={"watchTargetId":"p_1a607ef48875","remoteSeq":8} name="diaghost" status="比赛进行中 · 剩余 09:55"
+t+4s guest={"watchTargetId":"p_3e707bdcda2f","remoteSeq":19} host={"watchTargetId":"p_1a607ef48875","remoteSeq":12} name="diaghost" status="比赛进行中 · 剩余 09:54"
+t+5s guest={"watchTargetId":"p_3e707bdcda2f","remoteSeq":23} host={"watchTargetId":"p_1a607ef48875","remoteSeq":16} name="diaghost" status="比赛进行中 · 剩余 09:53"
+t+6s guest={"watchTargetId":"p_3e707bdcda2f","remoteSeq":27} host={"watchTargetId":"p_1a607ef48875","remoteSeq":20} name="diaghost" status="比赛进行中 · 剩余 09:52"
+t+7s guest={"watchTargetId":"p_3e707bdcda2f","remoteSeq":31} host={"watchTargetId":"p_1a607ef48875","remoteSeq":24} name="diaghost" status="比赛进行中 · 剩余 09:51"
+t+8s guest={"watchTargetId":"p_3e707bdcda2f","remoteSeq":35} host={"watchTargetId":"p_1a607ef48875","remoteSeq":28} name="diaghost" status="比赛进行中 · 剩余 09:50"
+t+9s guest={"watchTargetId":"p_3e707bdcda2f","remoteSeq":39} host={"watchTargetId":"p_1a607ef48875","remoteSeq":32} name="diaghost" status="比赛进行中 · 剩余 09:49"
+t+10s guest={"watchTargetId":"p_3e707bdcda2f","remoteSeq":43} host={"watchTargetId":"p_1a607ef48875","remoteSeq":36} name="diaghost" status="比赛进行中 · 剩余 09:48"
+t+11s guest={"watchTargetId":"p_3e707bdcda2f","remoteSeq":47} host={"watchTargetId":"p_1a607ef48875","remoteSeq":40} name="diaghost" status="比赛进行中 · 剩余 09:47"
+t+12s guest={"watchTargetId":"p_3e707bdcda2f","remoteSeq":51} host={"watchTargetId":"p_1a607ef48875","remoteSeq":44} name="diaghost" status="比赛进行中 · 剩余 09:46"
+t+13s guest={"watchTargetId":"p_3e707bdcda2f","remoteSeq":55} host={"watchTargetId":"p_1a607ef48875","remoteSeq":48} name="diaghost" status="比赛进行中 · 剩余 09:45"
+t+14s guest={"watchTargetId":"p_3e707bdcda2f","remoteSeq":59} host={"watchTargetId":"p_1a607ef48875","remoteSeq":52} name="diaghost" status="比赛进行中 · 剩余 09:44"
+t+15s guest={"watchTargetId":"p_3e707bdcda2f","remoteSeq":63} host={"watchTargetId":"p_1a607ef48875","remoteSeq":56} name="diaghost" status="比赛进行中 · 剩余 09:43"
+t+16s guest={"watchTargetId":"p_3e707bdcda2f","remoteSeq":67} host={"watchTargetId":"p_1a607ef48875","remoteSeq":60} name="diaghost" status="比赛进行中 · 剩余 09:42"
+t+17s guest={"watchTargetId":"p_3e707bdcda2f","remoteSeq":71} host={"watchTargetId":"p_1a607ef48875","remoteSeq":64} name="diaghost" status="比赛进行中 · 剩余 09:41"
+t+18s guest={"watchTargetId":"p_3e707bdcda2f","remoteSeq":75} host={"watchTargetId":"p_1a607ef48875","remoteSeq":68} name="diaghost" status="比赛进行中 · 剩余 09:40"
+t+19s guest={"watchTargetId":"p_3e707bdcda2f","remoteSeq":79} host={"watchTargetId":"p_1a607ef48875","remoteSeq":72} name="diaghost" status="比赛进行中 · 剩余 09:39"
+t+20s guest={"watchTargetId":"p_3e707bdcda2f","remoteSeq":83} host={"watchTargetId":"p_1a607ef48875","remoteSeq":76} name="diaghost" status="比赛进行中 · 剩余 09:38"

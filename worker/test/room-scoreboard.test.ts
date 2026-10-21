@@ -62,6 +62,7 @@ async function runningMatch(capacity: number) {
     alarmCalls,
     host: created.playerId,
     ids,
+    tokens,
     states,
     sockets,
     matchId: res.match.matchId,
@@ -283,5 +284,54 @@ describe('N28 排行榜 dirty 批处理与发布', () => {
     expect(boards.length).toBe(boardsBefore + 1);
     const entries = boards.at(-1)?.entries as Record<string, unknown>[];
     expect(entries.find((e) => e.playerId === ids[0])).toMatchObject({ score: 900 });
+  });
+
+  it('N44：局中重连 attach 单发补发当前榜（同内容同 revision，他人零新广播）', async () => {
+    const { room, host, ids, tokens, states, sockets } = await runningMatch(2);
+    // 先发布一份非零真榜（补发应给最新已发布榜，而非零分首榜）。
+    room.webSocketMessage(sockets.get(ids[1]) as never, snapMsg(1, 500, 5));
+    vi.advanceTimersByTime(500); // 静默窗到点，真榜已发布
+    const lastBoard = scoreboards(states.get(host) as WsState).at(-1) as Record<string, unknown>;
+    expect((lastBoard.entries as Record<string, unknown>[])[0]).toMatchObject({ score: 500 });
+    const hostBefore = scoreboards(states.get(host) as WsState).length;
+    // 复现跨网竞态：旧连接尚未 close 处理，新票据 + 新连接先 attach（全程无状态变化）。
+    const issued = await room.issueTicket(ids[1], tokens.get(ids[1]) as string);
+    if (!issued.issued) throw new Error('ticket failed');
+    const { ws: ws2, state: state2 } = makeFakeWs();
+    await room.attachWebSocket(issued.ticket, ws2);
+    // 正向：新连接 attach 即收到当前榜，内容与最新已发布榜逐字段一致（含 revision）。
+    const boards = scoreboards(state2);
+    expect(boards.length).toBe(1);
+    expect(boards[0]).toEqual(lastBoard);
+    // 负向：补发是单发——不占新 revision、他人无新榜单广播。
+    expect(scoreboards(states.get(host) as WsState).length).toBe(hostBefore);
+  });
+
+  it('N44 负向：大厅 attach（无已发布榜）与驱逐重建后 attach 均不补发', async () => {
+    vi.useFakeTimers({ now: T0 });
+    const { ctx } = makeFakeCtx();
+    const room = new RoomDO(ctx as never, {} as never);
+    const created = await room.createRoom({
+      nickname: 'host1',
+      capacity: 2,
+      randomMode: 'S1',
+      startLevel: 1,
+    });
+    if (!created.claimed) throw new Error('claim failed');
+    const { ws, state } = makeFakeWs();
+    const issued = await room.issueTicket(created.playerId, created.seatToken);
+    if (!issued.issued) throw new Error('ticket failed');
+    await room.attachWebSocket(issued.ticket, ws);
+    expect(scoreboards(state).length).toBe(0); // 大厅无榜可补
+    // 驱逐重建：内存已发布榜归零 → attach 不补发（等下次快照入账自然广播真榜）。
+    const { room: room2, ctx: ctx2, ids, tokens } = await runningMatch(2);
+    vi.advanceTimersByTime(1000); // 开球已过发布守卫窗（模拟局中驱逐时刻）
+    const room3 = new RoomDO(ctx2 as never, {} as never);
+    const issued2 = await room3.issueTicket(ids[1], tokens.get(ids[1]) as string);
+    if (!issued2.issued) throw new Error('ticket failed');
+    const { ws: ws3, state: state3 } = makeFakeWs();
+    await room3.attachWebSocket(issued2.ticket, ws3);
+    expect(scoreboards(state3).length).toBe(0);
+    void room2;
   });
 });

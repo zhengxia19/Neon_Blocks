@@ -1,0 +1,36 @@
+
+ ⛅️ wrangler 4.151.2 (update available 4.151.3)
+───────────────────────────────────────────────
+Using "CF_ACCOUNT_ID" environment variable. This is deprecated. Please use "CLOUDFLARE_ACCOUNT_ID", instead.
+├ Fetching latest deployment
+│
+├ Your current deployment has 1 version(s):
+│
+│ (100%) 26599ae7-1bef-4582-bb0b-d41e807f821a
+│       Created:  2026-10-21T06:29:42.744956Z
+│           Tag:  -
+│       Message:  -
+│
+├ Finding latest stable Worker Version to rollback to
+│ 
+│
+? Please provide an optional message for this rollback (120 characters max)
+🤖 Using default value in non-interactive context: N44 rollback drill
+│
+├  WARNING  You are about to rollback to Worker Version 29e5b49f-21e5-45d5-b9b9-c28d382d8a5f.
+│ This will immediately replace the current deployment and become the active deployment across all your deployed triggers.
+│ However, your local development environment will not be affected by this rollback.
+│ Rolling back to a previous deployment will not rollback any of the bound resources (Durable Object, D1, R2, KV, etc).
+│
+│ (100%) 29e5b49f-21e5-45d5-b9b9-c28d382d8a5f
+│       Created:  2026-10-21T05:58:24.085372Z
+│           Tag:  -
+│       Message:  -
+│
+? Are you sure you want to deploy this Worker Version to 100% of traffic?
+🤖 Using fallback value in non-interactive context: yes
+Performing rollback...
+│
+╰  SUCCESS  Worker Version 29e5b49f-21e5-45d5-b9b9-c28d382d8a5f has been deployed to 100% of traffic.
+
+Current Version ID: 29e5b49f-21e5-45d5-b9b9-c28d382d8a5f

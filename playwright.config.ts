@@ -41,6 +41,7 @@ export default defineConfig({
     timeout: 120_000,
     // N32：E2E 构建期配置公开 API 地址 → 首页渲染单人/联网分流条。
     // （E2E 不启动 Worker：合法加入走「服务器暂时无法访问」中文降级路径。）
-    env: { VITE_MULTIPLAYER_API_URL: 'http://127.0.0.1:8787' },
+    // N44：E2E_API_URL 可指向公网预发 Worker（跨网测试），默认仍为本地 8787。
+    env: { VITE_MULTIPLAYER_API_URL: process.env.E2E_API_URL ?? 'http://127.0.0.1:8787' },
   },
 });
