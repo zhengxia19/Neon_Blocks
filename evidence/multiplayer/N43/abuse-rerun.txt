@@ -1,0 +1,11 @@
+[flood] 发送 387 条(100Hz/6s)；watcher 收到目标帧 12（2/s）；洪水连接存活=true
+[seq] 重复 seq 收到 1/2；迟到帧收到 0/1；连接存活=true
+[invalid] unknown_type bytes=30 errors=[{"code":"UNKNOWN_TYPE","retryable":false}] alive=true
+[invalid] forbidden_field bytes=45 errors=[{"code":"FORBIDDEN_FIELD","retryable":false}] alive=true
+[invalid] oversized_4k bytes=3079 errors=[{"code":"BAD_SNAPSHOT","retryable":true}] alive=true
+[invalid] bad_json bytes=9 errors=[{"code":"BAD_MESSAGE","retryable":true}] alive=true
+[invalid] wrong_version bytes=57 errors=[{"code":"PROTOCOL_VERSION","retryable":false}] alive=false
+[invalid] 探测结束连接存活=false
+[slow] 握手101=true 暂停60s内发布969帧；恢复后收到257帧（最旧seq=3，最新seq=986，发布最新=986，seq跳变=243）积压有界=true 最新态必达=true
+[reconnect] 断线→重连耗时 2064ms；重连成功=true；房主连接存活=true
+[done] 指标写入 evidence/multiplayer/N42/abuse-metrics.json

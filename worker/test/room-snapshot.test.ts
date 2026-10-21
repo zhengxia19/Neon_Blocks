@@ -318,3 +318,53 @@ describe('N25 出站背压（丢弃旧帧保留新帧）', () => {
     vi.useRealTimers();
   });
 });
+
+describe('N43 裸 ping 速率门与握手条件写', () => {
+  it('裸 ping 计入 20/s 门：同刻 25 条 → 恰 20 pong、超限 5 条丢弃不断连；窗口滑过后恢复', async () => {
+    const { room, ids, states, sockets } = await runningMatch(2);
+    const st = states.get(ids[0]) as WsState;
+    const ws = sockets.get(ids[0]) as never;
+    st.sent.length = 0;
+    for (let i = 0; i < 25; i += 1) room.webSocketMessage(ws, 'ping');
+    expect(st.sent.filter((m) => m === '{"type":"pong"}').length).toBe(20); // 正：限内全回 pong
+    expect(st.sent.length).toBe(20); // 负：超限 5 条解析前丢弃（无 error 帧）
+    expect(st.closed).toBeNull(); // 负：超限不断连
+    vi.advanceTimersByTime(1000);
+    room.webSocketMessage(ws, 'ping');
+    expect(st.sent.length).toBe(21); // 正：窗口滑过后恢复
+    vi.useRealTimers();
+  });
+
+  it('握手 room_code 条件写：URL 码正确入库；同码 0 行写、异码 1 行写', async () => {
+    vi.useFakeTimers({ now: T0 });
+    const { ctx, store } = makeFakeCtx();
+    const room = new RoomDO(ctx as never, {} as never);
+    const created = await room.createRoom({ nickname: 'host1', capacity: 2, randomMode: 'S1', startLevel: 1 });
+    if (!created.claimed) throw new Error('claim failed');
+    const issued = await room.issueTicket(created.playerId, created.seatToken);
+    if (!issued.issued) throw new Error('issue failed');
+    const fake = makeFakeWs();
+    const req = {
+      method: 'GET',
+      url: `https://api.example/ws/AB2CD?ticket=${issued.ticket}`,
+      headers: new Headers({ upgrade: 'websocket' }),
+      webSocket: fake.ws,
+    } as unknown as Request;
+    try {
+      await room.fetch(req);
+    } catch (e) {
+      // undici 拒绝构造 101（workerd 合法）：接管已在抛错前完成（N14 同款识别）。
+      expect(String(e)).toMatch(/RangeError.*init\["status"\]/);
+    }
+    // 正：URL 房间码经条件写入库。
+    expect((store.db.prepare('SELECT room_code FROM room_config WHERE id = 1').get() as { room_code: string | null }).room_code).toBe('AB2CD');
+    const totalChanges = () => Number((store.db.prepare('SELECT total_changes() AS c').get() as { c: number }).c);
+    const stmt = 'UPDATE room_config SET room_code = ? WHERE id = 1 AND (room_code IS NULL OR room_code != ?)';
+    const t0 = totalChanges();
+    store.sql.exec(stmt, 'AB2CD', 'AB2CD');
+    expect(totalChanges()).toBe(t0); // 负：同码重放 → 0 行写（Rows written 不增长）
+    store.sql.exec(stmt, 'ZZ9YY', 'ZZ9YY');
+    expect(totalChanges()).toBe(t0 + 1); // 正：异码 → 恰 1 行写
+    vi.useRealTimers();
+  });
+});

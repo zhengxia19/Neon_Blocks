@@ -2015,9 +2015,12 @@ export class RoomDO extends DurableObject<Env> {
       // N33：握手路径兜底持久化房间码（DO↔码经 idFromName 恒定映射；
       // 占用时 createRoom 已写入，此处覆盖直连测试与历史库缺列场景），
       // 先于 attachWebSocket 内的首帧 room_state，保证首屏房间码正确。
+      // N43：条件写——room_code 已相同则 0 行变更（SQLite 不计 Rows written），
+      // 消除重连风暴下每握手一次的冗余写放大。
       this.#ensureSchema();
       this.#sql.exec(
-        'UPDATE room_config SET room_code = ? WHERE id = 1',
+        'UPDATE room_config SET room_code = ? WHERE id = 1 AND (room_code IS NULL OR room_code != ?)',
+        decodeURIComponent(url.pathname.slice('/ws/'.length)),
         decodeURIComponent(url.pathname.slice('/ws/'.length)),
       );
       const result = await this.attachWebSocket(ticket, server);
@@ -2049,13 +2052,14 @@ export class RoomDO extends DurableObject<Env> {
       return;
     }
     // liveness：平台健康检查/烟测的裸 'ping'（非协议信封，保持 N14 语义）。
-    // 有意豁免 20/s 限流：固定 4 字节成本、1:1 pong、连接数 ≤6 有界（N14 契约）。
+    // N43：裸 ping 同样计入每连接 20/s 速率门（恶意连接 ping 风暴的 1:1 pong
+    // 放大因此有界）；合法客户端保活走信封 ping，裸 ping 仅烟测脚本，远低于限。
+    // N25：每秒硬上限——超限消息在解析前丢弃（恶意 100Hz 不放大 CPU）。
+    if (!this.#allowInbound(att.connId, Date.now())) return;
     if (message === 'ping') {
       ws.send(JSON.stringify({ type: 'pong' }));
       return;
     }
-    // N25：每秒硬上限——超限消息在解析前丢弃（恶意 100Hz 不放大 CPU）。
-    if (!this.#allowInbound(att.connId, Date.now())) return;
     // N25：原始字节硬上限（4KiB 口径）：UTF-16 长度先行廉价预检（字节数 ≥ 长度，
     // 长度超则字节必超，1MiB 恶意报文不进 TextEncoder/JSON 解析），
     // 再以 TextEncoder 实际 UTF-8 字节数严格拒绝（多字节字符不放大门槛）。

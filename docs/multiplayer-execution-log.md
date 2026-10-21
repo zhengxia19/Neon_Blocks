@@ -580,3 +580,14 @@
 - 回归：worker tsc 0 / vitest 221/221（新增 2 个 N42 用例含正/负断言；3 个既有用例补真实节奏步进）；root tsc 0 / vitest 412/412 / build 通过；E2E mp 5 specs（worker 在线）14 passed。
 - 独立复审：PASS（无 P1；2 个 P2 已修：README 数字与 CSV/JSON 对齐、pipelineStats 暴露 frameGateSize/slotTimerSize 并在 N25 有界用例补 ≤6 与 close 归零断言；修后 worker vitest 221/221 复跑绿）。
 - 观察项：O-1 空闲玩家 2–3 分钟顶出致后段负载自然下降；O-2 裸定时器仅在 DO 被事件唤醒时执行（与 #sbTimer 同模式）；O-3 容量设置 WS 生效与访客 REST 加入竞态（脚本 1.5s 等待 + 重试兜底）。
+
+## N43 安全、成本与架构独立复审（2026-10-21）
+- 方法：两个只读子代理并行——仓库八项代码审计（全 file:line 证据）+ Cloudflare 官方文档核查（cloudflare/cloudflare-docs 源仓库，抓取 2026-10-21）；N42 实测数据作计量输入。报告：evidence/multiplayer/N43/README.md。
+- 八项结论：权限/Origin/令牌日志/generation/DoS/空房 Alarm/写放大/计量 全部 PASS，FAIL=0。
+- 小修 2 处（仅 worker/src/room.ts）：①裸 'ping' 计入每连接 20/s 速率门（原豁免可被 ping 风暴 1:1 pong 放大）；②握手 room_code UPDATE 条件化（同码 0 行写，消除重连风暴冗余写）。新增 2 单测含正/负断言（25 同刻 ping→恰 20 pong；total_changes 同码 0 写/异码 1 写）。
+- 免费预算核算（官方口径×实测）：每局 DO 请求 ≈180（入站 WS 20:1 折算）、Workers 请求 ≈25、Rows read ≈91k（最紧约束 ⇒ ≈55 局/天）、Rows written <100、Duration 76.8 GB-s（休眠免费）、CPU/条 ≪10ms、egress 不计费——免费账户可上线；超限先做快照读缓存（5 读/快照→0–1）或升 Paid。
+- 关键口径更正：DO 上 Free 为 2025-04-07（仅 SQLite-backed）；WS 升级 Free 可用（旧 Paid 限制是 DO）；DO webSocketMessage 计请求（20:1）+duration+CPU；SQLite 读写即 DO storage 配额本身。
+- 回滚条件：代码回滚最近 100 版本；N44 期间冻结 DO exports/migrations（版本间 DO 生命周期变更阻断回滚）；tombstone 删除不可逆；触发路径=前端关联网入口 / Worker 回滚上一版本；N44 需演练两条路径。
+- 接受项/风险：DO 行随历史房间码不删除（≈41KB/个，现实规模内监控）；IP 桶单 isolate ⇒ N44 固化 zone 级 Rate Limiting Rules；ticket 在 WS URL 进自动日志（30s TTL 单次消费）；workers_dev 生产关闭。
+- 回归：worker tsc 0 / vitest 223/223；root tsc 0 / 412/412 / build；E2E mp（worker 在线）14 passed；abuse 复跑 exit 0（watcher 2/s、重连 2064ms）。
+- 独立复审：PASS（无 P1；3 个 P2 已修：补本条目、还原被复跑覆盖的 N41 截图×5 与 N42 abuse-metrics.json、README 预算表标注天花板/实测双口径并修正引注漂移与保活措辞）。
