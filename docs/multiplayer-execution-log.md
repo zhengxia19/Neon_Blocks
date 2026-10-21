@@ -561,3 +561,11 @@
 - E2E：全量无 worker 15 通过/12 跳过（6.4s）；mp 组 worker 在跑 12 通过（26.8s）。
 - Worker：vitest 27/219、tsc 0。
 - 无单机退化，进入 G4（N41–N43）。证据：`evidence/multiplayer/G3/`。
+
+## N41 单机回归 + 2～6 人功能矩阵（2026-10-21，基线 ecf118f）
+- 范围：仅测试与配置——新增 `tests/e2e/mp-matrix.spec.ts`（p∈{2,3,4,5,6} 各一条全流程用例）、`playwright.config.ts` chromium testMatch +mp-matrix。逻辑文件 0 个。
+- 矩阵覆盖：建房（房主调容量 2–6、访客只读同步）→ 满员席位 → 准备 → 开赛 → 每端严格 2 Canvas（对局/结算两时点）→ 榜单 p 行逐端逐行一致（加入顺序）→ 观战（目标≠本人、remoteSeq>0）→ 结算（访客 40 次硬降 topout→只剩房主即时结束、标题/胜者全员全等、「已淘汰」列）→ 下一局（房主专属、回大厅码不变）→ 离房（confirm→入口面板、席位 p−1）。
+- 门禁：四项命令 `npm ci` 0（2.9s）/`typecheck` 0（1.9s）/`test` 27/412（2.2s）/`build` 0（2.3s）；E2E mp 组 `--workers=2` 17 通过（57.4s）；全量无 worker 15 通过/17 跳过（6.5s）。
+- 负载教训：默认 workers 下 5 矩阵并发挤占单 workerd，mp-resilience 刷新首帧 10s 窗口偶发超时；`--workers=2` 稳定，已写入 spec 头部注释。
+- 独立复审 PASS（P1×1、P2×1、O×6）：P1=N36 三截图被证据跑覆盖⇒提交前还原；P2=证据 txt 行号与补注释后 spec 不一致⇒重跑重生成；O 项记录（容量 WS/HTTP 到达顺序窄竞态、观战广度 vs N38 深度、双棋盘两时点抽查、shot-matrix-6 榜单分布与冻结语义核验一致非缺陷）。
+- 证据：`evidence/multiplayer/N41/`（README + 6 份原始输出 + 5 张 shot-matrix-{2..6}.png）。

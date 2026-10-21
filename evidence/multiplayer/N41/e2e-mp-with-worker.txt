@@ -1,0 +1,29 @@
+[WebServer] (node:6008) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 17 tests using 2 workers
+
+(node:10952) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:32116) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok  2 [chromium] › tests\e2e\mp-layout.spec.ts:78:3 › N36 双棋盘响应式布局（双端实时对局） › 桌面 1280：严格 2 Canvas、双棋盘无重叠、排行榜列就位、无横向溢出 (5.0s)
+  ok  1 [chromium] › tests\e2e\mp-boards.spec.ts:72:3 › N38 双棋盘与排行榜连接（三人局） › 两棋盘无第三块；目标切换 <1s；不同观看者不同目标；补帧；榜单全员一致不乱序 (5.8s)
+  ok  3 [chromium] › tests\e2e\mp-layout.spec.ts:107:3 › N36 双棋盘响应式布局（双端实时对局） › 390×844：对手缩略条置顶不遮挡、触屏按键可见、无横向溢出 (5.1s)
+  ok  5 [chromium] › tests\e2e\mp-lobby.spec.ts:56:3 › N33 等待大厅（双端） › 创建房间 → 大厅：6 位房间码、席位视图、房主控件 (619ms)
+  ok  4 [chromium] › tests\e2e\mp-layout.spec.ts:145:3 › N36 双棋盘响应式布局（双端实时对局） › 320×568：无横向溢出、双棋盘可见、排行榜可折叠展开 (5.2s)
+  ok  7 [chromium] › tests\e2e\mp-lobby.spec.ts:105:3 › N33 等待大厅（双端） › 房主改设置 → 访客同步只读值；设置变更重置全员准备 (1.4s)
+  ok  6 [chromium] › tests\e2e\mp-lobby.spec.ts:71:3 › N33 等待大厅（双端） › 加入 → 双端席位同步；访客只读；准备后全员准备才可开局 (1.6s)
+  ok  8 [chromium] › tests\e2e\mp-lobby.spec.ts:132:3 › N33 等待大厅（双端） › N34 开局装配：服务器倒计时→进行中；棋盘渲染；个人暂停禁用 (5.4s)
+  ok  9 [chromium] › tests\e2e\mp-matrix.spec.ts:85:5 › N41 2 人功能矩阵 › 建房→准备→开赛→双棋盘→榜单一致→观战→结算→离房 (5.5s)
+  ok 10 [chromium] › tests\e2e\mp-matrix.spec.ts:85:5 › N41 3 人功能矩阵 › 建房→准备→开赛→双棋盘→榜单一致→观战→结算→离房 (6.3s)
+  ok 11 [chromium] › tests\e2e\mp-matrix.spec.ts:85:5 › N41 4 人功能矩阵 › 建房→准备→开赛→双棋盘→榜单一致→观战→结算→离房 (7.3s)
+  ok 12 [chromium] › tests\e2e\mp-matrix.spec.ts:85:5 › N41 5 人功能矩阵 › 建房→准备→开赛→双棋盘→榜单一致→观战→结算→离房 (8.1s)
+  ok 13 [chromium] › tests\e2e\mp-matrix.spec.ts:85:5 › N41 6 人功能矩阵 › 建房→准备→开赛→双棋盘→榜单一致→观战→结算→离房 (8.8s)
+  ok 14 [chromium] › tests\e2e\mp-resilience.spec.ts:72:3 › N40 失焦、刷新与断网恢复 › 失焦不停时钟；对局期刷新自动重连重建（seq 高水位续起） (8.7s)
+  ok 16 [chromium] › tests\e2e\mp-resilience.spec.ts:188:3 › N40 失焦、刷新与断网恢复 › 大厅期刷新：自动重连回同一房间（无入口面板） (5.1s)
+  ok 17 [chromium] › tests\e2e\mp-results.spec.ts:65:3 › N39-b 淘汰、结果与下一局（双人局） › 剩余时间展示；只剩 1 人即时结束；两端同结果；房主专属下一局闭环 (8.6s)
+  ok 15 [chromium] › tests\e2e\mp-resilience.spec.ts:128:3 › N40 失焦、刷新与断网恢复 › 断网：遮罩+冻结、服务端榜单「连接中断」、网络恢复退避内重连解冻续跑 (20.9s)
+
+  17 passed (57.4s)
+E2E_EXIT=0 seconds=59.1 workers=2
